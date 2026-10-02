@@ -1,0 +1,191 @@
+# ==============================================================================
+# SND@LHC: Signal Filter for Nu_Mu CC Charm Dimuon Events
+# ==============================================================================
+
+# Input dataset specification
+input:
+  # Pattern pointing to simulated GENIE files across all directory partitions
+  file_pattern: "/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/*/sndLHC.Genie-TGeant4_digCPP.root"
+  tree_name: "cbmsim"
+  # Maximum number of partition files to process (-1 for all matched partitions)
+  max_files: -1
+
+# Output directory and naming convention (overridden by -o flag from CLI)
+output:
+  # Output directory where filtered files will be written
+  output_dir: "output_signal_filtered"
+  # Suffix appended to output file name (e.g. filename_signal.root)
+  file_suffix: "_signal"
+  # Whether to preserve partition directory structure (e.g. output_dir/1/filename.root)
+  preserve_subdirs: true
+
+# Performance & Multithreading
+performance:
+  threads: 1                     # Default number of worker threads per file (overridden by -j CLI flag)
+
+# Signal Filter definition
+filter:
+  # Condition evaluated on truth observables:
+  # has_candidate && is_opposite_sign selects:
+  # - nu_mu / anti_nu_mu CC
+  # - primary muon (mu1)
+  # - prompt charmed hadron decay muon (mu2)
+  # - opposite sign charges (mu1- mu2+ or mu1+ mu2-)
+  signal_expression: "has_candidate && is_opposite_sign"
+  require_fiducial: false        # Set true to also require primary vertex in Target fiducial volume
+
+# Neutrino Truth Processor fiducial and selection parameters
+processor:
+  target_z_min: 260.0
+  target_z_max: 360.0
+  fid_x_min: -47.5
+  fid_x_max: -8.5
+  fid_y_min: 15.5
+  fid_y_max: 54.5
+  fiducial_margin: 1.5           # Distance from detector edges [cm]
+  min_lepton_momentum: 0.5       # Minimum muon momentum threshold [GeV/c]
+  max_charm_flight_distance: 15.0 # Max physical flight path for prompt charm [cm]
+  weight_scale: 1.0              # Global scale factor for event weights
+
+# Diagnostic histograms stored inside each filtered output ROOT file
+histograms:
+  # Primary Neutrino & DIS Kinematics
+  - name: "h_signal_nu_energy"
+    title: "Incoming #nu_{#mu} Energy (Signal);E_{#nu} [GeV];Events"
+    column: "nu_e"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 1000.0
+
+  - name: "h_signal_q2"
+    title: "4-Momentum Transfer Squared Q^{2};Q^{2} [GeV^{2}];Events"
+    column: "q2"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 50.0
+
+  - name: "h_signal_bjorken_x"
+    title: "Bjorken x;x;Events"
+    column: "bjorken_x"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0
+
+  - name: "h_signal_inelasticity_y"
+    title: "Inelasticity y;y_{inel};Events"
+    column: "inelasticity_y"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0
+
+  - name: "h_signal_vtx_z"
+    title: "Interaction Vertex Z Position;z_{vtx} [cm];Events"
+    column: "vtx_z"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 260.0
+    xmax: 360.0
+
+  # Primary Muon (mu_1)
+  - name: "h_signal_mu1_p"
+    title: "Primary #mu_{1} Momentum;p_{#mu1} [GeV/c];Events"
+    column: "mu1_p"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "h_signal_mu1_pt"
+    title: "Primary #mu_{1} Transverse Momentum;p_{T,#mu1} [GeV/c];Events"
+    column: "mu1_pt"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 5.0
+
+  # Charmed Hadron Properties
+  - name: "h_signal_charm_species"
+    title: "Charmed Hadron Species;Species;Events"
+    column: "charm_species_id"
+    weight: "mc_weight"
+    bins: 7
+    xmin: 0.5
+    xmax: 7.5
+
+  - name: "h_signal_charm_p"
+    title: "Charmed Hadron Momentum;p_{charm} [GeV/c];Events"
+    column: "charm_p"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "h_signal_charm_decay_length"
+    title: "Charm 3D Flight Length;L_{3D} [cm];Events"
+    column: "decay_length_3d"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 15.0
+
+  - name: "h_signal_charm_lifetime"
+    title: "Charm Proper Lifetime;#tau [ps];Events"
+    column: "proper_lifetime_ps"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 3.0
+
+  # Decay Muon (mu_2)
+  - name: "h_signal_mu2_p"
+    title: "Charm Decay #mu_{2} Momentum;p_{#mu2} [GeV/c];Events"
+    column: "mu2_p"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 200.0
+
+  - name: "h_signal_mu2_ptrel"
+    title: "Decay #mu_{2} p_{T}^{rel} to Charm Axis;p_{T}^{rel} [GeV/c];Events"
+    column: "mu2_ptrel"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 2.0
+
+  - name: "h_signal_mu2_ip3d"
+    title: "Decay #mu_{2} 3D Impact Parameter to Primary Vertex;IP_{3D} [cm];Events"
+    column: "mu2_ip3d"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 0.5
+
+  # Dimuon System (mu_1 + mu_2)
+  - name: "h_signal_dimuon_mass"
+    title: "Dimuon Invariant Mass;M_{#mu#mu} [GeV/c^{2}];Events"
+    column: "dimuon_mass"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 10.0
+
+  - name: "h_signal_dimuon_opening_angle"
+    title: "Dimuon 3D Opening Angle;#theta_{#mu#mu} [mrad];Events"
+    column: "dimuon_opening_angle_mrad"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 200.0
+
+  - name: "h_signal_dimuon_delta_phi"
+    title: "Dimuon Azimuthal Separation;#Delta#phi_{#mu#mu} [rad];Events"
+    column: "dimuon_delta_phi"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 3.14159

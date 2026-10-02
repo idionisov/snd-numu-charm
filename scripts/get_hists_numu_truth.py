@@ -97,6 +97,8 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> list:
                 key=lambda x: int(x) if x.isdigit() else x
             )
             for d in subdirs:
+                if max_files > 0 and len(matched_files) >= max_files:
+                    break
                 fpath = os.path.join(base_dir, d, filename)
                 if os.path.exists(fpath):
                     matched_files.append(fpath)

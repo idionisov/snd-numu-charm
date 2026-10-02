@@ -37,7 +37,7 @@ processor:
 # Histogram definitions (names, titles, filter stages, bins, edges, and ranges)
 histograms:
   # Primary Neutrino & DIS Kinematics (Target Fiducial CC)
-  - name: "h_nu_energy"
+  - name: "h_truth_nu_energy"
     title: "Incoming #nu_{#mu} Energy;E_{#nu} [GeV];Events"
     filter: "fiducial"
     column: "nu_e"
@@ -46,7 +46,7 @@ histograms:
     xmin: 0.0
     xmax: 1000.0
 
-  - name: "h_q2"
+  - name: "h_truth_q2"
     title: "4-Momentum Transfer Squared;Q^{2} [GeV^{2}];Events"
     filter: "fiducial"
     column: "q2"
@@ -55,8 +55,8 @@ histograms:
     xmin: 0.0
     xmax: 50.0
 
-  - name: "h_bjorken_x"
-    title: "Bjorken x;x_{Bj};Events"
+  - name: "h_truth_bjorken_x"
+    title: ";x;Events"
     filter: "fiducial"
     column: "bjorken_x"
     weight: "mc_weight"
@@ -64,8 +64,8 @@ histograms:
     xmin: 0.0
     xmax: 1.0
 
-  - name: "h_inelasticity_y"
-    title: "Inelasticity y;y_{inel};Events"
+  - name: "h_truth_inelasticity_y"
+    title: ";y_{inel};Events"
     filter: "fiducial"
     column: "inelasticity_y"
     weight: "mc_weight"
@@ -73,7 +73,7 @@ histograms:
     xmin: 0.0
     xmax: 1.0
 
-  - name: "h_hadronic_w"
+  - name: "h_truth_hadronic_w"
     title: "Hadronic Invariant Mass W;W [GeV/c^{2}];Events"
     filter: "fiducial"
     column: "hadronic_w"
@@ -82,8 +82,8 @@ histograms:
     xmin: 0.0
     xmax: 40.0
 
-  - name: "h_vtx_z"
-    title: "Interaction Vertex Z Position;z_{vtx} [cm];Events"
+  - name: "h_truth_vtx_z"
+    title: "Neutrino interaction vertex Z position;z_{vtx} [cm];Events"
     filter: "fiducial"
     column: "vtx_z"
     weight: "mc_weight"
@@ -92,7 +92,7 @@ histograms:
     xmax: 360.0
 
   # Primary Muon (mu_1) Kinematics
-  - name: "h_mu1_p"
+  - name: "h_truth_mu1_p"
     title: "Primary #mu_{1} Total Momentum;p_{#mu1} [GeV/c];Events"
     filter: "fiducial"
     column: "mu1_p"
@@ -101,7 +101,7 @@ histograms:
     xmin: 0.0
     xmax: 800.0
 
-  - name: "h_mu1_pt"
+  - name: "h_truth_mu1_pt"
     title: "Primary #mu_{1} Transverse Momentum;p_{T,#mu1} [GeV/c];Events"
     filter: "fiducial"
     column: "mu1_pt"
@@ -110,7 +110,7 @@ histograms:
     xmin: 0.0
     xmax: 5.0
 
-  - name: "h_mu1_eta"
+  - name: "h_truth_mu1_eta"
     title: "Primary #mu_{1} Pseudorapidity;#eta_{#mu1};Events"
     filter: "fiducial"
     column: "mu1_eta"
@@ -120,7 +120,7 @@ histograms:
     xmax: 10.0
 
   # Charmed Hadron Production Kinematics (Fiducial with Charm)
-  - name: "h_charm_species"
+  - name: "h_truth_charm_species"
     title: "Charmed Hadron Species;Species (1=D^{0}, 2=D^{+}, 3=D_{s}^{+}, 4=#Lambda_{c}^{+}, 5=Baryon, 6=Meson);Events"
     filter: "charm"
     column: "charm_species_id"
@@ -129,7 +129,7 @@ histograms:
     xmin: 0.5
     xmax: 6.5
 
-  - name: "h_charm_p"
+  - name: "h_truth_charm_p"
     title: "Charmed Hadron Momentum;p_{charm} [GeV/c];Events"
     filter: "charm"
     column: "charm_p"
@@ -138,7 +138,7 @@ histograms:
     xmin: 0.0
     xmax: 500.0
 
-  - name: "h_charm_pt"
+  - name: "h_truth_charm_pt"
     title: "Charmed Hadron Transverse Momentum;p_{T,charm} [GeV/c];Events"
     filter: "charm"
     column: "charm_pt"
@@ -147,7 +147,7 @@ histograms:
     xmin: 0.0
     xmax: 5.0
 
-  - name: "h_charm_z_frac"
+  - name: "h_truth_charm_z_frac"
     title: "Charm Hadron Energy Fraction;z = E_{c}/E_{had};Events"
     filter: "charm"
     column: "charm_z_frac"
@@ -157,7 +157,7 @@ histograms:
     xmax: 1.0
 
   # Kinematics separated by specific charm hadron species
-  - name: "h_d0_p"
+  - name: "h_truth_d0_p"
     title: "D^{0} Momentum;p(D^{0}) [GeV/c];Events"
     filter: "d0"
     column: "charm_p"
@@ -166,7 +166,7 @@ histograms:
     xmin: 0.0
     xmax: 500.0
 
-  - name: "h_dplus_p"
+  - name: "h_truth_dplus_p"
     title: "D^{+} Momentum;p(D^{+}) [GeV/c];Events"
     filter: "dplus"
     column: "charm_p"
@@ -175,7 +175,7 @@ histograms:
     xmin: 0.0
     xmax: 500.0
 
-  - name: "h_ds_p"
+  - name: "h_truth_ds_p"
     title: "D_{s}^{+} Momentum;p(D_{s}^{+}) [GeV/c];Events"
     filter: "ds"
     column: "charm_p"
@@ -184,7 +184,7 @@ histograms:
     xmin: 0.0
     xmax: 500.0
 
-  - name: "h_lambdac_p"
+  - name: "h_truth_lambdac_p"
     title: "#Lambda_{c}^{+} Momentum;p(#Lambda_{c}^{+}) [GeV/c];Events"
     filter: "lambdac"
     column: "charm_p"
@@ -194,7 +194,7 @@ histograms:
     xmax: 500.0
 
   # Prompt Semi-Leptonic Charm Decay & Dimuon Candidates
-  - name: "h_decay_length"
+  - name: "h_truth_decay_length"
     title: "Charm 3D Flight Distance;L_{3D} [cm];Events"
     filter: "candidate"
     column: "decay_length_3d"
@@ -203,7 +203,7 @@ histograms:
     xmin: 0.0
     xmax: 2.0
 
-  - name: "h_ctau"
+  - name: "h_truth_ctau"
     title: "Charm Proper Decay Length;c#tau [cm];Events"
     filter: "candidate"
     column: "proper_time_ctau"
@@ -212,7 +212,7 @@ histograms:
     xmin: 0.0
     xmax: 0.08
 
-  - name: "h_proper_lifetime"
+  - name: "h_truth_proper_lifetime"
     title: "Charm Proper Lifetime;#tau [ps];Events"
     filter: "candidate"
     column: "proper_lifetime_ps"
@@ -221,7 +221,7 @@ histograms:
     xmin: 0.0
     xmax: 3.0
 
-  - name: "h_mu2_p"
+  - name: "h_truth_mu2_p"
     title: "Secondary #mu_{2} Momentum;p_{#mu2} [GeV/c];Events"
     filter: "candidate"
     column: "mu2_p"
@@ -230,7 +230,7 @@ histograms:
     xmin: 0.0
     xmax: 300.0
 
-  - name: "h_ip3d"
+  - name: "h_truth_ip3d"
     title: "#mu_{2} 3D Impact Parameter to Primary Vertex;IP_{3D} [cm];Events"
     filter: "candidate"
     column: "mu2_ip3d"
@@ -239,7 +239,7 @@ histograms:
     xmin: 0.0
     xmax: 0.2
 
-  - name: "h_ipxy"
+  - name: "h_truth_ipxy"
     title: "#mu_{2} Transverse Impact Parameter;IP_{xy} [cm];Events"
     filter: "candidate"
     column: "mu2_ipxy"
@@ -248,7 +248,7 @@ histograms:
     xmin: 0.0
     xmax: 0.2
 
-  - name: "h_ptrel"
+  - name: "h_truth_ptrel"
     title: "#mu_{2} Transverse Momentum Relative to Charm;p_{T}^{rel} [GeV/c];Events"
     filter: "candidate"
     column: "mu2_ptrel"
@@ -257,7 +257,7 @@ histograms:
     xmin: 0.0
     xmax: 1.5
 
-  - name: "h_dimuon_mass"
+  - name: "h_truth_dimuon_mass"
     title: "Opposite-Sign Dimuon Invariant Mass;M_{#mu#mu} [GeV/c^{2}];Events"
     filter: "candidate"
     column: "dimuon_mass"
@@ -266,7 +266,7 @@ histograms:
     xmin: 0.0
     xmax: 5.0
 
-  - name: "h_opening_angle"
+  - name: "h_truth_opening_angle"
     title: "Dimuon 3D Opening Angle;#theta_{#mu#mu} [mrad];Events"
     filter: "candidate"
     column: "dimuon_opening_angle_mrad"
@@ -275,7 +275,7 @@ histograms:
     xmin: 0.0
     xmax: 200.0
 
-  - name: "h_dimuon_delta_phi"
+  - name: "h_truth_dimuon_delta_phi"
     title: "Dimuon Azimuthal Separation;#Delta#phi_{#mu#mu} [rad];Events"
     filter: "candidate"
     column: "dimuon_delta_phi"

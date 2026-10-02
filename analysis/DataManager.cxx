@@ -55,6 +55,56 @@ namespace snd {
         return strverscmp(a.c_str(), b.c_str()) < 0;
     }
 
+    // SFINAE helpers to bridge between different sndsw API versions where argument order of
+    // (runNumber, csvPath) vs (csvPath, runNumber) varies across releases.
+    template <typename Str>
+    auto CallGetTChain(int runNumber, int nFiles, const Str& csvPath, int)
+        -> decltype(snd::analysis_tools::GetTChain(runNumber, nFiles, csvPath)) {
+        return snd::analysis_tools::GetTChain(runNumber, nFiles, csvPath);
+    }
+
+    template <typename Str>
+    auto CallGetTChain(int runNumber, int nFiles, const Str& csvPath, long)
+        -> decltype(snd::analysis_tools::GetTChain(csvPath, runNumber, nFiles)) {
+        return snd::analysis_tools::GetTChain(csvPath, runNumber, nFiles);
+    }
+
+    template <typename Str>
+    auto CallGetDataBasePath(int runNumber, const Str& csvPath, int)
+        -> decltype(snd::analysis_tools::GetDataBasePath(runNumber, csvPath)) {
+        return snd::analysis_tools::GetDataBasePath(runNumber, csvPath);
+    }
+
+    template <typename Str>
+    auto CallGetDataBasePath(int runNumber, const Str& csvPath, long)
+        -> decltype(snd::analysis_tools::GetDataBasePath(csvPath, runNumber)) {
+        return snd::analysis_tools::GetDataBasePath(csvPath, runNumber);
+    }
+
+    template <typename Str>
+    auto CallGetGeoPath(int runNumber, const Str& csvPath, int)
+        -> decltype(snd::analysis_tools::GetGeoPath(runNumber, csvPath)) {
+        return snd::analysis_tools::GetGeoPath(runNumber, csvPath);
+    }
+
+    template <typename Str>
+    auto CallGetGeoPath(int runNumber, const Str& csvPath, long)
+        -> decltype(snd::analysis_tools::GetGeoPath(csvPath, runNumber)) {
+        return snd::analysis_tools::GetGeoPath(csvPath, runNumber);
+    }
+
+    template <typename Str>
+    auto CallGetGeometry(int runNumber, const Str& csvPath, int)
+        -> decltype(snd::analysis_tools::GetGeometry(runNumber, csvPath)) {
+        return snd::analysis_tools::GetGeometry(runNumber, csvPath);
+    }
+
+    template <typename Str>
+    auto CallGetGeometry(int runNumber, const Str& csvPath, long)
+        -> decltype(snd::analysis_tools::GetGeometry(csvPath, runNumber)) {
+        return snd::analysis_tools::GetGeometry(csvPath, runNumber);
+    }
+
     DataManager::DataManager()
         : fChain(nullptr), fOwnChain(true), fEntries(-1), fRunNumber(-1),
           fScifi(nullptr), fMuFilter(nullptr), fGeoInitialized(false) {}
@@ -87,7 +137,7 @@ namespace snd {
     ) : fChain(nullptr), fOwnChain(true), fEntries(-1), fRunNumber(runNumber),
         fScifi(nullptr), fMuFilter(nullptr), fGeoInitialized(false) {
         std::string effectiveTree = treeName.empty() ? "rawConv" : treeName;
-        auto chain = snd::analysis_tools::GetTChain(csvDataPath, runNumber, nFiles);
+        auto chain = CallGetTChain(runNumber, nFiles, csvDataPath, 0);
         if (effectiveTree != "rawConv") {
             chain->SetName(effectiveTree.c_str());
         }
@@ -925,7 +975,7 @@ namespace snd {
         int run = GetRunNumber();
         if (run > 0) {
             try {
-                return snd::analysis_tools::GetDataBasePath(csvFilePath, run);
+                return CallGetDataBasePath(run, csvFilePath, 0);
             } catch (...) {
                 return "";
             }
@@ -940,7 +990,7 @@ namespace snd {
         int run = GetRunNumber();
         if (run > 0) {
             try {
-                return snd::analysis_tools::GetGeoPath(csvFilePath, run);
+                return CallGetGeoPath(run, csvFilePath, 0);
             } catch (...) {
                 return "";
             }
@@ -1026,15 +1076,15 @@ namespace snd {
     }
 
     std::string DataManager::FetchDataBasePath(int runNumber, const std::string& csvFilePath) {
-        return snd::analysis_tools::GetDataBasePath(csvFilePath, runNumber);
+        return CallGetDataBasePath(runNumber, csvFilePath, 0);
     }
 
     std::string DataManager::FetchGeoPath(int runNumber, const std::string& csvFilePath) {
-        return snd::analysis_tools::GetGeoPath(csvFilePath, runNumber);
+        return CallGetGeoPath(runNumber, csvFilePath, 0);
     }
 
     std::unique_ptr<TChain> DataManager::FetchTChain(int runNumber, int nFiles, const std::string& csvFilePath) {
-        return snd::analysis_tools::GetTChain(csvFilePath, runNumber, nFiles);
+        return CallGetTChain(runNumber, nFiles, csvFilePath, 0);
     }
 
     std::unique_ptr<TChain> DataManager::FetchTChain(const std::string& fileName) {
@@ -1048,7 +1098,7 @@ namespace snd {
 
     std::pair<Scifi*, MuFilter*> DataManager::FetchGeometry(int runNumber, const std::string& csvFilePath) {
         TDirectory::TContext dirContext;
-        return snd::analysis_tools::GetGeometry(csvFilePath, runNumber);
+        return CallGetGeometry(runNumber, csvFilePath, 0);
     }
 
     std::vector<std::string> DataManager::ResolveFiles(const std::string& source) {

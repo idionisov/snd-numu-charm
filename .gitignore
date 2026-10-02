@@ -1,0 +1,157 @@
+# =====================
+# Executables / binaries
+# =====================
+*.exe
+*.out
+*.app
+*.bin
+
+# =====================
+# Compiled Object files
+# =====================
+*.o
+*.ko
+*.obj
+*.slo
+*.lo
+*.pyc
+*.pyd
+*.pyo
+*.pdb
+
+# =====================
+# Libraries
+# =====================
+*.dll
+*.so
+*.so.*
+*.dylib
+*.lib
+*.a
+*.la
+*.lai
+
+# =====================
+# CMake / build
+# =====================
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+
+# Out-of-source build dirs
+build/
+build*/
+cmake-build*/
+
+# Dependency files
+*.d
+
+# =====================
+# Backup files
+# =====================
+*.*~
+*.swp
+*.swo
+
+# =====================
+# OS / IDE
+# =====================
+.DS_Store
+.idea/
+.vscode/
+*.code-workspace
+.cache/
+.clangd/
+clangd/
+
+# =====================
+# Python
+# =====================
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/      # Python package build
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter
+*.ipynb_checkpoints/
+
+# mypy / pytype
+.mypy_cache/
+.pytype/
+.dmypy.json
+dmypy.json
+
+# =====================
+# ROOT / CERN
+# =====================
+*.root
+*.pcm
+*.rootmap
+*.snap
+*.parquet
+
+# ROOT dictionary / autogen
+dict*.[ch]*
+*_dict*.[ch]*
+G__*.*
+
+# =====================
+# Domain-specific
+# =====================
+# FairShip-specific files
+c++
+cc
+config.sh
+lcgenv.sh
+
+# Conditions DB
+conditionsDatabase/**/.cache/
+
+# =====================
+# Outputs
+# =====================
+/calibration_scan/
+*.csv
+*.log
+*.tmp
+*.err
+*.out
+
+# Plots / Figures
+*.png
+*.pdf
+*.svg
+*.eps
+*.jpg
+*.jpeg
+
+# =====================
+# Cython
+# =====================
+cython_debug/
+
+# =====================
+# Spyder
+# =====================
+.spyderproject
+.spyproject
+
+# =====================
+# PyPI config
+# =====================
+.pypirc
+
+agy_sndmutri.sh
+slides
+.zed

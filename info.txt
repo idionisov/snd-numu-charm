@@ -1,0 +1,4 @@
+2022:
+- input: /eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_001/???/sndLHC.Genie-TGeant4_*_digCPP.root
+- geofile: /eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_001/???/geofile_full.Genie-TGeant4.root
+

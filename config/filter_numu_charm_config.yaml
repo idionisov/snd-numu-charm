@@ -5,17 +5,20 @@
 # Input dataset specification
 input:
   # Pattern pointing to simulated GENIE files across all directory partitions
-  file_pattern: "/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/*/sndLHC.Genie-TGeant4_digCPP.root"
+  # Supports wildcard '*' and '%s' placeholder (captures partition name/number)
+  file_pattern: "/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/%s/sndLHC.Genie-TGeant4_digCPP.root"
   tree_name: "cbmsim"
   # Maximum number of partition files to process (-1 for all matched partitions)
   max_files: -1
 
 # Output directory and naming convention (overridden by -o flag from CLI)
 output:
+  # Output pattern supporting %s placeholders matching input %s
+  output_pattern: "/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_numu_charm_signal_%s.root"
   # Output directory where filtered files will be written
-  output_dir: "output_signal_filtered"
-  # Suffix appended to output file name (e.g. filename_signal.root)
-  file_suffix: "_signal"
+  output_dir: "/eos/user/i/idioniso/snd-numu-charm/data"
+  # Suffix appended to output file name (e.g. filename_numu_charm_signal_1.root)
+  file_suffix: "_numu_charm_signal"
   # Whether to preserve partition directory structure (e.g. output_dir/1/filename.root)
   preserve_subdirs: true
   # Whether to completely skip creating and storing empty ROOT files (0 matching events)
@@ -84,14 +87,14 @@ truth_tree:
 processor:
   target_z_min: 260.0
   target_z_max: 360.0
-  fid_x_min: -47.5
-  fid_x_max: -8.5
-  fid_y_min: 15.5
-  fid_y_max: 54.5
-  fiducial_margin: 1.5           # Distance from detector edges [cm]
-  min_lepton_momentum: 0.5       # Minimum muon momentum threshold [GeV/c]
-  max_charm_flight_distance: 15.0 # Max physical flight path for prompt charm [cm]
-  weight_scale: 1.0              # Global scale factor for event weights
+  fid_x_min: -60.0
+  fid_x_max: -0.0
+  fid_y_min: 3.0
+  fid_y_max: 63.0
+  fiducial_margin: 0.0             # Distance from detector edges [cm]
+  min_lepton_momentum: 0.0         # Minimum muon momentum threshold [GeV/c]
+  max_charm_flight_distance: 100.0 # Max physical flight path for prompt charm [cm]
+  weight_scale: 1.0                # Global scale factor for event weights
 
 # Diagnostic histograms stored inside each filtered output ROOT file
 histograms:

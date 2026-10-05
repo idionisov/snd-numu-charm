@@ -18,10 +18,11 @@ Truth TTree Modular Tiers:
 - Dimuon System: Composite pair invariant mass, opening angles, azimuthal delta-phi, and asymmetry.
 Only the branches corresponding to the active hierarchy tiers are stored in the TTree (in "auto" mode).
 
-CLI arguments are deliberately kept minimal:
+CLI arguments:
+  -i, --input     : Input file path or pattern (supports wildcard '*' and '%s' placeholder)
   -n, --entries   : Max events per file (-1 for all)
   -j, --threads   : Worker threads
-  -o, --output    : Output directory or file
+  -o, --output    : Output directory or pattern with '%s' placeholders
   -c, --config    : Path to YAML configuration file
   --fiducial      : Require interaction vertex in Target fiducial volume
 """
@@ -29,6 +30,7 @@ CLI arguments are deliberately kept minimal:
 from __future__ import annotations
 
 import os
+import re
 import sys
 import glob
 import array
@@ -51,10 +53,16 @@ ROOT.gROOT.SetBatch(True)
 
 
 def parse_arguments():
-    """Parse minimal command line arguments."""
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Skim neutrino events with hierarchical truth TTree generation from SND@LHC MC.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "-i", "--input",
+        type=str,
+        default=None,
+        help="Input file path or pattern (supports wildcard '*' and '%%s' placeholder)"
     )
     parser.add_argument(
         "-n", "--entries",
@@ -72,7 +80,7 @@ def parse_arguments():
         "-o", "--output",
         type=str,
         default=None,
-        help="Output directory (or base filename) for filtered files"
+        help="Output directory or pattern with '%%s' placeholders (e.g. /path/%%s/file_%%s.root)"
     )
     parser.add_argument(
         "--fiducial",
@@ -112,27 +120,40 @@ def load_config(config_path: str = None) -> dict:
 def resolve_input_files(pattern: str, max_files: int = -1) -> list:
     """
     Resolve input file pattern into an ordered list of existing files.
-    Optimized for multi-directory wildcards (e.g. .../*/filename) over network mounts.
+    Optimized for multi-directory wildcards (e.g. .../*/filename or .../%s/filename) over network mounts.
     """
     print(f"Resolving input files from pattern:\n  {pattern}")
     matched_files = []
 
-    if "/*/" in pattern and pattern.count("*") == 1:
-        base_dir, filename = pattern.split("/*/")
-        if os.path.isdir(base_dir):
-            subdirs = sorted(
-                [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))],
-                key=lambda x: int(x) if x.isdigit() else x
-            )
-            for d in subdirs:
-                if max_files > 0 and len(matched_files) >= max_files:
-                    break
-                fpath = os.path.join(base_dir, d, filename)
-                if os.path.exists(fpath):
-                    matched_files.append(fpath)
+    if os.path.isfile(pattern):
+        matched_files = [pattern]
+    else:
+        sep = None
+        if "/%s/" in pattern and pattern.count("%s") == 1 and "*" not in pattern:
+            sep = "/%s/"
+        elif "/*/" in pattern and pattern.count("*") == 1 and "%s" not in pattern:
+            sep = "/*/"
 
-    if not matched_files:
-        matched_files = sorted(glob.glob(pattern))
+        if sep:
+            base_dir, filename = pattern.split(sep, 1)
+            if os.path.isdir(base_dir):
+                subdirs = sorted(
+                    [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))],
+                    key=lambda x: int(x) if x.isdigit() else x
+                )
+                for d in subdirs:
+                    if max_files > 0 and len(matched_files) >= max_files:
+                        break
+                    fpath = os.path.join(base_dir, d, filename)
+                    if os.path.exists(fpath):
+                        matched_files.append(fpath)
+
+        if not matched_files:
+            glob_pattern = pattern.replace("%s", "*")
+            matched_files = sorted(
+                glob.glob(glob_pattern),
+                key=lambda p: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', p)]
+            )
 
     if not matched_files:
         raise FileNotFoundError(
@@ -328,32 +349,94 @@ def resolve_hierarchical_selection(cfg: dict, cli_fiducial: bool):
     return filter_expr, description, predicate, active_tiers
 
 
-def determine_output_path(input_path: str, output_arg: str, output_cfg: dict, index: int, total_files: int) -> str:
+def extract_captures(input_path: str, input_pattern: str) -> list[str]:
+    """Extract captured substrings from input_path matching %s (or *) placeholders in input_pattern."""
+    if not input_pattern:
+        return []
+
+    # If input_pattern has %s
+    if "%s" in input_pattern:
+        parts = input_pattern.split("%s")
+        regex_str = "^" + "(.*?)".join(map(re.escape, parts)) + "$"
+        match = re.match(regex_str, input_path)
+        if match:
+            return list(match.groups())
+
+    # If input_pattern has *
+    if "*" in input_pattern:
+        parts = input_pattern.split("*")
+        regex_str = "^" + "(.*?)".join(map(re.escape, parts)) + "$"
+        match = re.match(regex_str, input_path)
+        if match:
+            return list(match.groups())
+
+    return []
+
+
+def determine_output_path(
+    input_path: str,
+    input_pattern: str,
+    output_arg: str | None,
+    output_cfg: dict,
+    index: int,
+    total_files: int
+) -> str:
     """Determine the output file path corresponding to an input file."""
-    file_suffix = output_cfg.get("file_suffix", "_signal")
-    preserve_subdirs = output_cfg.get("preserve_subdirs", True)
-    default_dir = output_cfg.get("output_dir", "output_signal_filtered")
+    captures = extract_captures(input_path, input_pattern)
 
     dirname, filename = os.path.split(input_path)
     parent_partition = os.path.basename(dirname)
     base_stem, ext = os.path.splitext(filename)
 
-    if output_arg:
-        if output_arg.endswith(".root"):
-            if total_files == 1:
-                return output_arg
-            out_stem, out_ext = os.path.splitext(output_arg)
-            partition_tag = parent_partition if (parent_partition and parent_partition != ".") else str(index + 1)
-            return f"{out_stem}_{partition_tag}{out_ext}"
-        else:
-            base_out_dir = output_arg
-    else:
-        base_out_dir = default_dir
+    tag = captures[0] if captures else (parent_partition if parent_partition and parent_partition != "." else str(index + 1))
 
-    if preserve_subdirs and parent_partition and parent_partition != ".":
-        out_file = os.path.join(base_out_dir, parent_partition, f"{base_stem}{file_suffix}{ext}")
+    # Priority 1: output specified via CLI (-o)
+    if output_arg is not None:
+        target_template = output_arg
     else:
-        out_file = os.path.join(base_out_dir, f"{parent_partition}_{base_stem}{file_suffix}{ext}")
+        # Priority 2: output_pattern specified in YAML config
+        # Priority 3: output_dir in YAML config
+        target_template = output_cfg.get("output_pattern") or output_cfg.get("output_dir", "output_signal_filtered")
+
+    # If the target template has %s placeholders
+    if "%s" in target_template:
+        if len(captures) == target_template.count("%s"):
+            return target_template % tuple(captures)
+        elif len(captures) == 1:
+            return target_template.replace("%s", captures[0])
+        elif captures:
+            return target_template.replace("%s", tag)
+        else:
+            return target_template.replace("%s", tag)
+
+    # If target_template ends with .root (explicit filename without %s)
+    if target_template.endswith(".root"):
+        if total_files == 1:
+            return target_template
+        out_stem, out_ext = os.path.splitext(target_template)
+        return f"{out_stem}_{tag}{out_ext}"
+
+    # Target is a directory (from -o or config output_dir)
+    base_out_dir = target_template
+    preserve_subdirs = output_cfg.get("preserve_subdirs", True)
+    file_suffix = output_cfg.get("file_suffix", "_signal")
+
+    # If output_cfg specified an output_pattern template, apply its relative structure under base_out_dir
+    cfg_pattern = output_cfg.get("output_pattern")
+    if cfg_pattern and "%s" in cfg_pattern:
+        rel_pattern = os.path.basename(cfg_pattern)
+        parent_rel = os.path.basename(os.path.dirname(cfg_pattern))
+        if "%s" in parent_rel:
+            rel_path_template = os.path.join(parent_rel, rel_pattern)
+        else:
+            rel_path_template = rel_pattern
+        rel_path = rel_path_template.replace("%s", tag)
+        return os.path.join(base_out_dir, rel_path)
+
+    if preserve_subdirs and tag:
+        out_file = os.path.join(base_out_dir, tag, f"{base_stem}{file_suffix}_{tag}{ext}")
+    else:
+        out_file = os.path.join(base_out_dir, f"{tag}_{base_stem}{file_suffix}{ext}")
 
     return out_file
 
@@ -824,10 +907,13 @@ def main():
     cfg = load_config(args.config)
 
     input_cfg = cfg.get("input", {})
-    file_pattern = input_cfg.get(
+    file_pattern = args.input if args.input is not None else input_cfg.get(
         "file_pattern",
-        "/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/"
-        "sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/*/sndLHC.Genie-TGeant4_digCPP.root"
+        input_cfg.get(
+            "pattern",
+            "/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/"
+            "sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/%s/sndLHC.Genie-TGeant4_digCPP.root"
+        )
     )
     max_files = input_cfg.get("max_files", -1)
     output_cfg = cfg.get("output", {})
@@ -850,6 +936,7 @@ def main():
     print(" SND@LHC: Hierarchical Neutrino Skimmer & Truth Tree Generator")
     print("=" * 80)
     print(f"Configuration file           : {args.config}")
+    print(f"Input file pattern           : {file_pattern}")
     print(f"Selection hierarchy          : {filter_desc}")
     print(f"Filter expression            : {filter_expr}")
     print(f"Active truth TTree tiers     : {sorted(list(active_tiers))}")
@@ -865,7 +952,14 @@ def main():
     files_written = 0
 
     for idx, in_file in enumerate(input_files):
-        out_file = determine_output_path(in_file, args.output, output_cfg, idx, total_files)
+        out_file = determine_output_path(
+            input_path=in_file,
+            input_pattern=file_pattern,
+            output_arg=args.output,
+            output_cfg=output_cfg,
+            index=idx,
+            total_files=total_files
+        )
         print(f"\n[{idx + 1}/{total_files}] Processing:\n  Input : {in_file}")
 
         res = process_single_file(

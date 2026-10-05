@@ -283,3 +283,227 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 3.14159
+
+# ==============================================================================
+# 2D Histograms (TH2D)
+# ==============================================================================
+histograms_2d:
+  # Deep Inelastic Scattering Kinematics
+  - name: "h2_truth_q2_vs_bjorken_x"
+    title: "Q^{2} vs Bjorken x;Bjorken x;Q^{2} [GeV^{2}]"
+    filter: "fiducial"
+    x_column: "bjorken_x"
+    y_column: "q2"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 1.0
+    bins_y: 50
+    ymin: 0.0
+    ymax: 50.0
+
+  # Lepton and Neutrino Momenta Correlations
+  - name: "h2_truth_mu1_p_vs_nu_e"
+    title: "Primary #mu_{1} Momentum vs E_{#nu};E_{#nu} [GeV];p_{#mu1} [GeV/c]"
+    filter: "fiducial"
+    x_column: "nu_e"
+    y_column: "mu1_p"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 800.0
+    bins_y: 50
+    ymin: 0.0
+    ymax: 500.0
+
+  - name: "h2_truth_mu2_p_vs_charm_p"
+    title: "Secondary #mu_{2} Momentum vs Charm Hadron Momentum;p_{charm} [GeV/c];p_{#mu2} [GeV/c]"
+    filter: "candidate"
+    x_column: "charm_p"
+    y_column: "mu2_p"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 400.0
+    bins_y: 50
+    ymin: 0.0
+    ymax: 200.0
+
+  - name: "h2_truth_mu2_p_vs_mu1_p"
+    title: "Dimuon Momenta Correlation (p_{#mu2} vs p_{#mu1});p_{#mu1} [GeV/c];p_{#mu2} [GeV/c]"
+    filter: "candidate"
+    x_column: "mu1_p"
+    y_column: "mu2_p"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 500.0
+    bins_y: 50
+    ymin: 0.0
+    ymax: 200.0
+
+  # Charm Semi-Leptonic Decay & Identification Discriminants
+  - name: "h2_truth_mu2_ptrel_vs_mu2_p"
+    title: "Secondary #mu_{2} p_{T}^{rel} vs p_{#mu2};p_{#mu2} [GeV/c];p_{T}^{rel} [GeV/c]"
+    filter: "candidate"
+    x_column: "mu2_p"
+    y_column: "mu2_ptrel"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 200.0
+    bins_y: 50
+    ymin: 0.0
+    ymax: 1.5
+
+  - name: "h2_truth_mu2_ip3d_vs_decay_length"
+    title: "Secondary #mu_{2} IP_{3D} vs Charm Flight Length;L_{3D} [cm];IP_{3D} [cm]"
+    filter: "candidate"
+    x_column: "decay_length_3d"
+    y_column: "mu2_ip3d"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 3.0
+    bins_y: 50
+    ymin: 0.0
+    ymax: 0.2
+
+  - name: "h2_truth_decay_length_vs_charm_p"
+    title: "Charm Flight Length vs Momentum (Relativistic Dilation);p_{charm} [GeV/c];L_{3D} [cm]"
+    filter: "candidate"
+    x_column: "charm_p"
+    y_column: "decay_length_3d"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 500.0
+    bins_y: 50
+    ymin: 0.0
+    ymax: 5.0
+
+  # Dimuon Pair Observables
+  - name: "h2_truth_dimuon_mass_vs_pt"
+    title: "Dimuon Invariant Mass vs Pair p_{T};p_{T,#mu#mu} [GeV/c];M_{#mu#mu} [GeV/c^{2}]"
+    filter: "candidate"
+    x_column: "dimuon_pt"
+    y_column: "dimuon_mass"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 10.0
+    bins_y: 50
+    ymin: 0.0
+    ymax: 8.0
+
+  - name: "h2_truth_opening_angle_vs_delta_phi"
+    title: "Dimuon Opening Angle vs Azimuthal Separation;#Delta#phi_{#mu#mu} [rad];#theta_{#mu#mu} [mrad]"
+    filter: "candidate"
+    x_column: "dimuon_delta_phi"
+    y_column: "dimuon_opening_angle_mrad"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 3.14159
+    bins_y: 50
+    ymin: 0.0
+    ymax: 200.0
+
+  # Target Vertex Profile
+  - name: "h2_truth_vtx_xy"
+    title: "Primary Interaction Vertex Transverse Profile;vtx_x [cm];vtx_y [cm]"
+    filter: "fiducial"
+    x_column: "vtx_x"
+    y_column: "vtx_y"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: -50.0
+    xmax: -5.0
+    bins_y: 50
+    ymin: 10.0
+    ymax: 60.0
+
+# ==============================================================================
+# TProfiles (TProfile1D)
+# ==============================================================================
+profiles:
+  - name: "p_truth_mu1_p_vs_nu_e"
+    title: "Mean Primary #mu_{1} Momentum vs E_{#nu};E_{#nu} [GeV];<p_{#mu1}> [GeV/c]"
+    filter: "fiducial"
+    x_column: "nu_e"
+    y_column: "mu1_p"
+    weight: "mc_weight"
+    bins: 40
+    xmin: 0.0
+    xmax: 800.0
+
+  - name: "p_truth_charm_p_vs_nu_e"
+    title: "Mean Charmed Hadron Momentum vs E_{#nu};E_{#nu} [GeV];<p_{charm}> [GeV/c]"
+    filter: "charm"
+    x_column: "nu_e"
+    y_column: "charm_p"
+    weight: "mc_weight"
+    bins: 40
+    xmin: 0.0
+    xmax: 800.0
+
+  - name: "p_truth_mu2_p_vs_nu_e"
+    title: "Mean Secondary #mu_{2} Momentum vs E_{#nu};E_{#nu} [GeV];<p_{#mu2}> [GeV/c]"
+    filter: "candidate"
+    x_column: "nu_e"
+    y_column: "mu2_p"
+    weight: "mc_weight"
+    bins: 40
+    xmin: 0.0
+    xmax: 800.0
+
+  - name: "p_truth_charm_z_frac_vs_hadronic_w"
+    title: "Mean Charm Energy Fraction <z_{c}> vs Hadronic Mass W;W [GeV/c^{2}];<z_{c}>"
+    filter: "charm"
+    x_column: "hadronic_w"
+    y_column: "charm_z_frac"
+    weight: "mc_weight"
+    bins: 30
+    xmin: 2.0
+    xmax: 30.0
+
+  - name: "p_truth_decay_length_vs_charm_p"
+    title: "Mean Charm Flight Length vs Momentum;p_{charm} [GeV/c];<L_{3D}> [cm]"
+    filter: "candidate"
+    x_column: "charm_p"
+    y_column: "decay_length_3d"
+    weight: "mc_weight"
+    bins: 30
+    xmin: 0.0
+    xmax: 400.0
+
+  - name: "p_truth_dimuon_mass_vs_nu_e"
+    title: "Mean Dimuon Invariant Mass vs E_{#nu};E_{#nu} [GeV];<M_{#mu#mu}> [GeV/c^{2}]"
+    filter: "candidate"
+    x_column: "nu_e"
+    y_column: "dimuon_mass"
+    weight: "mc_weight"
+    bins: 30
+    xmin: 0.0
+    xmax: 800.0
+
+  - name: "p_truth_opening_angle_vs_nu_e"
+    title: "Mean Dimuon Opening Angle vs E_{#nu};E_{#nu} [GeV];<#theta_{#mu#mu}> [mrad]"
+    filter: "candidate"
+    x_column: "nu_e"
+    y_column: "dimuon_opening_angle_mrad"
+    weight: "mc_weight"
+    bins: 30
+    xmin: 0.0
+    xmax: 800.0
+
+  - name: "p_truth_ip3d_vs_decay_length"
+    title: "Mean Secondary #mu_{2} IP_{3D} vs Charm Flight Length;L_{3D} [cm];<IP_{3D}> [cm]"
+    filter: "candidate"
+    x_column: "decay_length_3d"
+    y_column: "mu2_ip3d"
+    weight: "mc_weight"
+    bins: 30
+    xmin: 0.0
+    xmax: 2.0
+

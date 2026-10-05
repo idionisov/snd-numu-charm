@@ -18,15 +18,15 @@ set(ANALYSIS_SRCS
 )
 
 # ROOT generate dictionary
-root_generate_dictionary(G__trident_analysis
+root_generate_dictionary(G__neutrino_analysis
   ${ANALYSIS_HEADERS}
   LINKDEF AnalysisLinkDef.h
 )
 
 # Add library for analysis
-add_library(trident_analysis SHARED
+add_library(neutrino_analysis SHARED
   ${ANALYSIS_SRCS}
-  G__trident_analysis.cxx
+  G__neutrino_analysis.cxx
 )
 
 # Find sndsw dependencies
@@ -34,7 +34,7 @@ find_library(SHIP_DATA_LIB ShipData PATHS "${SNDSW_ROOT}/lib" NO_DEFAULT_PATH RE
 find_library(SHIP_LHC_LIB shipLHC PATHS "${SNDSW_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
 find_library(ANALYSIS_TOOLS_LIB snd_analysis_tools PATHS "${SNDSW_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
 
-target_link_libraries(trident_analysis
+target_link_libraries(neutrino_analysis
   PUBLIC
     ROOT::Core
     ROOT::Tree

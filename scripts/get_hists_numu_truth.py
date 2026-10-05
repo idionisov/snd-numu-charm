@@ -28,7 +28,10 @@ _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
-from snd import DataManager
+from snd import DataManager, load_trident_libraries
+
+# Pre-load libraries so ROOT has all custom C++ dictionaries and classes available
+load_trident_libraries(_repo_root)
 
 # Disable ROOT GUI windows in batch mode
 ROOT.gROOT.SetBatch(True)
@@ -210,6 +213,8 @@ def main():
           .Define("raw_weight", "truth.rawWeight")
           # Primary incoming neutrino
           .Define("nu_e", "truth.nuE")
+          .Define("vtx_x", "truth.vtxX")
+          .Define("vtx_y", "truth.vtxY")
           .Define("vtx_z", "truth.vtxZ")
           # DIS Kinematics
           .Define("q2", "truth.Q2")
@@ -220,6 +225,7 @@ def main():
           .Define("mu1_p", "truth.mu1P")
           .Define("mu1_pt", "truth.mu1Pt")
           .Define("mu1_eta", "truth.mu1Eta")
+          .Define("mu1_phi", "truth.mu1Phi")
           # Charmed hadron species and kinematics
           .Define("charm_pdg", "truth.charmPdg")
           .Define("abs_charm_pdg", "std::abs(truth.charmPdg)")
@@ -245,6 +251,8 @@ def main():
           # Secondary decay muon (mu_2)
           .Define("mu2_p", "truth.mu2P")
           .Define("mu2_pt", "truth.mu2Pt")
+          .Define("mu2_eta", "truth.mu2Eta")
+          .Define("mu2_phi", "truth.mu2Phi")
           .Define("mu2_ip3d", "truth.mu2IP3D")
           .Define("mu2_ipxy", "truth.mu2IPXY")
           .Define("mu2_ptrel", "truth.mu2PtRel")
@@ -292,11 +300,10 @@ def main():
     c_lambdac   = df_lambdac.Count()
     c_candidate = df_candidate.Count()
 
-    # 8. Book Histograms dynamically from Config
-    booked_histograms = {}
-    histo_configs = cfg.get("histograms", [])
-
-    for h_cfg in histo_configs:
+    # 8. Book Histograms & Profiles dynamically from Config
+    # 8a. 1D Histograms
+    booked_histograms_1d = {}
+    for h_cfg in cfg.get("histograms", []):
         h_name = h_cfg["name"]
         h_title = h_cfg.get("title", h_name)
         col = h_cfg["column"]
@@ -304,7 +311,6 @@ def main():
         filt_key = h_cfg.get("filter", "candidate").lower()
         node = filter_nodes.get(filt_key, df_candidate)
 
-        # Support custom bin edges or uniform (nbins, xmin, xmax)
         if "bin_edges" in h_cfg and h_cfg["bin_edges"]:
             edges = array.array("d", h_cfg["bin_edges"])
             model = ROOT.RDF.TH1DModel(h_name, h_title, len(edges) - 1, edges)
@@ -315,18 +321,81 @@ def main():
             model = ROOT.RDF.TH1DModel(h_name, h_title, nbins, xmin, xmax)
 
         if weight_col:
-            booked_histograms[h_name] = node.Histo1D(model, col, weight_col)
+            booked_histograms_1d[h_name] = node.Histo1D(model, col, weight_col)
         else:
-            booked_histograms[h_name] = node.Histo1D(model, col)
+            booked_histograms_1d[h_name] = node.Histo1D(model, col)
+
+    # 8b. 2D Histograms
+    booked_histograms_2d = {}
+    for h_cfg in cfg.get("histograms_2d", []):
+        h_name = h_cfg["name"]
+        h_title = h_cfg.get("title", h_name)
+        x_col = h_cfg["x_column"]
+        y_col = h_cfg["y_column"]
+        weight_col = h_cfg.get("weight")
+        filt_key = h_cfg.get("filter", "candidate").lower()
+        node = filter_nodes.get(filt_key, df_candidate)
+
+        nbins_x = int(h_cfg.get("bins_x", 50))
+        xmin = float(h_cfg.get("xmin", 0.0))
+        xmax = float(h_cfg.get("xmax", 1.0))
+        nbins_y = int(h_cfg.get("bins_y", 50))
+        ymin = float(h_cfg.get("ymin", 0.0))
+        ymax = float(h_cfg.get("ymax", 1.0))
+
+        if "x_bin_edges" in h_cfg and "y_bin_edges" in h_cfg:
+            x_edges = array.array("d", h_cfg["x_bin_edges"])
+            y_edges = array.array("d", h_cfg["y_bin_edges"])
+            model = ROOT.RDF.TH2DModel(h_name, h_title, len(x_edges) - 1, x_edges, len(y_edges) - 1, y_edges)
+        else:
+            model = ROOT.RDF.TH2DModel(h_name, h_title, nbins_x, xmin, xmax, nbins_y, ymin, ymax)
+
+        if weight_col:
+            booked_histograms_2d[h_name] = node.Histo2D(model, x_col, y_col, weight_col)
+        else:
+            booked_histograms_2d[h_name] = node.Histo2D(model, x_col, y_col)
+
+    # 8c. TProfiles
+    booked_profiles = {}
+    for p_cfg in cfg.get("profiles", []):
+        p_name = p_cfg["name"]
+        p_title = p_cfg.get("title", p_name)
+        x_col = p_cfg["x_column"]
+        y_col = p_cfg["y_column"]
+        weight_col = p_cfg.get("weight")
+        filt_key = p_cfg.get("filter", "candidate").lower()
+        node = filter_nodes.get(filt_key, df_candidate)
+
+        nbins = int(p_cfg.get("bins", 40))
+        xmin = float(p_cfg.get("xmin", 0.0))
+        xmax = float(p_cfg.get("xmax", 1.0))
+        ymin = float(p_cfg["ymin"]) if "ymin" in p_cfg else None
+        ymax = float(p_cfg["ymax"]) if "ymax" in p_cfg else None
+
+        if "bin_edges" in p_cfg and p_cfg["bin_edges"]:
+            edges = array.array("d", p_cfg["bin_edges"])
+            model = ROOT.RDF.TProfile1DModel(p_name, p_title, len(edges) - 1, edges)
+        elif ymin is not None and ymax is not None:
+            model = ROOT.RDF.TProfile1DModel(p_name, p_title, nbins, xmin, xmax, ymin, ymax)
+        else:
+            model = ROOT.RDF.TProfile1DModel(p_name, p_title, nbins, xmin, xmax)
+
+        if weight_col:
+            booked_profiles[p_name] = node.Profile1D(model, x_col, y_col, weight_col)
+        else:
+            booked_profiles[p_name] = node.Profile1D(model, x_col, y_col)
 
     # 9. Execute Computation Graph in Single Pass
     all_actions = [
         c_total, c_numu_cc, c_fiducial, c_charm,
         c_d0, c_dplus, c_ds, c_lambdac, c_candidate
     ]
-    all_actions.extend(booked_histograms.values())
+    all_actions.extend(booked_histograms_1d.values())
+    all_actions.extend(booked_histograms_2d.values())
+    all_actions.extend(booked_profiles.values())
 
-    print(f"\nRunning RDataFrame computation graph over {len(booked_histograms)} booked histograms...")
+    n_total_plots = len(booked_histograms_1d) + len(booked_histograms_2d) + len(booked_profiles)
+    print(f"\nRunning RDataFrame computation graph over {n_total_plots} booked objects ({len(booked_histograms_1d)} 1D, {len(booked_histograms_2d)} 2D, {len(booked_profiles)} Profiles)...")
     ROOT.RDF.RunGraphs(all_actions)
 
     # 10. Print Event Cutflow & Charm Species Summary
@@ -340,9 +409,9 @@ def main():
     n_lambdac = c_lambdac.GetValue()
     n_cand    = c_candidate.GetValue()
 
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 75)
     print(" EVENT SUMMARY & CUTFLOW")
-    print("=" * 70)
+    print("=" * 75)
     print(f"Total Events Processed    : {n_tot:8d}")
     print(f"Muon Neutrino CC          : {n_numu:8d} ({100.0 * n_numu / max(n_tot, 1):.2f}%)")
     print(f"Target Fiducial CC        : {n_fid:8d} ({100.0 * n_fid / max(n_numu, 1):.2f}%)")
@@ -353,18 +422,39 @@ def main():
     print(f"     Ds+ / Ds-            : {n_ds:8d} ({100.0 * n_ds / max(n_chm, 1):.2f}% of charm)")
     print(f"     Lambda_c+ / anti-L_c-: {n_lambdac:8d} ({100.0 * n_lambdac / max(n_chm, 1):.2f}% of charm)")
     print(f"Golden Dimuon Candidates  : {n_cand:8d} ({100.0 * n_cand / max(n_chm, 1):.2f}% of charm)")
-    print("=" * 70)
+    print("=" * 75)
 
-    # Print histogram diagnostics
-    print("\n" + "=" * 70)
-    print(f"{'Histogram':<22} | {'Entries':>8} | {'Integral':>10} | {'Mean':>10} | {'StdDev':>10}")
-    print("-" * 70)
-    for name, h_result in booked_histograms.items():
-        h = h_result.GetValue()
-        print(f"{name:<22} | {h.GetEntries():8.0f} | {h.Integral():10.1f} | {h.GetMean():10.4f} | {h.GetStdDev():10.4f}")
-    print("=" * 70)
+    # Print 1D histogram diagnostics
+    if booked_histograms_1d:
+        print("\n" + "=" * 75)
+        print(f"{'1D Histogram':<30} | {'Entries':>8} | {'Integral':>10} | {'Mean':>10} | {'StdDev':>10}")
+        print("-" * 75)
+        for name, h_result in booked_histograms_1d.items():
+            h = h_result.GetValue()
+            print(f"{name:<30} | {h.GetEntries():8.0f} | {h.Integral():10.1f} | {h.GetMean():10.4f} | {h.GetStdDev():10.4f}")
+        print("=" * 75)
 
-    # 11. Save Histograms to Output File
+    # Print 2D histogram diagnostics
+    if booked_histograms_2d:
+        print("\n" + "=" * 75)
+        print(f"{'2D Histogram':<32} | {'Entries':>8} | {'Integral':>10} | {'Mean X':>9} | {'Mean Y':>9}")
+        print("-" * 75)
+        for name, h_result in booked_histograms_2d.items():
+            h = h_result.GetValue()
+            print(f"{name:<32} | {h.GetEntries():8.0f} | {h.Integral():10.1f} | {h.GetMean(1):9.4f} | {h.GetMean(2):9.4f}")
+        print("=" * 75)
+
+    # Print TProfile diagnostics
+    if booked_profiles:
+        print("\n" + "=" * 75)
+        print(f"{'TProfile':<32} | {'Entries':>8} | {'Mean X':>10} | {'Mean Y':>10}")
+        print("-" * 75)
+        for name, p_result in booked_profiles.items():
+            p = p_result.GetValue()
+            print(f"{name:<32} | {p.GetEntries():8.0f} | {p.GetMean(1):10.4f} | {p.GetMean(2):10.4f}")
+        print("=" * 75)
+
+    # 11. Save Histograms & Profiles to Output File
     out_dir = os.path.dirname(output_file)
     if out_dir and not os.path.exists(out_dir):
         os.makedirs(out_dir, exist_ok=True)
@@ -372,10 +462,36 @@ def main():
     out_file = ROOT.TFile.Open(output_file, "RECREATE")
     if out_file and not out_file.IsZombie():
         out_file.cd()
-        for name, h_result in booked_histograms.items():
+
+        # Top-level directory (all objects accessible directly)
+        for h_result in booked_histograms_1d.values():
             h_result.GetValue().Write()
+        for h_result in booked_histograms_2d.values():
+            h_result.GetValue().Write()
+        for p_result in booked_profiles.values():
+            p_result.GetValue().Write()
+
+        # Dedicated subdirectories for structured browsing in TBrowser / rootls
+        if booked_histograms_1d:
+            d1 = out_file.mkdir("histograms_1d")
+            d1.cd()
+            for h_result in booked_histograms_1d.values():
+                h_result.GetValue().Write()
+
+        if booked_histograms_2d:
+            d2 = out_file.mkdir("histograms_2d")
+            d2.cd()
+            for h_result in booked_histograms_2d.values():
+                h_result.GetValue().Write()
+
+        if booked_profiles:
+            dp = out_file.mkdir("profiles")
+            dp.cd()
+            for p_result in booked_profiles.values():
+                p_result.GetValue().Write()
+
         out_file.Close()
-        print(f"\nSaved {len(booked_histograms)} diagnostic histograms to: {output_file}")
+        print(f"\nSaved {n_total_plots} objects ({len(booked_histograms_1d)} 1D, {len(booked_histograms_2d)} 2D, {len(booked_profiles)} Profiles) to: {output_file}")
 
     print("\nDone!")
 

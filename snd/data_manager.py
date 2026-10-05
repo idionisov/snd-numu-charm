@@ -41,10 +41,14 @@ def load_trident_libraries(repo_root: Optional[str] = None):
 
     ROOT.gSystem.AddDynamicPath(build_lib)
 
-    for lib_name in ["libtrident_analysis.so", "libtrident_cuts.so", "libsnd_analysis_tools.so"]:
+    for lib_name in ["libneutrino_analysis.so", "libtrident_analysis.so", "libtrident_cuts.so", "libsnd_analysis_tools.so"]:
         lib_path = os.path.join(build_lib, lib_name)
         if os.path.exists(lib_path):
             ROOT.gSystem.Load(lib_name)
+
+
+load_neutrino_libraries = load_trident_libraries
+
 
 
 class DataManager:

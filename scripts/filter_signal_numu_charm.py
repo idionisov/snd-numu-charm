@@ -2,25 +2,28 @@
 """
 filter_signal_numu_charm.py
 ---------------------------
-Filters simulated neutrino interaction files to extract golden signal events:
-  nu_mu CC -> charmed hadron -> prompt muon decay (dimuon final state).
+Hierarchical neutrino interaction skimmer and truth analysis pipeline for SND@LHC.
 
-Features:
-- Processes input files 1-to-1: N input files produce N output files.
-- Stores the filtered events containing only signal candidates.
-- Preserves 100% of the original cbmsim / rawConv tree structure (MCTracks,
-  SciFi hits/clusters, MuFilter hits, etc.).
-- Adds dedicated truth branches (nu_e, mu1_p, mu2_p, charm_pdg, dimuon_mass,
-  decay_length_3d, etc.) and the full MuonNeutrinoTruthInfo object.
-- Stores diagnostic histograms inside each filtered output ROOT file.
-- Analysis cuts, input patterns, and histogram definitions are configured via
-  ./config/filter_numu_charm_config.yaml.
+Configuration is fully specified via YAML:
+- Level 1: Neutrino flavor (any, numu, nue, nutau)
+  └── Level 2: Interaction current (any, CC, NC)
+        └── Level 3: Charmed hadron production (require: true/false, species: any/D0/D+/Ds/Lambda_c)
+              └── Level 4: Charm decay channel (decay: any/to_muon, require_opposite_sign: true/false)
 
-CLI Arguments:
-  -n, --entries : Maximum events per file to evaluate (-1 for full sample)
-  -o, --output  : Output directory or base filename (overrides config output)
-  -j, --threads : Number of worker threads for RDataFrame per file
-  -c, --config  : Path to custom YAML configuration file
+Truth TTree Modular Tiers:
+- Universal: Neutrino kinematics, interaction flags, DIS variables, vertex coordinates.
+- Lepton: Primary outgoing charged lepton (mu1 for nu_mu CC) kinematics.
+- Charm: Charmed hadron 4-momentum, decay length, lifetimes, species, and decay vertex.
+- Decay Muon: Prompt muon (mu2) from charm decay kinematics, pTrel, and impact parameters.
+- Dimuon System: Composite pair invariant mass, opening angles, azimuthal delta-phi, and asymmetry.
+Only the branches corresponding to the active hierarchy tiers are stored in the TTree (in "auto" mode).
+
+CLI arguments are deliberately kept minimal:
+  -n, --entries   : Max events per file (-1 for all)
+  -j, --threads   : Worker threads
+  -o, --output    : Output directory or file
+  -c, --config    : Path to YAML configuration file
+  --fiducial      : Require interaction vertex in Target fiducial volume
 """
 
 from __future__ import annotations
@@ -48,9 +51,10 @@ ROOT.gROOT.SetBatch(True)
 
 
 def parse_arguments():
-    """Parse command line arguments."""
+    """Parse minimal command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Filter and skim signal nu_mu CC charm dimuon events from SND@LHC MC"
+        description="Skim neutrino events with hierarchical truth TTree generation from SND@LHC MC.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
         "-n", "--entries",
@@ -59,22 +63,28 @@ def parse_arguments():
         help="Max events per file to process (-1 for all events)"
     )
     parser.add_argument(
+        "-j", "--threads",
+        type=int,
+        default=1,
+        help="Number of worker threads"
+    )
+    parser.add_argument(
         "-o", "--output",
         type=str,
         default=None,
         help="Output directory (or base filename) for filtered files"
     )
     parser.add_argument(
-        "-j", "--threads",
-        type=int,
-        default=None,
-        help="Number of worker threads (>1 enables ROOT ImplicitMT)"
+        "--fiducial",
+        action="store_true",
+        default=False,
+        help="Require interaction vertex within the Target fiducial volume"
     )
     parser.add_argument(
         "-c", "--config",
         type=str,
-        default=None,
-        help="Path to YAML configuration file (default: config/filter_numu_charm_config.yaml)"
+        default=os.path.join(_repo_root, "config", "filter_numu_charm_config.yaml"),
+        help="Path to YAML configuration file"
     )
     return parser.parse_args()
 
@@ -107,7 +117,6 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> list:
     print(f"Resolving input files from pattern:\n  {pattern}")
     matched_files = []
 
-    # Fast scan for single wildcard directory patterns /path/to/base/*/filename
     if "/*/" in pattern and pattern.count("*") == 1:
         base_dir, filename = pattern.split("/*/")
         if os.path.isdir(base_dir):
@@ -122,7 +131,6 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> list:
                 if os.path.exists(fpath):
                     matched_files.append(fpath)
 
-    # Standard glob fallback
     if not matched_files:
         matched_files = sorted(glob.glob(pattern))
 
@@ -155,11 +163,173 @@ def build_processor(proc_cfg: dict):
     return ROOT.snd.MuonNeutrinoTruthProcessor(config)
 
 
+def resolve_hierarchical_selection(cfg: dict, cli_fiducial: bool):
+    """
+    Parse the hierarchical selection options from the config file:
+      flavor -> interaction -> charm (require, species, decay, require_opposite_sign)
+    Returns:
+      filter_expr     : RDataFrame C++ boolean filter expression
+      description     : Human-readable summary
+      predicate       : Python callable predicate(info) -> bool for in-loop verification
+      active_tiers    : Set of active truth branch tiers: {'universal', 'lepton', 'charm', 'decay_muon', 'dimuon'}
+    """
+    sel_cfg = cfg.get("selection", {})
+    custom_filter = sel_cfg.get("custom_filter", "").strip()
+
+    flavor = str(sel_cfg.get("flavor", "any")).lower().replace("_", "").replace("-", "")
+    interaction = str(sel_cfg.get("interaction", "any")).upper().strip()
+    charm_cfg = sel_cfg.get("charm", {})
+    require_charm = bool(charm_cfg.get("require", False))
+    charm_species = str(charm_cfg.get("species", "any")).lower().strip()
+    charm_decay = str(charm_cfg.get("decay", "any")).lower().replace("-", "").replace("_", "")
+    require_os = bool(charm_cfg.get("require_opposite_sign", True))
+    require_fiducial = cli_fiducial or bool(sel_cfg.get("require_fiducial", False))
+
+    clauses = []
+    desc_parts = []
+    active_tiers = {"universal"}
+
+    # 1. Custom filter override
+    if custom_filter:
+        active_tiers.update(["lepton", "charm", "decay_muon", "dimuon"])
+        return custom_filter, f"Custom filter: {custom_filter}", (lambda info: True), active_tiers
+
+    # 2. Flavor selection (Level 1)
+    if flavor in ["numu", "muon"]:
+        clauses.append("std::abs(nu_pdg) == 14")
+        desc_parts.append("nu_mu (14)")
+    elif flavor in ["nue", "electron"]:
+        clauses.append("std::abs(nu_pdg) == 12")
+        desc_parts.append("nu_e (12)")
+    elif flavor in ["nutau", "tau"]:
+        clauses.append("std::abs(nu_pdg) == 16")
+        desc_parts.append("nu_tau (16)")
+    else:
+        desc_parts.append("All neutrino flavors")
+
+    # 3. Interaction selection (Level 2)
+    if interaction == "CC":
+        if flavor in ["numu", "muon"]:
+            clauses.append("(is_numu_cc || is_anti_numu_cc)")
+        else:
+            clauses.append("is_cc")
+        desc_parts.append("CC")
+        active_tiers.add("lepton")
+    elif interaction == "NC":
+        clauses.append("is_nc")
+        desc_parts.append("NC")
+    else:
+        desc_parts.append("CC+NC")
+        active_tiers.add("lepton")
+
+    # 4. Charm selection (Level 3 & 4)
+    if require_charm:
+        clauses.append("has_charm")
+        active_tiers.add("charm")
+
+        # Species constraint
+        if charm_species in ["d0", "421"]:
+            clauses.append("abs_charm_pdg == 421")
+            desc_parts.append("D0")
+        elif charm_species in ["dplus", "d+", "411"]:
+            clauses.append("abs_charm_pdg == 411")
+            desc_parts.append("D+")
+        elif charm_species in ["ds", "dsplus", "431"]:
+            clauses.append("abs_charm_pdg == 431")
+            desc_parts.append("Ds+")
+        elif charm_species in ["lambdac", "4122"]:
+            clauses.append("abs_charm_pdg == 4122")
+            desc_parts.append("Lambda_c+")
+        else:
+            desc_parts.append("charmed hadron")
+
+        # Decay channel (Level 4)
+        if charm_decay in ["tomuon", "muon", "dimuon", "decaymuon"]:
+            active_tiers.add("decay_muon")
+            if interaction == "CC" and flavor in ["numu", "muon"]:
+                active_tiers.add("dimuon")
+                if require_os:
+                    clauses.append("has_candidate && is_opposite_sign")
+                    desc_parts.append("decay to prompt muon (opposite-sign dimuon candidate)")
+                else:
+                    clauses.append("has_candidate")
+                    desc_parts.append("decay to prompt muon (dimuon candidate)")
+            else:
+                clauses.append("has_prompt_charm_muon")
+                desc_parts.append("decay to prompt muon")
+        else:
+            desc_parts.append("inclusive decay")
+
+    # 5. Fiducial requirement
+    if require_fiducial:
+        clauses.append("is_fiducial")
+        desc_parts.append("[Target Fiducial]")
+
+    # Construct overall C++ expression
+    if clauses:
+        filter_expr = " && ".join(f"({c})" for c in clauses)
+    else:
+        filter_expr = "1"
+
+    description = " -> ".join(desc_parts)
+
+    # Construct strict Python validation predicate
+    def predicate(info) -> bool:
+        # Flavor check
+        if flavor in ["numu", "muon"] and abs(info.nuPdg) != 14:
+            return False
+        if flavor in ["nue", "electron"] and abs(info.nuPdg) != 12:
+            return False
+        if flavor in ["nutau", "tau"] and abs(info.nuPdg) != 16:
+            return False
+
+        # Current check
+        if interaction == "CC":
+            if flavor in ["numu", "muon"] and not (info.isNuMuCC or info.isAntiNuMuCC):
+                return False
+            elif not info.isCC:
+                return False
+        elif interaction == "NC" and not info.isNC:
+            return False
+
+        # Charm check
+        if require_charm:
+            if not info.hasCharm:
+                return False
+            if charm_species in ["d0", "421"] and abs(info.charmPdg) != 421:
+                return False
+            if charm_species in ["dplus", "d+", "411"] and abs(info.charmPdg) != 411:
+                return False
+            if charm_species in ["ds", "dsplus", "431"] and abs(info.charmPdg) != 431:
+                return False
+            if charm_species in ["lambdac", "4122"] and abs(info.charmPdg) != 4122:
+                return False
+
+            if charm_decay in ["tomuon", "muon", "dimuon", "decaymuon"]:
+                if interaction == "CC" and flavor in ["numu", "muon"]:
+                    if not info.hasCandidate:
+                        return False
+                    if require_os and not info.isOppositeSignDimuon:
+                        return False
+                elif not info.hasPromptCharmMuon:
+                    return False
+
+        # Fiducial check
+        if require_fiducial and not info.isFiducial:
+            return False
+
+        return True
+
+    # Check truth_tree branch mode in config: "auto" vs "all"
+    tree_branch_mode = str(cfg.get("truth_tree", {}).get("branch_mode", "auto")).lower().strip()
+    if tree_branch_mode == "all":
+        active_tiers = {"universal", "lepton", "charm", "decay_muon", "dimuon"}
+
+    return filter_expr, description, predicate, active_tiers
+
+
 def determine_output_path(input_path: str, output_arg: str, output_cfg: dict, index: int, total_files: int) -> str:
-    """
-    Determine the 1-to-1 output file path corresponding to an input file.
-    Preserves directory partition structure (e.g. output_dir/1/filename.root).
-    """
+    """Determine the output file path corresponding to an input file."""
     file_suffix = output_cfg.get("file_suffix", "_signal")
     preserve_subdirs = output_cfg.get("preserve_subdirs", True)
     default_dir = output_cfg.get("output_dir", "output_signal_filtered")
@@ -172,7 +342,6 @@ def determine_output_path(input_path: str, output_arg: str, output_cfg: dict, in
         if output_arg.endswith(".root"):
             if total_files == 1:
                 return output_arg
-            # If a single .root filename is given but multiple input files exist, append partition/index
             out_stem, out_ext = os.path.splitext(output_arg)
             partition_tag = parent_partition if (parent_partition and parent_partition != ".") else str(index + 1)
             return f"{out_stem}_{partition_tag}{out_ext}"
@@ -182,137 +351,249 @@ def determine_output_path(input_path: str, output_arg: str, output_cfg: dict, in
         base_out_dir = default_dir
 
     if preserve_subdirs and parent_partition and parent_partition != ".":
-        target_dir = os.path.join(base_out_dir, parent_partition)
+        out_file = os.path.join(base_out_dir, parent_partition, f"{base_stem}{file_suffix}{ext}")
     else:
-        target_dir = base_out_dir
+        out_file = os.path.join(base_out_dir, f"{parent_partition}_{base_stem}{file_suffix}{ext}")
 
-    os.makedirs(target_dir, exist_ok=True)
-    out_name = f"{base_stem}{file_suffix}{ext}"
-    return os.path.join(target_dir, out_name)
+    return out_file
 
 
-def setup_truth_branches(out_tree: ROOT.TTree, truth_info_obj: object):
+def setup_truth_branches(trees: list[ROOT.TTree], active_tiers: set[str]) -> dict:
     """
-    Attach the complete MuonNeutrinoTruthInfo struct as well as individual scalar
-    branches to the output cloned tree for fast inspection in ROOT / TTree::Draw.
+    Attach modular truth branches to one or more TTrees based on active_tiers:
+      - 'universal'  : Neutrino 4-momentum, DIS kinematics, primary vertex, weights, flags
+      - 'lepton'     : Primary outgoing charged lepton (mu1 for nu_mu CC) kinematics
+      - 'charm'      : Charmed hadron properties, flight lengths, proper lifetime, decay vertex
+      - 'decay_muon' : Prompt decay muon (mu2) from charm kinematics and impact parameters
+      - 'dimuon'     : Composite dimuon pair observables (mass, opening angles, delta phi)
     """
-    out_tree.Branch("truth", truth_info_obj)
+    int_vars = []
+    double_vars = []
 
-    branch_buffers = {
-        # Int flags
-        "is_cc": array.array('i', [0]),
-        "is_numu_cc": array.array('i', [0]),
-        "is_anti_numu_cc": array.array('i', [0]),
-        "is_fiducial": array.array('i', [0]),
-        "has_charm": array.array('i', [0]),
-        "has_prompt_charm_muon": array.array('i', [0]),
-        "is_opposite_sign": array.array('i', [0]),
-        "has_candidate": array.array('i', [0]),
-        "charm_pdg": array.array('i', [0]),
-        "abs_charm_pdg": array.array('i', [0]),
-        "charm_species_id": array.array('i', [0]),
-        # Double observables
-        "mc_weight": array.array('d', [0.0]),
-        "raw_weight": array.array('d', [0.0]),
-        "nu_e": array.array('d', [0.0]),
-        "vtx_x": array.array('d', [0.0]),
-        "vtx_y": array.array('d', [0.0]),
-        "vtx_z": array.array('d', [0.0]),
-        "q2": array.array('d', [0.0]),
-        "bjorken_x": array.array('d', [0.0]),
-        "inelasticity_y": array.array('d', [0.0]),
-        "hadronic_w": array.array('d', [0.0]),
-        "mu1_p": array.array('d', [0.0]),
-        "mu1_pt": array.array('d', [0.0]),
-        "mu1_eta": array.array('d', [0.0]),
-        "mu1_phi": array.array('d', [0.0]),
-        "charm_p": array.array('d', [0.0]),
-        "charm_pt": array.array('d', [0.0]),
-        "charm_e": array.array('d', [0.0]),
-        "charm_z_frac": array.array('d', [0.0]),
-        "decay_length_3d": array.array('d', [0.0]),
-        "proper_time_ctau": array.array('d', [0.0]),
-        "proper_lifetime_ps": array.array('d', [0.0]),
-        "mu2_p": array.array('d', [0.0]),
-        "mu2_pt": array.array('d', [0.0]),
-        "mu2_eta": array.array('d', [0.0]),
-        "mu2_phi": array.array('d', [0.0]),
-        "mu2_ip3d": array.array('d', [0.0]),
-        "mu2_ipxy": array.array('d', [0.0]),
-        "mu2_ptrel": array.array('d', [0.0]),
-        "dimuon_mass": array.array('d', [0.0]),
-        "dimuon_pt": array.array('d', [0.0]),
-        "dimuon_opening_angle_mrad": array.array('d', [0.0]),
-        "dimuon_delta_phi": array.array('d', [0.0]),
-        "dimuon_energy_asym": array.array('d', [0.0]),
-        "dimuon_p_ratio": array.array('d', [0.0]),
-    }
+    # 1. Universal Tier
+    if "universal" in active_tiers:
+        int_vars.extend([
+            "entry", "nu_pdg",
+            "is_cc", "is_nc", "is_numu_cc", "is_anti_numu_cc",
+            "interaction_type", "region_type", "is_fiducial",
+            "n_primary_tracks", "n_primary_hadrons"
+        ])
+        double_vars.extend([
+            "mc_weight", "raw_weight",
+            "nu_e", "nu_p", "nu_px", "nu_py", "nu_pz", "nu_pt", "nu_eta", "nu_phi", "nu_theta",
+            "vtx_x", "vtx_y", "vtx_z", "vtx_t",
+            "q2", "bjorken_x", "inelasticity_y", "hadronic_w",
+            "hadronic_e_total", "hadronic_pt", "missing_pt"
+        ])
 
-    for bname, buf in branch_buffers.items():
-        type_str = "I" if buf.typecode == 'i' else "D"
-        out_tree.Branch(bname, buf, f"{bname}/{type_str}")
+    # 2. Primary Lepton Tier
+    if "lepton" in active_tiers:
+        int_vars.extend([
+            "primary_lepton_track_id", "primary_lepton_pdg", "primary_lepton_charge"
+        ])
+        double_vars.extend([
+            "mu1_p", "mu1_pt", "mu1_px", "mu1_py", "mu1_pz", "mu1_e", "mu1_eta", "mu1_phi", "mu1_theta",
+            "mu1_slope_xz", "mu1_slope_yz"
+        ])
 
-    return branch_buffers
+    # 3. Charmed Hadron Tier
+    if "charm" in active_tiers:
+        int_vars.extend([
+            "has_charm", "charm_track_id", "charm_pdg", "abs_charm_pdg", "charm_species_id",
+            "charm_quark_content", "n_charm_daughters", "charm_has_kaon", "charm_kaon_pdg",
+            "n_charmed_hadrons"
+        ])
+        double_vars.extend([
+            "charm_mass", "charm_p", "charm_pt", "charm_px", "charm_py", "charm_pz", "charm_e",
+            "charm_eta", "charm_phi", "charm_theta", "charm_z_frac",
+            "decay_length_3d", "decay_length_xy", "decay_length_z", "proper_time_ctau", "proper_lifetime_ps",
+            "charm_decay_x", "charm_decay_y", "charm_decay_z", "charm_decay_t"
+        ])
+
+    # 4. Decay Muon Tier
+    if "decay_muon" in active_tiers:
+        int_vars.extend([
+            "has_prompt_charm_muon", "mu2_track_id", "mu2_pdg", "mu2_charge",
+            "mu2_mother_track_id", "mu2_mother_pdg"
+        ])
+        double_vars.extend([
+            "mu2_p", "mu2_pt", "mu2_px", "mu2_py", "mu2_pz", "mu2_e", "mu2_eta", "mu2_phi", "mu2_theta",
+            "mu2_slope_xz", "mu2_slope_yz",
+            "mu2_ptrel", "mu2_ip3d", "mu2_ipxy", "mu2_opening_angle_charm"
+        ])
+
+    # 5. Composite Dimuon Tier
+    if "dimuon" in active_tiers:
+        int_vars.extend([
+            "is_opposite_sign", "has_candidate", "n_muons_in_event"
+        ])
+        double_vars.extend([
+            "dimuon_mass", "dimuon_pt", "dimuon_p", "dimuon_opening_angle",
+            "dimuon_opening_angle_mrad", "dimuon_delta_phi", "dimuon_delta_eta", "dimuon_delta_r",
+            "dimuon_energy_asym", "dimuon_p_ratio"
+        ])
+
+    buffers = {}
+    for var in int_vars:
+        buffers[var] = array.array('i', [0])
+    for var in double_vars:
+        buffers[var] = array.array('d', [0.0])
+
+    for tree in trees:
+        if not tree:
+            continue
+        for var in int_vars:
+            tree.Branch(var, buffers[var], f"{var}/I")
+        for var in double_vars:
+            tree.Branch(var, buffers[var], f"{var}/D")
+
+    return buffers
 
 
-def fill_truth_buffers(buffers: dict, info: object):
-    """Update scalar branch buffers from truth info struct."""
-    buffers["is_cc"][0] = int(info.isCC)
-    buffers["is_numu_cc"][0] = int(info.isNuMuCC)
-    buffers["is_anti_numu_cc"][0] = int(info.isAntiNuMuCC)
-    buffers["is_fiducial"][0] = int(info.isFiducial)
-    buffers["has_charm"][0] = int(info.hasCharm)
-    buffers["has_prompt_charm_muon"][0] = int(info.hasPromptCharmMuon)
-    buffers["is_opposite_sign"][0] = int(info.isOppositeSignDimuon)
-    buffers["has_candidate"][0] = int(info.hasCandidate)
-    buffers["charm_pdg"][0] = info.charmPdg
-    buffers["abs_charm_pdg"][0] = abs(info.charmPdg)
+def fill_truth_buffers(buffers: dict, info: object, entry_idx: int, active_tiers: set[str]):
+    """Populate truth buffers according to active tiers."""
+    # 1. Universal Tier
+    if "universal" in active_tiers:
+        buffers["entry"][0] = int(entry_idx)
+        buffers["nu_pdg"][0] = int(info.nuPdg)
+        buffers["is_cc"][0] = int(info.isCC)
+        buffers["is_nc"][0] = int(info.isNC)
+        buffers["is_numu_cc"][0] = int(info.isNuMuCC)
+        buffers["is_anti_numu_cc"][0] = int(info.isAntiNuMuCC)
+        buffers["interaction_type"][0] = int(info.interactionType)
+        buffers["region_type"][0] = int(info.regionType)
+        buffers["is_fiducial"][0] = int(info.isFiducial)
+        buffers["n_primary_tracks"][0] = int(info.nPrimaryTracks)
+        buffers["n_primary_hadrons"][0] = int(info.nPrimaryHadrons)
 
-    # Species ID: 1: D0, 2: D+, 3: Ds+, 4: Lambda_c+, 5: other baryon, 6: other meson
-    pdg = abs(info.charmPdg)
-    if pdg == 421: sp_id = 1
-    elif pdg == 411: sp_id = 2
-    elif pdg == 431: sp_id = 3
-    elif pdg == 4122: sp_id = 4
-    elif pdg > 4000: sp_id = 5
-    elif pdg > 0: sp_id = 6
-    else: sp_id = 0
-    buffers["charm_species_id"][0] = sp_id
+        buffers["mc_weight"][0] = float(info.mcWeight)
+        buffers["raw_weight"][0] = float(info.rawWeight)
+        buffers["nu_e"][0] = float(info.nuE)
+        buffers["nu_p"][0] = float(info.nuP)
+        buffers["nu_px"][0] = float(info.nuPx)
+        buffers["nu_py"][0] = float(info.nuPy)
+        buffers["nu_pz"][0] = float(info.nuPz)
+        buffers["nu_pt"][0] = float(info.nuPt)
+        buffers["nu_eta"][0] = float(info.nuEta)
+        buffers["nu_phi"][0] = float(info.nuPhi)
+        buffers["nu_theta"][0] = float(info.nuTheta)
 
-    buffers["mc_weight"][0] = info.mcWeight
-    buffers["raw_weight"][0] = info.rawWeight
-    buffers["nu_e"][0] = info.nuE
-    buffers["vtx_x"][0] = info.vtxX
-    buffers["vtx_y"][0] = info.vtxY
-    buffers["vtx_z"][0] = info.vtxZ
-    buffers["q2"][0] = info.Q2
-    buffers["bjorken_x"][0] = info.BjorkenX
-    buffers["inelasticity_y"][0] = info.InelasticityY
-    buffers["hadronic_w"][0] = info.HadronicW
-    buffers["mu1_p"][0] = info.mu1P
-    buffers["mu1_pt"][0] = info.mu1Pt
-    buffers["mu1_eta"][0] = info.mu1Eta
-    buffers["mu1_phi"][0] = info.mu1Phi
-    buffers["charm_p"][0] = info.charmP
-    buffers["charm_pt"][0] = info.charmPt
-    buffers["charm_e"][0] = info.charmE
-    buffers["charm_z_frac"][0] = info.charmEnergyFractionZ
-    buffers["decay_length_3d"][0] = info.decayLength3D
-    buffers["proper_time_ctau"][0] = info.properDecayTimeCTau
-    buffers["proper_lifetime_ps"][0] = info.properLifetimePs
-    buffers["mu2_p"][0] = info.mu2P
-    buffers["mu2_pt"][0] = info.mu2Pt
-    buffers["mu2_eta"][0] = info.mu2Eta
-    buffers["mu2_phi"][0] = info.mu2Phi
-    buffers["mu2_ip3d"][0] = info.mu2IP3D
-    buffers["mu2_ipxy"][0] = info.mu2IPXY
-    buffers["mu2_ptrel"][0] = info.mu2PtRel
-    buffers["dimuon_mass"][0] = info.dimuonInvMass
-    buffers["dimuon_pt"][0] = info.dimuonPt
-    buffers["dimuon_opening_angle_mrad"][0] = info.dimuonOpeningAngleMrad
-    buffers["dimuon_delta_phi"][0] = info.dimuonDeltaPhi
-    buffers["dimuon_energy_asym"][0] = info.dimuonEnergyAsymmetry
-    buffers["dimuon_p_ratio"][0] = info.dimuonMomentumRatio
+        buffers["vtx_x"][0] = float(info.vtxX)
+        buffers["vtx_y"][0] = float(info.vtxY)
+        buffers["vtx_z"][0] = float(info.vtxZ)
+        buffers["vtx_t"][0] = float(info.vtxT)
+
+        buffers["q2"][0] = float(info.Q2)
+        buffers["bjorken_x"][0] = float(info.BjorkenX)
+        buffers["inelasticity_y"][0] = float(info.InelasticityY)
+        buffers["hadronic_w"][0] = float(info.HadronicW)
+        buffers["hadronic_e_total"][0] = float(info.hadronicEnergyTotal)
+        buffers["hadronic_pt"][0] = float(info.hadronicRecoilPt)
+        buffers["missing_pt"][0] = float(info.missingPt)
+
+    # 2. Lepton Tier
+    if "lepton" in active_tiers:
+        buffers["primary_lepton_track_id"][0] = int(info.primaryLeptonTrackId)
+        buffers["primary_lepton_pdg"][0] = int(info.primaryLeptonPdg)
+        buffers["primary_lepton_charge"][0] = int(info.primaryLeptonCharge)
+
+        buffers["mu1_p"][0] = float(info.mu1P)
+        buffers["mu1_pt"][0] = float(info.mu1Pt)
+        buffers["mu1_px"][0] = float(info.mu1Px)
+        buffers["mu1_py"][0] = float(info.mu1Py)
+        buffers["mu1_pz"][0] = float(info.mu1Pz)
+        buffers["mu1_e"][0] = float(info.mu1E)
+        buffers["mu1_eta"][0] = float(info.mu1Eta)
+        buffers["mu1_phi"][0] = float(info.mu1Phi)
+        buffers["mu1_theta"][0] = float(info.mu1Theta)
+        buffers["mu1_slope_xz"][0] = float(info.mu1SlopeXZ)
+        buffers["mu1_slope_yz"][0] = float(info.mu1SlopeYZ)
+
+    # 3. Charm Tier
+    if "charm" in active_tiers:
+        buffers["has_charm"][0] = int(info.hasCharm)
+        buffers["charm_track_id"][0] = int(info.charmTrackId)
+        buffers["charm_pdg"][0] = int(info.charmPdg)
+        buffers["abs_charm_pdg"][0] = abs(int(info.charmPdg))
+        buffers["charm_quark_content"][0] = int(info.charmQuarkContent)
+        buffers["n_charm_daughters"][0] = int(info.nCharmDecayDaughters)
+        buffers["charm_has_kaon"][0] = int(info.charmHasKaonDaughter)
+        buffers["charm_kaon_pdg"][0] = int(info.charmKaonPdg)
+        buffers["n_charmed_hadrons"][0] = int(info.nCharmedHadronsInEvent)
+
+        pdg = abs(int(info.charmPdg))
+        if pdg == 421: sp_id = 1
+        elif pdg == 411: sp_id = 2
+        elif pdg == 431: sp_id = 3
+        elif pdg == 4122: sp_id = 4
+        elif pdg > 4000: sp_id = 5
+        elif pdg > 0: sp_id = 6
+        else: sp_id = 0
+        buffers["charm_species_id"][0] = sp_id
+
+        buffers["charm_mass"][0] = float(info.charmMass)
+        buffers["charm_p"][0] = float(info.charmP)
+        buffers["charm_pt"][0] = float(info.charmPt)
+        buffers["charm_px"][0] = float(info.charmPx)
+        buffers["charm_py"][0] = float(info.charmPy)
+        buffers["charm_pz"][0] = float(info.charmPz)
+        buffers["charm_e"][0] = float(info.charmE)
+        buffers["charm_eta"][0] = float(info.charmEta)
+        buffers["charm_phi"][0] = float(info.charmPhi)
+        buffers["charm_theta"][0] = float(info.charmTheta)
+        buffers["charm_z_frac"][0] = float(info.charmEnergyFractionZ)
+
+        buffers["decay_length_3d"][0] = float(info.decayLength3D)
+        buffers["decay_length_xy"][0] = float(info.decayLengthXY)
+        buffers["decay_length_z"][0] = float(info.decayLengthZ)
+        buffers["proper_time_ctau"][0] = float(info.properDecayTimeCTau)
+        buffers["proper_lifetime_ps"][0] = float(info.properLifetimePs)
+        buffers["charm_decay_x"][0] = float(info.charmDecayX)
+        buffers["charm_decay_y"][0] = float(info.charmDecayY)
+        buffers["charm_decay_z"][0] = float(info.charmDecayZ)
+        buffers["charm_decay_t"][0] = float(info.charmDecayT)
+
+    # 4. Decay Muon Tier
+    if "decay_muon" in active_tiers:
+        buffers["has_prompt_charm_muon"][0] = int(info.hasPromptCharmMuon)
+        buffers["mu2_track_id"][0] = int(info.mu2TrackId)
+        buffers["mu2_pdg"][0] = int(info.mu2Pdg)
+        buffers["mu2_charge"][0] = int(info.mu2Charge)
+        buffers["mu2_mother_track_id"][0] = int(info.mu2MotherTrackId)
+        buffers["mu2_mother_pdg"][0] = int(info.mu2MotherPdg)
+
+        buffers["mu2_p"][0] = float(info.mu2P)
+        buffers["mu2_pt"][0] = float(info.mu2Pt)
+        buffers["mu2_px"][0] = float(info.mu2Px)
+        buffers["mu2_py"][0] = float(info.mu2Py)
+        buffers["mu2_pz"][0] = float(info.mu2Pz)
+        buffers["mu2_e"][0] = float(info.mu2E)
+        buffers["mu2_eta"][0] = float(info.mu2Eta)
+        buffers["mu2_phi"][0] = float(info.mu2Phi)
+        buffers["mu2_theta"][0] = float(info.mu2Theta)
+        buffers["mu2_slope_xz"][0] = float(info.mu2SlopeXZ)
+        buffers["mu2_slope_yz"][0] = float(info.mu2SlopeYZ)
+        buffers["mu2_ptrel"][0] = float(info.mu2PtRel)
+        buffers["mu2_ip3d"][0] = float(info.mu2IP3D)
+        buffers["mu2_ipxy"][0] = float(info.mu2IPXY)
+        buffers["mu2_opening_angle_charm"][0] = float(info.mu2OpeningAngleWithCharm)
+
+    # 5. Dimuon Tier
+    if "dimuon" in active_tiers:
+        buffers["is_opposite_sign"][0] = int(info.isOppositeSignDimuon)
+        buffers["has_candidate"][0] = int(info.hasCandidate)
+        buffers["n_muons_in_event"][0] = int(info.nMuonsInEvent)
+
+        buffers["dimuon_mass"][0] = float(info.dimuonInvMass)
+        buffers["dimuon_pt"][0] = float(info.dimuonPt)
+        buffers["dimuon_p"][0] = float(info.dimuonP)
+        buffers["dimuon_opening_angle"][0] = float(info.dimuonOpeningAngle)
+        buffers["dimuon_opening_angle_mrad"][0] = float(info.dimuonOpeningAngleMrad)
+        buffers["dimuon_delta_phi"][0] = float(info.dimuonDeltaPhi)
+        buffers["dimuon_delta_eta"][0] = float(info.dimuonDeltaEta)
+        buffers["dimuon_delta_r"][0] = float(info.dimuonDeltaR)
+        buffers["dimuon_energy_asym"][0] = float(info.dimuonEnergyAsymmetry)
+        buffers["dimuon_p_ratio"][0] = float(info.dimuonMomentumRatio)
 
 
 def process_single_file(
@@ -320,18 +601,21 @@ def process_single_file(
     output_file: str,
     processor: ROOT.snd.MuonNeutrinoTruthProcessor,
     cfg: dict,
-    max_entries: int = -1,
-    effective_threads: int = 1
+    filter_expr: str,
+    predicate: callable,
+    active_tiers: set[str],
+    max_entries: int = -1
 ) -> dict:
     """
     Process a single input file:
-    1. Runs RDataFrame to evaluate truth observables, cutflow, and diagnostic histograms.
-    2. Identifies matching signal entry numbers.
-    3. Clones the original tree structure (cbmsim/rawConv) into the output file.
-    4. Populates the signal entries with both original branches and truth branches.
-    5. Saves diagnostic histograms into the output file.
+    1. Evaluates truth observables and finds matching entry numbers using sequential RDataFrame.
+    2. If 0 events match, completely skips creating/saving the ROOT file.
+    3. If events match, clones cbmsim and creates a dedicated flat `truth` TTree with active tiers.
+    4. Applies in-loop validation guard before saving each entry.
+    5. Saves diagnostic histograms and trees into output file.
     """
     tree_name = cfg.get("input", {}).get("tree_name", "cbmsim")
+    skip_empty = cfg.get("output", {}).get("skip_empty_files", True)
 
     # Verify input file and tree existence
     f_test = ROOT.TFile.Open(input_file)
@@ -347,7 +631,10 @@ def process_single_file(
                 break
     f_test.Close()
 
-    # 1. RDataFrame setup for fast truth processing and histogramming
+    # Disable implicit multi-threading per file so Take("rdfentry_") is 100% exact and deterministic
+    ROOT.DisableImplicitMT()
+
+    # 1. RDataFrame setup for fast truth processing and filtering
     df_raw = ROOT.RDataFrame(actual_tree_name, input_file)
     if max_entries > 0:
         df_raw = df_raw.Range(max_entries)
@@ -355,7 +642,9 @@ def process_single_file(
     # Define truth observables
     df_truth = (
         df_raw.Define("truth", processor, ["MCTrack"])
+              .Define("nu_pdg", "truth.nuPdg")
               .Define("is_cc", "truth.isCC")
+              .Define("is_nc", "truth.isNC")
               .Define("is_numu_cc", "truth.isNuMuCC")
               .Define("is_anti_numu_cc", "truth.isAntiNuMuCC")
               .Define("is_fiducial", "truth.isFiducial")
@@ -366,6 +655,8 @@ def process_single_file(
               .Define("mc_weight", "truth.mcWeight")
               .Define("raw_weight", "truth.rawWeight")
               .Define("nu_e", "truth.nuE")
+              .Define("vtx_x", "truth.vtxX")
+              .Define("vtx_y", "truth.vtxY")
               .Define("vtx_z", "truth.vtxZ")
               .Define("q2", "truth.Q2")
               .Define("bjorken_x", "truth.BjorkenX")
@@ -400,20 +691,14 @@ def process_single_file(
               .Define("dimuon_delta_phi", "truth.dimuonDeltaPhi")
     )
 
-    # Signal filter condition
-    filter_cfg = cfg.get("filter", {})
-    signal_expr = filter_cfg.get("signal_expression", "has_candidate && is_opposite_sign")
-    if filter_cfg.get("require_fiducial", False):
-        signal_expr = f"({signal_expr}) && is_fiducial"
-
-    df_signal = df_truth.Filter(signal_expr, "Signal Selection")
+    df_filtered = df_truth.Filter(filter_expr, "Event Selection")
 
     # Book counters & signal entry list
     c_tot = df_truth.Count()
-    c_sig = df_signal.Count()
-    signal_entries_rptr = df_signal.Take["ULong64_t"]("rdfentry_")
+    c_sig = df_filtered.Count()
+    signal_entries_rptr = df_filtered.Take["ULong64_t"]("rdfentry_")
 
-    # Book diagnostic histograms on signal events
+    # Book diagnostic histograms on selected events
     booked_histograms = {}
     for h_cfg in cfg.get("histograms", []):
         h_name = h_cfg["name"]
@@ -431,9 +716,9 @@ def process_single_file(
             model = ROOT.RDF.TH1DModel(h_name, h_title, nbins, xmin, xmax)
 
         if w_col:
-            booked_histograms[h_name] = df_signal.Histo1D(model, col, w_col)
+            booked_histograms[h_name] = df_filtered.Histo1D(model, col, w_col)
         else:
-            booked_histograms[h_name] = df_signal.Histo1D(model, col)
+            booked_histograms[h_name] = df_filtered.Histo1D(model, col)
 
     # Run RDF graph
     all_actions = [c_tot, c_sig, signal_entries_rptr]
@@ -444,7 +729,21 @@ def process_single_file(
     n_sig = c_sig.GetValue()
     signal_entries = list(signal_entries_rptr.GetValue())
 
-    # 2. Clone original tree and store only signal events + truth branches
+    # 2. DO NOT STORE EMPTY ROOT FILES
+    if skip_empty and (n_sig == 0 or len(signal_entries) == 0):
+        if os.path.exists(output_file):
+            try:
+                os.remove(output_file)
+            except OSError:
+                pass
+        return {
+            "total": n_tot,
+            "signal": 0,
+            "status": "skipped_empty",
+            "output_file": None
+        }
+
+    # 3. Create output file and save selected events
     f_in = ROOT.TFile.Open(input_file)
     t_in = f_in.Get(actual_tree_name)
 
@@ -455,27 +754,52 @@ def process_single_file(
     f_out = ROOT.TFile.Open(output_file, "RECREATE")
     if not f_out or f_out.IsZombie():
         f_in.Close()
-        return {"total": n_tot, "signal": n_sig, "status": "error_create_out"}
+        return {"total": n_tot, "signal": n_sig, "status": "error_create_out", "output_file": None}
 
-    # Clone empty tree structure (preserves all original branches: MCTrack, SciFi, MuFilter, etc.)
+    # Clone empty event tree (retains all original branches: MCTrack, SciFi, MuFilter, etc.)
     out_tree = t_in.CloneTree(0)
     out_tree.SetName(actual_tree_name)
 
-    # Attach truth struct and scalar branches
-    truth_info_obj = ROOT.snd.MuonNeutrinoTruthInfo()
-    truth_buffers = setup_truth_branches(out_tree, truth_info_obj)
+    # Create dedicated flat truth TTree
+    truth_tree = ROOT.TTree("truth", "Hierarchical Truth Observables for Selected Events")
 
-    # Fill signal entries
+    # Attach truth branches to both out_tree (cbmsim) and truth_tree
+    truth_buffers = setup_truth_branches([out_tree, truth_tree], active_tiers)
+
+    # Fill selected entries with strict validation guard
+    n_filled = 0
     for entry_idx in signal_entries:
         t_in.GetEntry(entry_idx)
-        # Evaluate truth for this entry
         info = processor.processMuonNeutrino(t_in.MCTrack)
-        truth_info_obj = info
-        fill_truth_buffers(truth_buffers, info)
+
+        # In-loop validation guard
+        if not predicate(info):
+            continue
+
+        fill_truth_buffers(truth_buffers, info, entry_idx, active_tiers)
         out_tree.Fill()
+        truth_tree.Fill()
+        n_filled += 1
+
+    # Check if any entries were actually filled
+    if skip_empty and n_filled == 0:
+        f_out.Close()
+        f_in.Close()
+        if os.path.exists(output_file):
+            try:
+                os.remove(output_file)
+            except OSError:
+                pass
+        return {
+            "total": n_tot,
+            "signal": 0,
+            "status": "skipped_empty",
+            "output_file": None
+        }
 
     f_out.cd()
     out_tree.Write()
+    truth_tree.Write()
 
     # Write diagnostic histograms
     for h_name, h_result in booked_histograms.items():
@@ -487,7 +811,7 @@ def process_single_file(
 
     return {
         "total": n_tot,
-        "signal": n_sig,
+        "signal": n_filled,
         "status": "success",
         "output_file": output_file
     }
@@ -495,9 +819,6 @@ def process_single_file(
 
 def main():
     args = parse_arguments()
-
-    # Load libraries so MuonNeutrinoTruthProcessor and data classes are available
-    load_trident_libraries(_repo_root)
 
     # 1. Load Configuration
     cfg = load_config(args.config)
@@ -510,53 +831,52 @@ def main():
     )
     max_files = input_cfg.get("max_files", -1)
     output_cfg = cfg.get("output", {})
-    perf_cfg = cfg.get("performance", {})
-    n_threads = args.threads if args.threads is not None else int(perf_cfg.get("threads", 1))
 
-    # Configure ROOT Multi-Threading
-    effective_threads = n_threads
-    if n_threads > 1:
-        if args.entries > 0:
-            print(f"[Notice] Multi-threading (-j {n_threads}) cannot be combined with event Range (-n {args.entries}) in ROOT RDataFrame.")
-            print("         Running sequentially in single-threaded mode to preserve the -n range limit.")
-            effective_threads = 0
-        else:
-            ROOT.EnableImplicitMT(n_threads)
-            print(f"Enabled ROOT Implicit Multi-Threading with {n_threads} worker threads.")
+    # 2. Resolve Selection Criteria & Active Truth Tiers from YAML Config
+    filter_expr, filter_desc, predicate, active_tiers = resolve_hierarchical_selection(
+        cfg=cfg,
+        cli_fiducial=args.fiducial
+    )
 
-    # 2. Resolve Input Files
+    # 3. Resolve Input Files
     input_files = resolve_input_files(file_pattern, max_files=max_files)
     total_files = len(input_files)
 
-    # 3. Configure Processor
+    # 4. Configure Processor
     proc_cfg = cfg.get("processor", {})
     processor = build_processor(proc_cfg)
 
     print("=" * 80)
-    print(" SND@LHC: Skimming Nu_Mu CC Charm Dimuon Signal Events")
+    print(" SND@LHC: Hierarchical Neutrino Skimmer & Truth Tree Generator")
     print("=" * 80)
+    print(f"Configuration file           : {args.config}")
+    print(f"Selection hierarchy          : {filter_desc}")
+    print(f"Filter expression            : {filter_expr}")
+    print(f"Active truth TTree tiers     : {sorted(list(active_tiers))}")
     print(f"Total input files to process : {total_files}")
     print(f"Max events per file          : {args.entries if args.entries > 0 else 'All'}")
-    print(f"Signal filter expression     : {cfg.get('filter', {}).get('signal_expression')}")
-    print(f"Worker threads               : {n_threads}")
+    print(f"Skip empty files             : {output_cfg.get('skip_empty_files', True)}")
     print("=" * 80)
 
-    # 4. Process each file 1-to-1
+    # 5. Process each file 1-to-1
     results = []
     tot_events_all = 0
     tot_signal_all = 0
+    files_written = 0
 
     for idx, in_file in enumerate(input_files):
         out_file = determine_output_path(in_file, args.output, output_cfg, idx, total_files)
-        print(f"\n[{idx + 1}/{total_files}] Processing:\n  Input : {in_file}\n  Output: {out_file}")
+        print(f"\n[{idx + 1}/{total_files}] Processing:\n  Input : {in_file}")
 
         res = process_single_file(
             input_file=in_file,
             output_file=out_file,
             processor=processor,
             cfg=cfg,
-            max_entries=args.entries,
-            effective_threads=effective_threads
+            filter_expr=filter_expr,
+            predicate=predicate,
+            active_tiers=active_tiers,
+            max_entries=args.entries
         )
         results.append(res)
 
@@ -565,14 +885,21 @@ def main():
         tot_events_all += n_tot
         tot_signal_all += n_sig
 
-        pct = (100.0 * n_sig / max(n_tot, 1)) if n_tot > 0 else 0.0
-        print(f"  Summary: {n_sig} signal events extracted out of {n_tot} total ({pct:.2f}%)")
+        status = res.get("status", "unknown")
+        if status == "skipped_empty":
+            print(f"  Summary: 0/{n_tot} matched. Skipped (empty file not created).")
+        elif status == "success":
+            files_written += 1
+            pct = (100.0 * n_sig / max(n_tot, 1)) if n_tot > 0 else 0.0
+            print(f"  Summary: {n_sig}/{n_tot} events saved ({pct:.2f}%). Output: {out_file}")
+        else:
+            print(f"  Summary: Status={status}")
 
-    # 5. Final Processing Summary Table
+    # 6. Final Processing Summary Table
     print("\n" + "=" * 80)
     print(" OVERALL PROCESSING SUMMARY")
     print("=" * 80)
-    print(f"{'#':<3} | {'Partition':<12} | {'Total':>8} | {'Signal':>8} | {'Yield (%)':>10} | {'Status':<10}")
+    print(f"{'#':<3} | {'Partition':<12} | {'Total':>8} | {'Selected':>8} | {'Yield (%)':>10} | {'Status':<14}")
     print("-" * 80)
     for idx, (in_file, res) in enumerate(zip(input_files, results)):
         partition = os.path.basename(os.path.dirname(in_file))
@@ -580,12 +907,12 @@ def main():
         n_sig = res.get("signal", 0)
         pct = (100.0 * n_sig / max(n_tot, 1)) if n_tot > 0 else 0.0
         status = res.get("status", "unknown")
-        print(f"{idx + 1:<3} | {partition:<12} | {n_tot:8d} | {n_sig:8d} | {pct:9.2f}% | {status:<10}")
+        print(f"{idx + 1:<3} | {partition:<12} | {n_tot:8d} | {n_sig:8d} | {pct:9.2f}% | {status:<14}")
 
     print("=" * 80)
     overall_pct = (100.0 * tot_signal_all / max(tot_events_all, 1)) if tot_events_all > 0 else 0.0
-    print(f"TOTAL: {tot_signal_all} signal events skimmed out of {tot_events_all} total events ({overall_pct:.2f}%).")
-    print(f"Produced {total_files} output file(s).")
+    print(f"TOTAL: {tot_signal_all} events selected out of {tot_events_all} total events ({overall_pct:.2f}%).")
+    print(f"Saved {files_written} non-empty output file(s) (skipped {total_files - files_written} empty files).")
     print("=" * 80)
     print("\nDone!")
 

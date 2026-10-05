@@ -18,21 +18,67 @@ output:
   file_suffix: "_signal"
   # Whether to preserve partition directory structure (e.g. output_dir/1/filename.root)
   preserve_subdirs: true
+  # Whether to completely skip creating and storing empty ROOT files (0 matching events)
+  skip_empty_files: true
 
 # Performance & Multithreading
 performance:
-  threads: 1                     # Default number of worker threads per file (overridden by -j CLI flag)
+  threads: 1                     # Default number of worker threads (overridden by -j CLI flag)
 
-# Signal Filter definition
-filter:
-  # Condition evaluated on truth observables:
-  # has_candidate && is_opposite_sign selects:
-  # - nu_mu / anti_nu_mu CC
-  # - primary muon (mu1)
-  # - prompt charmed hadron decay muon (mu2)
-  # - opposite sign charges (mu1- mu2+ or mu1+ mu2-)
-  signal_expression: "has_candidate && is_opposite_sign"
-  require_fiducial: false        # Set true to also require primary vertex in Target fiducial volume
+# ==============================================================================
+# Hierarchical Event Selection & Truth TTree Configuration
+# ==============================================================================
+# Hierarchy:
+#   flavor (any / numu / nue / nutau)
+#     └── interaction (any / CC / NC)
+#           └── charm:
+#                 require (true / false)
+#                 species (any / D0 / Dplus / Ds / Lambda_c)
+#                 decay (any / to_muon)
+#                 require_opposite_sign (true / false)
+selection:
+  # Level 1: Neutrino flavor
+  # Options:
+  #   "any"   : Universal neutrino interactions across all flavors
+  #   "numu"  : Muon neutrino interactions (nu_mu / anti-nu_mu)
+  #   "nue"   : Electron neutrino interactions (nu_e / anti-nu_e)
+  #   "nutau" : Tau neutrino interactions (nu_tau / anti-nu_tau)
+  flavor: "numu"
+
+  # Level 2: Interaction current
+  # Options:
+  #   "any"   : Both Charged Current (CC) and Neutral Current (NC)
+  #   "CC"    : Charged Current interactions only
+  #   "NC"    : Neutral Current interactions only
+  interaction: "CC"
+
+  # Level 3: Charmed hadron production
+  charm:
+    require: true                # Set true to require charmed hadron production
+    species: "any"               # "any", "D0", "Dplus", "Ds", "Lambda_c"
+
+    # Level 4: Charm decay channel
+    # Options:
+    #   "any"     : Inclusive charm decay
+    #   "to_muon" : Prompt semi-leptonic decay to a muon (dimuon final state)
+    decay: "to_muon"
+    require_opposite_sign: true  # Require opposite sign for primary and decay muons (mu1- mu2+ or mu1+ mu2-)
+
+  # Acceptance and fiducial requirement
+  require_fiducial: false        # Require primary interaction vertex in Target fiducial volume
+  custom_filter: ""              # Optional custom RDataFrame filter override expression
+
+# Truth TTree Modular Branch Configuration
+truth_tree:
+  # Branch inclusion mode:
+  #   "auto" : Include only the truth branches corresponding to active selection tiers:
+  #            - universal (always included): neutrino kinematics, DIS variables, vertex, weights
+  #            - lepton    (included if CC or flavor-specific): primary muon kinematics
+  #            - charm     (included if charm.require=true): charm 4-momentum, lifetime, vertex
+  #            - decay_muon(included if decay=to_muon): charm decay muon kinematics, pTrel, IP
+  #            - dimuon    (included if CC + to_muon): dimuon mass, opening angle, delta-phi
+  #   "all"  : Always include all truth observables regardless of selection
+  branch_mode: "auto"
 
 # Neutrino Truth Processor fiducial and selection parameters
 processor:

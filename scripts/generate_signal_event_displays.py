@@ -210,6 +210,7 @@ def process_single_file_worker(args_tuple):
                 img_path = os.path.join(sub_img_dir, f"{canvas_name}.png")
                 canvas.Print(img_path)
 
+        ftemp.Write()
         ftemp.Close()
         fin.Close()
         result["temp_root"] = temp_path
@@ -463,27 +464,12 @@ def main():
             other_name,
         ))
 
-    # Initialize single output ROOT file and TDirectory hierarchy
-    import ROOT
-    ROOT.gROOT.SetBatch(True)
-
-    out_root_abs = os.path.abspath(output_file)
-    os.makedirs(os.path.dirname(out_root_abs), exist_ok=True)
-    fout = ROOT.TFile.Open(out_root_abs, "RECREATE")
-
-    base_tdir = get_or_create_tdirectory(fout, hierarchy)
-    if split_acceptance:
-        dest_in_acc = get_or_create_tdirectory(fout, hierarchy + [in_acc_name])
-        dest_other = get_or_create_tdirectory(fout, hierarchy + [other_name])
-    else:
-        dest_in_acc = base_tdir
-        dest_other = base_tdir
-
     total_saved = 0
     total_in_acc = 0
     total_other = 0
     total_processed = 0
     start_time = time.time()
+    worker_results = []
 
     try:
         with ProcessPoolExecutor(max_workers=args.jobs) as executor:
@@ -492,42 +478,11 @@ def main():
             for fut in as_completed(futures):
                 res = fut.result()
                 total_processed += 1
+                worker_results.append(res)
 
                 if res["status"] == "OK":
-                    temp_root = res["temp_root"]
                     saved_in_file = res["saved_displays"]
-                    if saved_in_file > 0 and temp_root and os.path.exists(temp_root):
-                        ftemp = ROOT.TFile.Open(temp_root, "READ")
-                        if ftemp and not ftemp.IsZombie():
-                            if split_acceptance:
-                                src_in_acc = ftemp.GetDirectory(in_acc_name)
-                                if src_in_acc:
-                                    for key in src_in_acc.GetListOfKeys():
-                                        obj = key.ReadObj()
-                                        dest_in_acc.cd()
-                                        obj.Write(key.GetName())
-                                src_other = ftemp.GetDirectory(other_name)
-                                if src_other:
-                                    for key in src_other.GetListOfKeys():
-                                        obj = key.ReadObj()
-                                        dest_other.cd()
-                                        obj.Write(key.GetName())
-                            else:
-                                for key in ftemp.GetListOfKeys():
-                                    obj = key.ReadObj()
-                                    base_tdir.cd()
-                                    obj.Write(key.GetName())
-                            ftemp.Close()
-
-                        try:
-                            os.remove(temp_root)
-                        except OSError:
-                            pass
-
-                        total_saved += saved_in_file
-                        total_in_acc += res["saved_in_acceptance"]
-                        total_other += res["saved_other"]
-
+                    if saved_in_file > 0:
                         if split_acceptance:
                             print(f" [{total_processed}/{len(input_files)}] {res['file']} (run {res['run_num']}): "
                                   f"+{saved_in_file} displays ({in_acc_name}: {res['saved_in_acceptance']}, {other_name}: {res['saved_other']})")
@@ -538,6 +493,65 @@ def main():
                         print(f" [{total_processed}/{len(input_files)}] {res['file']} (run {res['run_num']}): 0 candidates found.")
                 else:
                     print(f" [{total_processed}/{len(input_files)}] {res['file']}: ERROR: {res['error']}")
+
+        # Merge worker outputs into single final ROOT file after all workers finish
+        import ROOT
+        ROOT.gROOT.SetBatch(True)
+
+        out_root_abs = os.path.abspath(output_file)
+        os.makedirs(os.path.dirname(out_root_abs), exist_ok=True)
+        fout = ROOT.TFile.Open(out_root_abs, "RECREATE")
+
+        base_tdir = get_or_create_tdirectory(fout, hierarchy)
+        if split_acceptance:
+            dest_in_acc = get_or_create_tdirectory(fout, hierarchy + [in_acc_name])
+            dest_other = get_or_create_tdirectory(fout, hierarchy + [other_name])
+        else:
+            dest_in_acc = base_tdir
+            dest_other = base_tdir
+
+        for res in worker_results:
+            if res["status"] != "OK":
+                continue
+            temp_root = res.get("temp_root")
+            saved_in_file = res.get("saved_displays", 0)
+            if saved_in_file > 0 and temp_root and os.path.exists(temp_root):
+                ftemp = ROOT.TFile.Open(temp_root, "READ")
+                if ftemp and not ftemp.IsZombie():
+                    if split_acceptance:
+                        src_in_acc = ftemp.GetDirectory(in_acc_name)
+                        if src_in_acc:
+                            for key in src_in_acc.GetListOfKeys():
+                                obj = key.ReadObj()
+                                if not obj or (hasattr(obj, "IsZombie") and obj.IsZombie()):
+                                    continue
+                                dest_in_acc.cd()
+                                obj.Write(key.GetName(), ROOT.TObject.kOverwrite)
+                        src_other = ftemp.GetDirectory(other_name)
+                        if src_other:
+                            for key in src_other.GetListOfKeys():
+                                obj = key.ReadObj()
+                                if not obj or (hasattr(obj, "IsZombie") and obj.IsZombie()):
+                                    continue
+                                dest_other.cd()
+                                obj.Write(key.GetName(), ROOT.TObject.kOverwrite)
+                    else:
+                        for key in ftemp.GetListOfKeys():
+                            obj = key.ReadObj()
+                            if not obj or (hasattr(obj, "IsZombie") and obj.IsZombie()):
+                                continue
+                            base_tdir.cd()
+                            obj.Write(key.GetName(), ROOT.TObject.kOverwrite)
+                    ftemp.Close()
+
+                try:
+                    os.remove(temp_root)
+                except OSError:
+                    pass
+
+                total_saved += saved_in_file
+                total_in_acc += res["saved_in_acceptance"]
+                total_other += res["saved_other"]
 
         # Flush and close single output ROOT file
         fout.Write()
@@ -553,8 +567,8 @@ def main():
     print(f" Single Output ROOT File: {out_root_abs}")
     print(f" Base TDirectory:         {hierarchy_str}")
     if split_acceptance:
-        print(f"   -> {hierarchy_str}/{in_acc_name}: {total_in_acc} displays (mu2 DS points >= {min_ds_points})")
-        print(f"   -> {hierarchy_str}/{other_name}:        {total_other} displays (mu2 DS points < {min_ds_points})")
+        print(f"   -> {hierarchy_str}/{in_acc_name}: {total_in_acc} displays (DS hor >= {min_ds_hor_points} & ver >= {min_ds_ver_points} for both muons)")
+        print(f"   -> {hierarchy_str}/{other_name}:        {total_other} displays (outside acceptance)")
     if save_images:
         print(f" Exported PNG Images:     {images_dir}")
     print("=" * 78)

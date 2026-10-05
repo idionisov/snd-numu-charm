@@ -64,6 +64,9 @@ struct NeutrinoTruthConfig {
 
     // MuFilter DS acceptance thresholds
     int minDSPoints{3};                  // Minimum DS MCPoints required for downstream muon acceptance
+    int minDSHorizontalPoints{3};        // Minimum horizontal plane DS MCPoints (bar < 60)
+    int minDSVerticalPoints{3};          // Minimum vertical plane DS MCPoints (bar >= 60)
+    bool requireBothMuonsInDS{true};     // Require BOTH prompt mu1 and charm mu2 to pass DS acceptance
 };
 
 struct NeutrinoTruthInfo {

@@ -23,8 +23,11 @@ from .filter import (
     setup_truth_branches,
     fill_truth_buffers,
     process_single_file,
+    find_primary_muon_track_id,
     find_charm_muon_track_id,
+    count_ds_mcpoints,
     count_mu2_ds_mcpoints,
+    is_dimuon_in_ds_acceptance,
 )
 
 __all__ = [
@@ -46,6 +49,9 @@ __all__ = [
     "setup_truth_branches",
     "fill_truth_buffers",
     "process_single_file",
+    "find_primary_muon_track_id",
     "find_charm_muon_track_id",
+    "count_ds_mcpoints",
     "count_mu2_ds_mcpoints",
+    "is_dimuon_in_ds_acceptance",
 ]

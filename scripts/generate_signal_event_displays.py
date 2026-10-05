@@ -83,14 +83,15 @@ def process_single_file_worker(args_tuple):
         save_images,
         images_dir,
         split_acceptance,
-        min_ds_points,
+        min_ds_hor_points,
+        min_ds_ver_points,
         in_acc_name,
         other_name,
     ) = args_tuple
 
     import ROOT
     ROOT.gROOT.SetBatch(True)
-    from snd import Snd2DEventDisplay, get_event_header_number, count_mu2_ds_mcpoints
+    from snd import Snd2DEventDisplay, get_event_header_number, is_dimuon_in_ds_acceptance
 
     fname = os.path.basename(input_path)
 
@@ -168,12 +169,15 @@ def process_single_file_worker(args_tuple):
             tree.GetEntry(iev)
             event_num = get_event_header_number(tree, default_idx=iev)
 
-            # Check DS acceptance for secondary muon from charm decay
-            n_ds_pts = count_mu2_ds_mcpoints(tree)
-            is_in_acceptance = (n_ds_pts >= min_ds_points)
+            # Check DS acceptance for BOTH muons (prompt mu1 and charm decay mu2)
+            is_in_acceptance = is_dimuon_in_ds_acceptance(
+                tree,
+                min_hor_points=min_ds_hor_points,
+                min_ver_points=min_ds_ver_points,
+            )
 
             canvas_name = canvas_name_format.format(run_num=run_num, event_num=event_num)
-            canvas_title = f"SND@LHC Run {run_num} Event {event_num} (DS pts: {n_ds_pts})"
+            canvas_title = f"SND@LHC Run {run_num} Event {event_num} ({'inAcceptance' if is_in_acceptance else 'other'})"
 
             canvas = display.draw_event(
                 tree,
@@ -275,7 +279,19 @@ def main():
         "--min-ds-points",
         type=int,
         default=None,
-        help="Minimum number of DS MCPoints for outgoing charm muon to be categorized inAcceptance (default: 3)",
+        help="Minimum number of DS MCPoints (both hor and ver) for muons to be inAcceptance (default: 3)",
+    )
+    parser.add_argument(
+        "--min-ds-hor-points",
+        type=int,
+        default=None,
+        help="Minimum number of horizontal plane DS MCPoints for muons to be inAcceptance (default: 3)",
+    )
+    parser.add_argument(
+        "--min-ds-ver-points",
+        type=int,
+        default=None,
+        help="Minimum number of vertical plane DS MCPoints for muons to be inAcceptance (default: 3)",
     )
     parser.add_argument(
         "--no-acceptance-split",
@@ -364,6 +380,8 @@ def main():
         split_acceptance = bool(acc_cfg.get("enabled", True))
 
     min_ds_points = args.min_ds_points if args.min_ds_points is not None else int(acc_cfg.get("min_ds_points", 3))
+    min_ds_hor_points = args.min_ds_hor_points if args.min_ds_hor_points is not None else int(acc_cfg.get("min_ds_hor_points", min_ds_points))
+    min_ds_ver_points = args.min_ds_ver_points if args.min_ds_ver_points is not None else int(acc_cfg.get("min_ds_ver_points", min_ds_points))
     in_acc_name = args.in_acceptance_dir or acc_cfg.get("in_acceptance", "inAcceptance")
     other_name = args.other_dir or acc_cfg.get("other", "other")
 
@@ -395,7 +413,7 @@ def main():
     print(f" Single Output ROOT:   {os.path.abspath(output_file)}")
     print(f" Base TDirectory:      {hierarchy_str}")
     if split_acceptance:
-        print(f" Acceptance Splitting: Enabled (Min DS points: {min_ds_points})")
+        print(f" Acceptance Splitting: Enabled (Min DS points: hor>={min_ds_hor_points}, ver>={min_ds_ver_points} for both mu1 & mu2)")
         print(f"   In-Acceptance Dir:  {hierarchy_str}/{in_acc_name}")
         print(f"   Other Dir:          {hierarchy_str}/{other_name}")
     else:
@@ -439,7 +457,8 @@ def main():
             save_images,
             images_dir,
             split_acceptance,
-            min_ds_points,
+            min_ds_hor_points,
+            min_ds_ver_points,
             in_acc_name,
             other_name,
         ))

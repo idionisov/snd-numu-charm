@@ -393,22 +393,51 @@ MuonNeutrinoTruthInfo MuonNeutrinoTruthProcessor::processMuonNeutrino(
         }
     }
 
-    // 8. MuFilter MCPoints and DS Acceptance for charm decay muon (mu_2)
-    if (muFilterPoints && info.mu2TrackId >= 0) {
-        int nDS = 0;
+    // 8. MuFilter MCPoints and DS Acceptance for primary muon (mu_1) and charm decay muon (mu_2)
+    if (muFilterPoints) {
         const int nPoints = muFilterPoints->GetEntriesFast();
-        for (int i = 0; i < nPoints; ++i) {
-            auto* pt = static_cast<const FairMCPoint*>(muFilterPoints->At(i));
-            if (!pt) continue;
-            if (pt->GetTrackID() == info.mu2TrackId) {
-                int sys = pt->GetDetectorID() / 10000;
-                if (sys == 3) {
-                    nDS++;
+
+        // 8a. Primary Muon (mu_1) DS Points
+        if (info.mu1TrackId >= 0) {
+            int nTot = 0, nHor = 0, nVer = 0;
+            for (int i = 0; i < nPoints; ++i) {
+                auto* pt = static_cast<const FairMCPoint*>(muFilterPoints->At(i));
+                if (!pt || pt->GetTrackID() != info.mu1TrackId) continue;
+                int detID = pt->GetDetectorID();
+                if ((detID / 10000) == 3) {
+                    nTot++;
+                    int bar = detID % 1000;
+                    if (bar < 60) nHor++;
+                    else nVer++;
                 }
             }
+            info.mu1nDSPoints = nTot;
+            info.mu1nDSHorizontalPoints = nHor;
+            info.mu1nDSVerticalPoints = nVer;
+            info.mu1InDS = (nHor >= fConfig.minDSHorizontalPoints && nVer >= fConfig.minDSVerticalPoints);
         }
-        info.mu2nDSPoints = nDS;
-        info.mu2InDS = (nDS >= fConfig.minDSPoints);
+
+        // 8b. Charm Decay Muon (mu_2) DS Points
+        if (info.mu2TrackId >= 0) {
+            int nTot = 0, nHor = 0, nVer = 0;
+            for (int i = 0; i < nPoints; ++i) {
+                auto* pt = static_cast<const FairMCPoint*>(muFilterPoints->At(i));
+                if (!pt || pt->GetTrackID() != info.mu2TrackId) continue;
+                int detID = pt->GetDetectorID();
+                if ((detID / 10000) == 3) {
+                    nTot++;
+                    int bar = detID % 1000;
+                    if (bar < 60) nHor++;
+                    else nVer++;
+                }
+            }
+            info.mu2nDSPoints = nTot;
+            info.mu2nDSHorizontalPoints = nHor;
+            info.mu2nDSVerticalPoints = nVer;
+            info.mu2InDS = (nHor >= fConfig.minDSHorizontalPoints && nVer >= fConfig.minDSVerticalPoints);
+        }
+
+        info.dimuonInDSAcceptance = (info.mu1InDS && info.mu2InDS);
     }
 
     return info;

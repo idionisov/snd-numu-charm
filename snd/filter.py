@@ -531,12 +531,22 @@ def process_single_file(
                   if (pdg > 0) return 6;
                   return 0;
               """)
+              .Define("mu1_track_id", "truth.mu1TrackId")
+              .Define("mu1_n_ds_points", "truth.mu1nDSPoints")
+              .Define("mu1_n_ds_hor_points", "truth.mu1nDSHorizontalPoints")
+              .Define("mu1_n_ds_ver_points", "truth.mu1nDSVerticalPoints")
+              .Define("mu1_in_ds_acceptance", "truth.mu1InDS")
+              .Define("charm_track_id", "truth.charmTrackId")
+              .Define("mu2_track_id", "truth.mu2TrackId")
               .Define("mu2_p", "truth.mu2P")
               .Define("mu2_pt", "truth.mu2Pt")
               .Define("mu2_ip3d", "truth.mu2IP3D")
               .Define("mu2_ptrel", "truth.mu2PtRel")
               .Define("mu2_n_ds_points", "truth.mu2nDSPoints")
+              .Define("mu2_n_ds_hor_points", "truth.mu2nDSHorizontalPoints")
+              .Define("mu2_n_ds_ver_points", "truth.mu2nDSVerticalPoints")
               .Define("mu2_in_ds_acceptance", "truth.mu2InDS")
+              .Define("dimuon_in_ds_acceptance", "truth.dimuonInDSAcceptance")
               .Define("dimuon_mass", "truth.dimuonInvMass")
               .Define("dimuon_pt", "truth.dimuonPt")
               .Define("dimuon_opening_angle_mrad", "truth.dimuonOpeningAngleMrad")
@@ -670,10 +680,37 @@ def process_single_file(
     }
 
 
+def find_primary_muon_track_id(tree: Any) -> int:
+    """
+    Returns the MCTrack index of the prompt muon from the neutrino interaction vertex.
+    """
+    if hasattr(tree, "mu1_track_id"):
+        try:
+            tid = int(tree.mu1_track_id)
+            if tid >= 0:
+                return tid
+        except Exception:
+            pass
+
+    if not hasattr(tree, "MCTrack") or tree.MCTrack.GetEntries() == 0:
+        return -1
+
+    best_id = -1
+    max_p = -1.0
+    for i, trk in enumerate(tree.MCTrack):
+        if abs(trk.GetPdgCode()) == 13 and trk.GetMotherId() == 0:
+            p = trk.GetP()
+            if p > max_p:
+                max_p = p
+                best_id = i
+    return best_id
+
+
 def find_charm_muon_track_id(tree: Any) -> int:
     """
     Returns the MCTrack index of the secondary muon originating from the charm hadron decay.
-    First inspects tree.mu2_track_id if available, otherwise traces MCTrack parentage.
+    First inspects tree.mu2_track_id if available.
+    Otherwise searches MCTrack for the charm descendant muon with MAXIMUM momentum.
     """
     if hasattr(tree, "mu2_track_id"):
         try:
@@ -686,23 +723,22 @@ def find_charm_muon_track_id(tree: Any) -> int:
     if not hasattr(tree, "MCTrack") or tree.MCTrack.GetEntries() == 0:
         return -1
 
-    mu1_trk_id = -1
+    mu1_trk_id = find_primary_muon_track_id(tree)
     charm_trk_id = -1
 
-    # Locate primary prompt CC muon and primary charmed hadron
+    # Locate primary charmed hadron
     for i, trk in enumerate(tree.MCTrack):
-        pdg = trk.GetPdgCode()
         mother = trk.GetMotherId()
-        abs_pdg = abs(pdg)
-        if abs_pdg == 13 and mother == 0 and mu1_trk_id < 0:
-            mu1_trk_id = i
-        elif abs_pdg in [411, 421, 431, 4122, 4232, 4132, 4332] and mother == 0 and charm_trk_id < 0:
+        abs_pdg = abs(trk.GetPdgCode())
+        if abs_pdg in [411, 421, 431, 4122, 4232, 4132, 4332] and mother == 0 and charm_trk_id < 0:
             charm_trk_id = i
 
     if charm_trk_id < 0:
         return -1
 
-    # Locate muon daughter descending from charm
+    # Locate muon daughter descending from charm with MAXIMUM momentum
+    best_mu2_id = -1
+    max_p = -1.0
     n_tracks = tree.MCTrack.GetEntries()
     for i, trk in enumerate(tree.MCTrack):
         if abs(trk.GetPdgCode()) == 13 and i != mu1_trk_id:
@@ -710,31 +746,84 @@ def find_charm_muon_track_id(tree: Any) -> int:
             curr_mid = curr.GetMotherId()
             while 0 <= curr_mid < n_tracks:
                 if curr_mid == charm_trk_id:
-                    return i
+                    p = trk.GetP()
+                    if p > max_p:
+                        max_p = p
+                        best_mu2_id = i
+                    break
                 curr = tree.MCTrack[curr_mid]
                 curr_mid = curr.GetMotherId()
 
-    return -1
+    return best_mu2_id
+
+
+def count_ds_mcpoints(tree: Any, track_id: int) -> Tuple[int, int, int]:
+    """
+    Count the number of MCPoints in the Downstream (DS) MuFilter system (system == 3)
+    for a given track ID, separating horizontal and vertical planes.
+
+    Returns:
+        (n_horizontal, n_vertical, n_total)
+        where:
+          - horizontal planes in DS have bar < 60
+          - vertical planes in DS have bar >= 60
+    """
+    if track_id < 0 or not hasattr(tree, "MuFilterPoint"):
+        return 0, 0, 0
+
+    n_hor = 0
+    n_ver = 0
+    for pt in tree.MuFilterPoint:
+        if pt.GetTrackID() == track_id:
+            det_id = pt.GetDetectorID()
+            if (det_id // 10000) == 3:  # Downstream (DS) MuFilter subsystem
+                bar = det_id % 1000
+                if bar < 60:
+                    n_hor += 1
+                else:
+                    n_ver += 1
+
+    return n_hor, n_ver, n_hor + n_ver
+
+
+def is_dimuon_in_ds_acceptance(
+    tree: Any,
+    min_hor_points: int = 3,
+    min_ver_points: int = 3,
+    mu1_id: int = -1,
+    mu2_id: int = -1,
+) -> bool:
+    """
+    Checks if BOTH muons (prompt mu1 and charm decay mu2) travel through the DS system,
+    requiring >= min_hor_points in horizontal planes AND >= min_ver_points in vertical planes
+    in the DS subsystem.
+    """
+    if hasattr(tree, "dimuon_in_ds_acceptance"):
+        try:
+            return bool(tree.dimuon_in_ds_acceptance)
+        except Exception:
+            pass
+
+    if mu1_id < 0:
+        mu1_id = find_primary_muon_track_id(tree)
+    if mu2_id < 0:
+        mu2_id = find_charm_muon_track_id(tree)
+
+    if mu1_id < 0 or mu2_id < 0:
+        return False
+
+    mu1_hor, mu1_ver, _ = count_ds_mcpoints(tree, mu1_id)
+    mu2_hor, mu2_ver, _ = count_ds_mcpoints(tree, mu2_id)
+
+    mu1_pass = (mu1_hor >= min_hor_points and mu1_ver >= min_ver_points)
+    mu2_pass = (mu2_hor >= min_hor_points and mu2_ver >= min_ver_points)
+
+    return (mu1_pass and mu2_pass)
 
 
 def count_mu2_ds_mcpoints(tree: Any, mu2_track_id: int = -1) -> int:
-    """
-    Count the number of MCPoints in the Downstream (DS) MuFilter system (system == 3)
-    produced by the outgoing muon from charm decay.
-    """
+    """Backwards-compatible helper returning total DS MCPoints for charm decay muon."""
     if mu2_track_id < 0:
         mu2_track_id = find_charm_muon_track_id(tree)
-    if mu2_track_id < 0:
-        return 0
-
-    if not hasattr(tree, "MuFilterPoint"):
-        return 0
-
-    ds_points = 0
-    for pt in tree.MuFilterPoint:
-        if pt.GetTrackID() == mu2_track_id:
-            det_id = pt.GetDetectorID()
-            if (det_id // 10000) == 3:  # Downstream (DS) MuFilter subsystem
-                ds_points += 1
-
-    return ds_points
+    _, _, total = count_ds_mcpoints(tree, mu2_track_id)
+    return total

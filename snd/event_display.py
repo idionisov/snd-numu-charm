@@ -22,7 +22,6 @@ import ROOT
 
 # Ensure ROOT operates in batch mode
 ROOT.gROOT.SetBatch(True)
-ROOT.gStyle.SetPalette(ROOT.kViridis)
 
 DEFAULT_GEOFILE = "/eos/experiment/sndlhc/convertedData/physics/2022/geofile_sndlhc_TI18_V4_2022.root"
 
@@ -213,13 +212,17 @@ class Snd2DEventDisplay:
     def _draw_detectors(self, pad_x, pad_y):
         """Draws baseline detector outlines into XZ and YZ pads."""
         pad_x.cd()
-        for poly in self.detector_polylines["X"].values():
+        for node_path, poly in self.detector_polylines["X"].items():
+            if "Bar" in node_path:
+                continue
             if poly.GetFillColor() != 0:
                 poly.DrawClone("f same")
             poly.DrawClone("same")
 
         pad_y.cd()
-        for poly in self.detector_polylines["Y"].values():
+        for node_path, poly in self.detector_polylines["Y"].items():
+            if "Bar" in node_path:
+                continue
             if poly.GetFillColor() != 0:
                 poly.DrawClone("f same")
             poly.DrawClone("same")
@@ -230,7 +233,7 @@ class Snd2DEventDisplay:
         drawn_objs = []
 
         if self.draw_logo and self.logo_path:
-            pad_logo = ROOT.TPad(f"logo_{pad_num}", f"logo_{pad_num}", 0.10, 0.10, 0.19, 0.26)
+            pad_logo = ROOT.TPad(f"logo_{pad_num}", f"logo_{pad_num}", 0.08, 0.09, 0.17, 0.27)
             pad_logo.SetBorderSize(0)
             pad_logo.SetFillStyle(4000)
             pad_logo.SetFillColorAlpha(0, 0)
@@ -244,7 +247,7 @@ class Snd2DEventDisplay:
             pad.cd()
 
         if self.draw_text:
-            pad_text = ROOT.TPad(f"info_{pad_num}", f"info_{pad_num}", 0.17, 0.08, 0.47, 0.28)
+            pad_text = ROOT.TPad(f"info_{pad_num}", f"info_{pad_num}", 0.18, 0.09, 0.46, 0.27)
             pad_text.SetBorderSize(0)
             pad_text.SetFillStyle(4000)
             pad_text.SetFillColorAlpha(0, 0)
@@ -253,7 +256,7 @@ class Snd2DEventDisplay:
             text_info = ROOT.TLatex()
             text_info.SetTextAlign(11)
             text_info.SetTextFont(42)
-            text_info.SetTextSize(0.15)
+            text_info.SetTextSize(0.14)
             text_info.DrawLatex(0.0, 0.60, "SND@LHC Experiment, CERN")
             text_info.DrawLatex(0.0, 0.30, f"Run / Event: {run_number} / {event_number}")
             drawn_objs.extend([pad_text, text_info])
@@ -270,7 +273,7 @@ class Snd2DEventDisplay:
         drawn_objs = []
         n_legend_points = 5
 
-        pad_leg = ROOT.TPad(f"density_qdc_legend_{pad.GetName()}", "density_qdc_legend", 0.48, 0.08, 0.86, 0.28)
+        pad_leg = ROOT.TPad(f"density_qdc_legend_{pad.GetName()}", "density_qdc_legend", 0.48, 0.09, 0.96, 0.27)
         pad_leg.SetBorderSize(0)
         pad_leg.SetFillStyle(4000)
         pad_leg.Draw()
@@ -392,36 +395,67 @@ class Snd2DEventDisplay:
         charm_trk = None
         mu2_trk = None
 
-        if hasattr(tree, "MCTrack"):
-            for i, trk in enumerate(tree.MCTrack):
-                pdg = trk.GetPdgCode()
-                mother = trk.GetMotherId()
-                abs_pdg = abs(pdg)
+        if hasattr(tree, "MCTrack") and tree.MCTrack.GetEntries() > 0:
+            n_tracks = tree.MCTrack.GetEntries()
 
-                # Primary muon (CC)
-                if abs_pdg == 13 and mother == 0 and mu1_trk is None:
-                    mu1_trk = (i, trk)
-                # Primary charm hadron
-                elif abs_pdg in [411, 421, 431, 4122, 4232, 4132, 4332] and mother == 0 and charm_trk is None:
-                    charm_trk = (i, trk)
+            # 1. Primary prompt muon (mu1)
+            mu1_id = -1
+            if hasattr(tree, "mu1_track_id"):
+                try:
+                    mu1_id = int(tree.mu1_track_id)
+                except Exception:
+                    mu1_id = -1
+            if mu1_id < 0 or mu1_id >= n_tracks:
+                max_p = -1.0
+                for i, trk in enumerate(tree.MCTrack):
+                    if abs(trk.GetPdgCode()) == 13 and trk.GetMotherId() == 0:
+                        if trk.GetP() > max_p:
+                            max_p = trk.GetP()
+                            mu1_id = i
+            if 0 <= mu1_id < n_tracks:
+                mu1_trk = (mu1_id, tree.MCTrack[mu1_id])
 
-            # Secondary muon from charm decay
-            if charm_trk is not None:
-                charm_id = charm_trk[0]
+            # 2. Primary charm hadron
+            charm_id = -1
+            if hasattr(tree, "charm_track_id"):
+                try:
+                    charm_id = int(tree.charm_track_id)
+                except Exception:
+                    charm_id = -1
+            if charm_id < 0 or charm_id >= n_tracks:
+                for i, trk in enumerate(tree.MCTrack):
+                    abs_pdg = abs(trk.GetPdgCode())
+                    if abs_pdg in [411, 421, 431, 4122, 4232, 4132, 4332] and trk.GetMotherId() == 0:
+                        charm_id = i
+                        break
+            if 0 <= charm_id < n_tracks:
+                charm_trk = (charm_id, tree.MCTrack[charm_id])
+
+            # 3. Charm decay muon (mu2): prefer mu2_track_id or maximum momentum descendant
+            mu2_id = -1
+            if hasattr(tree, "mu2_track_id"):
+                try:
+                    mu2_id = int(tree.mu2_track_id)
+                except Exception:
+                    mu2_id = -1
+            if (mu2_id < 0 or mu2_id >= n_tracks) and charm_trk is not None:
+                max_mu2_p = -1.0
                 for i, trk in enumerate(tree.MCTrack):
                     if abs(trk.GetPdgCode()) == 13 and i != (mu1_trk[0] if mu1_trk else -1):
                         curr = trk
                         curr_mid = curr.GetMotherId()
                         is_from_charm = False
-                        while curr_mid >= 0 and curr_mid < tree.MCTrack.GetEntries():
-                            if curr_mid == charm_id:
+                        while 0 <= curr_mid < n_tracks:
+                            if curr_mid == charm_trk[0]:
                                 is_from_charm = True
                                 break
                             curr = tree.MCTrack[curr_mid]
                             curr_mid = curr.GetMotherId()
-                        if is_from_charm:
-                            mu2_trk = (i, trk)
-                            break
+                        if is_from_charm and trk.GetP() > max_mu2_p:
+                            max_mu2_p = trk.GetP()
+                            mu2_id = i
+            if 0 <= mu2_id < n_tracks:
+                mu2_trk = (mu2_id, tree.MCTrack[mu2_id])
 
         # Trajectory for Primary Muon
         if mu1_trk is not None:
@@ -475,7 +509,7 @@ class Snd2DEventDisplay:
                     if p.GetTrackID() == mu2_trk[0]:
                         pts.append((p.GetX(), p.GetY(), p.GetZ()))
             if len(pts) == 1:
-                p1 = self._extrapolate_track(p0, trk, max_len=50.0)
+                p1 = self._extrapolate_track(p0, trk, max_len=200.0 if trk.GetP() > 5.0 else 60.0)
                 if p1:
                     pts.append(p1)
             pts.sort(key=lambda p: p[2])

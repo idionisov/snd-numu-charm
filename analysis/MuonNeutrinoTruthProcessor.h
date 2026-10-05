@@ -92,8 +92,15 @@ struct MuonNeutrinoTruthInfo : public NeutrinoTruthInfo {
     // -------------------------------------------------------------
     // 6. MuFilter MCPoints and DS Acceptance
     // -------------------------------------------------------------
-    int mu2nDSPoints{0};                 // Number of MCPoints in Downstream (DS) MuFilter system (system == 3)
-    bool mu2InDS{false};                 // Outgoing charm decay muon has >= minDSPoints in DS
+    int mu1nDSPoints{0};                 // Total MCPoints in DS (sys == 3) for primary muon (mu_1)
+    int mu1nDSHorizontalPoints{0};       // Horizontal plane MCPoints in DS (sys == 3, bar < 60) for mu_1
+    int mu1nDSVerticalPoints{0};         // Vertical plane MCPoints in DS (sys == 3, bar >= 60) for mu_1
+    bool mu1InDS{false};                 // mu_1 satisfies minDSHorizontalPoints and minDSVerticalPoints
+    int mu2nDSPoints{0};                 // Total MCPoints in DS (sys == 3) for charm decay muon (mu_2)
+    int mu2nDSHorizontalPoints{0};       // Horizontal plane MCPoints in DS (sys == 3, bar < 60) for mu_2
+    int mu2nDSVerticalPoints{0};         // Vertical plane MCPoints in DS (sys == 3, bar >= 60) for mu_2
+    bool mu2InDS{false};                 // mu_2 satisfies minDSHorizontalPoints and minDSVerticalPoints
+    bool dimuonInDSAcceptance{false};    // BOTH mu_1 and mu_2 satisfy DS acceptance requirements
 };
 
 class MuonNeutrinoTruthProcessor : public NeutrinoTruthProcessor {

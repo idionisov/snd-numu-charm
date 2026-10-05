@@ -23,6 +23,11 @@ output:
   preserve_subdirs: true
   # Whether to completely skip creating and storing empty ROOT files (0 matching events)
   skip_empty_files: true
+  # Whether to create symlinks in the output directory to all ROOT files from the input directory
+  # (e.g. geofile_full.Genie-TGeant4.root, ship.params, raw digCPP files)
+  symlink_input_root_files: true
+  # Whether to create symlinks only when signal events are selected in a partition
+  symlink_only_selected: true
 
 # Performance & Multithreading
 performance:

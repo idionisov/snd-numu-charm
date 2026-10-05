@@ -243,3 +243,28 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 3.14159
+
+# ==============================================================================
+# 2D Interactive Event Displays Configuration
+# ==============================================================================
+event_displays:
+  # Default input dataset location (directory with partition subdirs or file pattern)
+  input_dir: "/eos/user/i/idioniso/snd-numu-charm/data"
+  # Default output single ROOT file containing all event display TCanvases
+  output_file: "event_displays/signal_event_displays.root"
+  # TDirectory hierarchy where canvases will be stored inside the single ROOT file
+  # Supports slash '/' or arrow '->' separated path.
+  # Hierarchy: neutrinoEvents -> numu -> CC -> toCharm -> charmToMuon
+  tdirectory_path: "neutrinoEvents/numu/CC/toCharm/charmToMuon"
+  # Canvas name format. {run_num} = parent directory (0..399), {event_num} = EventHeader event number
+  canvas_name_format: "c_run{run_num}_ev{event_num}"
+  # Whether to only display candidate signal events (has_candidate == 1)
+  candidates_only: true
+  # Hit density & QDC color coding
+  color_by_qdc_and_density: true
+  max_density: 40
+  max_qdc: 3200.0
+  # Export PNG images alongside ROOT file
+  save_images: false
+  images_dir: "event_displays/images"
+

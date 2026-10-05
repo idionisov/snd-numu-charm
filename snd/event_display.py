@@ -16,6 +16,7 @@ import os
 import sys
 import math
 from array import array
+from typing import Optional, List, Dict, Any, Tuple
 import numpy as np
 import ROOT
 
@@ -488,6 +489,8 @@ class Snd2DEventDisplay:
         event_idx: int = 0,
         canvas_name: str = "simpleDisplay",
         canvas_title: str = "2d event display",
+        run_number: Optional[int] = None,
+        event_number: Optional[int] = None,
     ) -> ROOT.TCanvas:
         """
         Builds the 2D event display TCanvas mimicking EventDisplay_Task simpleDisplay.
@@ -496,12 +499,30 @@ class Snd2DEventDisplay:
         truth = self._extract_truth(tree)
         tracks = self._find_truth_tracks(tree, truth)
 
-        run_id = 0
-        if hasattr(tree, "EventHeader"):
+        if run_number is not None:
+            run_id = run_number
+        elif hasattr(tree, "EventHeader"):
             try:
                 run_id = tree.EventHeader.GetRunId()
             except Exception:
-                pass
+                run_id = 0
+        else:
+            run_id = 0
+
+        if event_number is not None:
+            ev_id = event_number
+        elif hasattr(tree, "EventHeader"):
+            try:
+                if hasattr(tree.EventHeader, "GetEventNumber"):
+                    ev_id = tree.EventHeader.GetEventNumber()
+                elif hasattr(tree.EventHeader, "GetMCEntryNumber"):
+                    ev_id = tree.EventHeader.GetMCEntryNumber()
+                else:
+                    ev_id = event_idx
+            except Exception:
+                ev_id = event_idx
+        else:
+            ev_id = event_idx
 
         # Canvas matching original nx=1200, ny=1600
         canvas = ROOT.TCanvas(canvas_name, canvas_title, 1200, 1600)
@@ -738,8 +759,8 @@ class Snd2DEventDisplay:
             track_objs.extend([m_end_xz, m_end_yz])
 
         # 5. Draw Official SND@LHC Logo and Run/Event info subpads
-        logo_objs_1 = self._draw_logo_and_info(pad_xz, 1, run_id, event_idx)
-        logo_objs_2 = self._draw_logo_and_info(pad_yz, 2, run_id, event_idx)
+        logo_objs_1 = self._draw_logo_and_info(pad_xz, 1, run_id, ev_id)
+        logo_objs_2 = self._draw_logo_and_info(pad_yz, 2, run_id, ev_id)
 
         # 6. Draw Density and QDC Color Scale Legend (Bottom of XZ pad matching 2dEventDisplay.py)
         legend_objs_1 = []

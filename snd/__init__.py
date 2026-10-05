@@ -13,6 +13,9 @@ from .io_utils import (
     extract_captures,
     determine_output_path,
     symlink_input_root_files,
+    resolve_tdirectory_hierarchy,
+    get_or_create_tdirectory,
+    get_event_header_number,
 )
 from .filter import (
     build_processor,
@@ -33,6 +36,9 @@ __all__ = [
     "extract_captures",
     "determine_output_path",
     "symlink_input_root_files",
+    "resolve_tdirectory_hierarchy",
+    "get_or_create_tdirectory",
+    "get_event_header_number",
     "build_processor",
     "resolve_hierarchical_selection",
     "setup_truth_branches",

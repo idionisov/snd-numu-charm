@@ -48,15 +48,60 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
 
     if os.path.isfile(pattern):
         matched_files = [pattern]
+    elif os.path.isdir(pattern):
+        subdirs = sorted(
+            [d for d in os.listdir(pattern) if os.path.isdir(os.path.join(pattern, d))],
+            key=lambda x: int(x) if x.isdigit() else x
+        )
+        if subdirs:
+            for d in subdirs:
+                if max_files > 0 and len(matched_files) >= max_files:
+                    break
+                d_path = os.path.join(pattern, d)
+                candidates = []
+                for f in os.listdir(d_path):
+                    if not f.endswith(".root"):
+                        continue
+                    if f.startswith("geofile") or f.startswith("ship.params") or f.endswith(".gst.root") or f.endswith(".ghep.root"):
+                        continue
+                    if "signal" in f:
+                        candidates.insert(0, os.path.join(d_path, f))
+                    else:
+                        candidates.append(os.path.join(d_path, f))
+                if candidates:
+                    matched_files.append(candidates[0])
+        else:
+            all_valid = []
+            signal_files = []
+            for f in sorted(os.listdir(pattern)):
+                if not f.endswith(".root"):
+                    continue
+                if f.startswith("geofile") or f.startswith("ship.params") or f.endswith(".gst.root") or f.endswith(".ghep.root"):
+                    continue
+                fpath = os.path.join(pattern, f)
+                all_valid.append(fpath)
+                if "signal" in f:
+                    signal_files.append(fpath)
+            if signal_files:
+                matched_files.extend(signal_files)
+            else:
+                matched_files.extend(all_valid)
     else:
-        sep = None
-        if "/%s/" in pattern and pattern.count("%s") == 1 and "*" not in pattern:
-            sep = "/%s/"
+        if "/%s/" in pattern and "*" not in pattern:
+            base_dir, rest = pattern.split("/%s/", 1)
+            if os.path.isdir(base_dir):
+                subdirs = sorted(
+                    [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))],
+                    key=lambda x: int(x) if x.isdigit() else x
+                )
+                for d in subdirs:
+                    if max_files > 0 and len(matched_files) >= max_files:
+                        break
+                    fpath = os.path.join(base_dir, d, rest.replace("%s", d))
+                    if os.path.exists(fpath):
+                        matched_files.append(fpath)
         elif "/*/" in pattern and pattern.count("*") == 1 and "%s" not in pattern:
-            sep = "/*/"
-
-        if sep:
-            base_dir, filename = pattern.split(sep, 1)
+            base_dir, filename = pattern.split("/*/", 1)
             if os.path.isdir(base_dir):
                 subdirs = sorted(
                     [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))],
@@ -239,3 +284,91 @@ def symlink_input_root_files(
             print(f"  [Warning] Could not symlink {entry} -> {dst_path}: {err}")
 
     return created_links
+
+
+def resolve_tdirectory_hierarchy(cfg: dict) -> List[str]:
+    """
+    Determine the TDirectory hierarchy for storing event display canvases.
+    If explicitly defined in config under event_displays.tdirectory_path, use it.
+    Otherwise, derive it dynamically from selection settings:
+      neutrinoEvents -> numu -> CC -> toCharm -> charmToMuon
+    """
+    disp_cfg = cfg.get("event_displays", {})
+    if "tdirectory_path" in disp_cfg and disp_cfg["tdirectory_path"]:
+        parts = [p.strip() for p in disp_cfg["tdirectory_path"].replace("->", "/").split("/") if p.strip()]
+        if parts:
+            return parts
+
+    sel_cfg = cfg.get("selection", {})
+    flavor = str(sel_cfg.get("flavor", "numu")).lower().replace("_", "").replace("-", "")
+    interaction = str(sel_cfg.get("interaction", "CC")).upper().strip()
+    charm_cfg = sel_cfg.get("charm", {})
+    require_charm = bool(charm_cfg.get("require", True))
+    charm_species = str(charm_cfg.get("species", "any")).strip()
+    charm_decay = str(charm_cfg.get("decay", "to_muon")).lower().replace("-", "").replace("_", "")
+
+    hierarchy = ["neutrinoEvents"]
+
+    # Flavor tier
+    if flavor in ["numu", "muon"]:
+        flavor_dir = "numu"
+    elif flavor in ["nue", "electron"]:
+        flavor_dir = "nue"
+    elif flavor in ["nutau", "tau"]:
+        flavor_dir = "nutau"
+    else:
+        flavor_dir = "allFlavors"
+    hierarchy.append(flavor_dir)
+
+    # Interaction tier
+    if interaction in ["CC", "NC"]:
+        hierarchy.append(interaction)
+    else:
+        hierarchy.append("inclusive")
+
+    # Charm tier
+    if require_charm:
+        if charm_species.lower() != "any":
+            charm_dir = f"to{charm_species.capitalize()}"
+        else:
+            charm_dir = "toCharm"
+        hierarchy.append(charm_dir)
+
+        # Decay tier
+        if charm_decay in ["muon", "tomuon", "dimuon"]:
+            decay_dir = "charmToMuon"
+            hierarchy.append(decay_dir)
+        elif charm_decay != "any":
+            decay_dir = f"charm{charm_decay.capitalize()}"
+            hierarchy.append(decay_dir)
+
+    return hierarchy
+
+
+def get_or_create_tdirectory(tfile: Any, path_parts: List[str]) -> Any:
+    """Recursively create or navigate to nested TDirectories in a TFile."""
+    current = tfile
+    for part in path_parts:
+        next_dir = current.GetDirectory(part)
+        if not next_dir:
+            next_dir = current.mkdir(part)
+        current = next_dir
+    return current
+
+
+def get_event_header_number(tree: Any, default_idx: int = 0) -> int:
+    """Extract event number from tree.EventHeader (GetEventNumber or GetMCEntryNumber)."""
+    if hasattr(tree, "EventHeader"):
+        h = tree.EventHeader
+        if hasattr(h, "GetEventNumber"):
+            try:
+                return int(h.GetEventNumber())
+            except Exception:
+                pass
+        if hasattr(h, "GetMCEntryNumber"):
+            try:
+                return int(h.GetMCEntryNumber())
+            except Exception:
+                pass
+    return default_idx
+

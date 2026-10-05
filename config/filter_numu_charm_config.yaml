@@ -71,6 +71,8 @@ selection:
     #   "to_muon" : Prompt semi-leptonic decay to a muon (dimuon final state)
     decay: "to_muon"
     require_opposite_sign: true  # Require opposite sign for primary and decay muons (mu1- mu2+ or mu1+ mu2-)
+    require_ds_acceptance: false # Require outgoing charm decay muon to have >= min_ds_points in DS
+    min_ds_points: 3             # Minimum MCPoints in DS system for acceptance
 
   # Acceptance and fiducial requirement
   require_fiducial: false        # Require primary interaction vertex in Target fiducial volume
@@ -256,6 +258,13 @@ event_displays:
   # Supports slash '/' or arrow '->' separated path.
   # Hierarchy: neutrinoEvents -> numu -> CC -> toCharm -> charmToMuon
   tdirectory_path: "neutrinoEvents/numu/CC/toCharm/charmToMuon"
+  # Acceptance subdirectories based on charm decay muon DS MCPoints
+  # Partitions canvases into inAcceptance (>= min_ds_points) and other (< min_ds_points)
+  acceptance_subdirs:
+    enabled: true
+    min_ds_points: 3
+    in_acceptance: "inAcceptance"
+    other: "other"
   # Canvas name format. {run_num} = parent directory (0..399), {event_num} = EventHeader event number
   canvas_name_format: "c_run{run_num}_ev{event_num}"
   # Whether to only display candidate signal events (has_candidate == 1)

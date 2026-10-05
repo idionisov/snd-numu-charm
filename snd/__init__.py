@@ -23,6 +23,8 @@ from .filter import (
     setup_truth_branches,
     fill_truth_buffers,
     process_single_file,
+    find_charm_muon_track_id,
+    count_mu2_ds_mcpoints,
 )
 
 __all__ = [
@@ -44,4 +46,6 @@ __all__ = [
     "setup_truth_branches",
     "fill_truth_buffers",
     "process_single_file",
+    "find_charm_muon_track_id",
+    "count_mu2_ds_mcpoints",
 ]

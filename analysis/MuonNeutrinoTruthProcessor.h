@@ -88,6 +88,12 @@ struct MuonNeutrinoTruthInfo : public NeutrinoTruthInfo {
     double dimuonEnergyAsymmetry{0.0};   // (E_1 - E_2) / (E_1 + E_2)
     double dimuonMomentumRatio{0.0};     // p_2 / p_1
     int nMuonsInEvent{0};                // Total number of muons in event
+
+    // -------------------------------------------------------------
+    // 6. MuFilter MCPoints and DS Acceptance
+    // -------------------------------------------------------------
+    int mu2nDSPoints{0};                 // Number of MCPoints in Downstream (DS) MuFilter system (system == 3)
+    bool mu2InDS{false};                 // Outgoing charm decay muon has >= minDSPoints in DS
 };
 
 class MuonNeutrinoTruthProcessor : public NeutrinoTruthProcessor {
@@ -112,17 +118,18 @@ public:
                            int& outParentCharmId) const;
 
     // Primary processor returning specialized MuonNeutrinoTruthInfo
-    MuonNeutrinoTruthInfo processMuonNeutrino(const TClonesArray* mcTracks) const;
+    MuonNeutrinoTruthInfo processMuonNeutrino(const TClonesArray* mcTracks,
+                                              const TClonesArray* muFilterPoints = nullptr) const;
 
     // Callable operator for ROOT RDataFrame:
     // df.Define("truth", muonProcessor, {"MCTrack"})
     MuonNeutrinoTruthInfo operator()(const TClonesArray& mcTracks) const {
-        return processMuonNeutrino(&mcTracks);
+        return processMuonNeutrino(&mcTracks, nullptr);
     }
 
     // Polymorphic base override
     NeutrinoTruthInfo process(const TClonesArray* mcTracks) const override {
-        return processMuonNeutrino(mcTracks);
+        return processMuonNeutrino(mcTracks, nullptr);
     }
 
 private:
@@ -137,9 +144,26 @@ private:
                                  const TClonesArray& mcTracks) const;
 };
 
+// Dedicated functor for 2-column RDataFrame evaluation:
+// df.Define("truth", muonProcessorWithDS, {"MCTrack", "MuFilterPoint"})
+class MuonNeutrinoTruthWithDSProcessor {
+public:
+    explicit MuonNeutrinoTruthWithDSProcessor(const MuonNeutrinoTruthProcessor& processor = MuonNeutrinoTruthProcessor())
+        : m_processor(processor) {}
+
+    MuonNeutrinoTruthInfo operator()(const TClonesArray& mcTracks,
+                                     const TClonesArray& muFilterPoints) const {
+        return m_processor.processMuonNeutrino(&mcTracks, &muFilterPoints);
+    }
+
+private:
+    MuonNeutrinoTruthProcessor m_processor;
+};
+
 namespace trident {
-    using MuonNeutrinoTruthInfo      = snd::MuonNeutrinoTruthInfo;
-    using MuonNeutrinoTruthProcessor = snd::MuonNeutrinoTruthProcessor;
+    using MuonNeutrinoTruthInfo           = snd::MuonNeutrinoTruthInfo;
+    using MuonNeutrinoTruthProcessor       = snd::MuonNeutrinoTruthProcessor;
+    using MuonNeutrinoTruthWithDSProcessor = snd::MuonNeutrinoTruthWithDSProcessor;
 }
 
 } // namespace snd

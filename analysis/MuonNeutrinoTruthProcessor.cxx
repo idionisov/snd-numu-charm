@@ -1,4 +1,5 @@
 #include "MuonNeutrinoTruthProcessor.h"
+#include "FairMCPoint.h"
 
 #include <cmath>
 #include <algorithm>
@@ -233,7 +234,9 @@ void MuonNeutrinoTruthProcessor::fillMuonCharmKinematics(
     }
 }
 
-MuonNeutrinoTruthInfo MuonNeutrinoTruthProcessor::processMuonNeutrino(const TClonesArray* mcTracks) const {
+MuonNeutrinoTruthInfo MuonNeutrinoTruthProcessor::processMuonNeutrino(
+    const TClonesArray* mcTracks,
+    const TClonesArray* muFilterPoints) const {
     MuonNeutrinoTruthInfo info;
     if (!mcTracks || mcTracks->GetEntriesFast() == 0) {
         return info;
@@ -388,6 +391,24 @@ MuonNeutrinoTruthInfo MuonNeutrinoTruthProcessor::processMuonNeutrino(const TClo
         if (info.isCC && (info.isNuMuCC || info.isAntiNuMuCC) && info.hasPromptCharmMuon) {
             info.hasCandidate = true;
         }
+    }
+
+    // 8. MuFilter MCPoints and DS Acceptance for charm decay muon (mu_2)
+    if (muFilterPoints && info.mu2TrackId >= 0) {
+        int nDS = 0;
+        const int nPoints = muFilterPoints->GetEntriesFast();
+        for (int i = 0; i < nPoints; ++i) {
+            auto* pt = static_cast<const FairMCPoint*>(muFilterPoints->At(i));
+            if (!pt) continue;
+            if (pt->GetTrackID() == info.mu2TrackId) {
+                int sys = pt->GetDetectorID() / 10000;
+                if (sys == 3) {
+                    nDS++;
+                }
+            }
+        }
+        info.mu2nDSPoints = nDS;
+        info.mu2InDS = (nDS >= fConfig.minDSPoints);
     }
 
     return info;

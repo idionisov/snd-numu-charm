@@ -61,6 +61,9 @@ struct NeutrinoTruthConfig {
     double minLeptonMomentum{0.0};       // Minimum momentum threshold for primary lepton [GeV/c]
     double maxCharmFlightDistance{20.0}; // Maximum physical flight distance for prompt charm [cm]
     double weightScale{1.0};             // Optional global event weight scale
+
+    // MuFilter DS acceptance thresholds
+    int minDSPoints{3};                  // Minimum DS MCPoints required for downstream muon acceptance
 };
 
 struct NeutrinoTruthInfo {

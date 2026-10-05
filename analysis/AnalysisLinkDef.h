@@ -23,6 +23,7 @@
 #pragma link C++ class snd::NeutrinoTruthProcessor+;
 #pragma link C++ struct snd::MuonNeutrinoTruthInfo+;
 #pragma link C++ class snd::MuonNeutrinoTruthProcessor+;
+#pragma link C++ class snd::MuonNeutrinoTruthWithDSProcessor+;
 #pragma link C++ class snd::DataManager+;
 
 #endif

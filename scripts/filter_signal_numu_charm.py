@@ -96,6 +96,20 @@ def parse_arguments():
         help="Require interaction vertex within the Target fiducial volume"
     )
     parser.add_argument(
+        "--require-ds-acceptance",
+        dest="require_ds_acceptance",
+        action="store_true",
+        default=None,
+        help="Require charm decay muon to have >= 3 MCPoints in Downstream (DS) MuFilter system"
+    )
+    parser.add_argument(
+        "--no-ds-acceptance",
+        dest="require_ds_acceptance",
+        action="store_false",
+        default=None,
+        help="Do not require charm decay muon to be in DS acceptance"
+    )
+    parser.add_argument(
         "--symlink-input",
         dest="symlink_input",
         action="store_true",
@@ -145,7 +159,8 @@ def main():
     # 2. Resolve Selection Criteria & Active Truth Tiers from YAML Config
     filter_expr, filter_desc, predicate, active_tiers = resolve_hierarchical_selection(
         cfg=cfg,
-        cli_fiducial=args.fiducial
+        cli_fiducial=args.fiducial,
+        cli_ds_acceptance=args.require_ds_acceptance,
     )
 
     # 3. Resolve Input Files

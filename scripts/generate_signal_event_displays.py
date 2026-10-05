@@ -6,8 +6,13 @@ Generates 2D interactive event displays (XZ top view, YZ side view) for signal
 events (numu CC charm dimuon events) from input ROOT files.
 
 Saves all generated TCanvas objects into a single output ROOT file within a
-hierarchical TDirectory structure (e.g. neutrinoEvents/numu/CC/toCharm/charmToMuon),
-allowing interactive inspection with ROOT TBrowser, and optionally exports PNG images.
+hierarchical TDirectory structure:
+  neutrinoEvents/numu/CC/toCharm/charmToMuon/inAcceptance
+  neutrinoEvents/numu/CC/toCharm/charmToMuon/other
+
+where:
+  - inAcceptance: events where the outgoing muon from charm decay has >= 3 MCPoints in DS.
+  - other: events where the outgoing charm decay muon has < 3 MCPoints in DS.
 
 Canvas naming format:
   c_run{run_num}_ev{event_num}
@@ -20,7 +25,7 @@ Usage examples:
 
   # Processing specific partition or directory:
   python3 scripts/generate_signal_event_displays.py \
-      -i /eos/user/i/idioniso/snd-numu-charm/data/0 \
+      -i /eos/user/i/idioniso/snd-numu-charm/data/7 \
       -o ./event_displays/signal_event_displays.root \
       -j 4
 
@@ -52,6 +57,7 @@ from snd import (
     resolve_tdirectory_hierarchy,
     get_or_create_tdirectory,
     get_event_header_number,
+    count_mu2_ds_mcpoints,
 )
 
 DEFAULT_GEOFILE = "/eos/experiment/sndlhc/convertedData/physics/2022/geofile_sndlhc_TI18_V4_2022.root"
@@ -76,11 +82,15 @@ def process_single_file_worker(args_tuple):
         max_events,
         save_images,
         images_dir,
+        split_acceptance,
+        min_ds_points,
+        in_acc_name,
+        other_name,
     ) = args_tuple
 
     import ROOT
     ROOT.gROOT.SetBatch(True)
-    from snd import Snd2DEventDisplay, get_event_header_number
+    from snd import Snd2DEventDisplay, get_event_header_number, count_mu2_ds_mcpoints
 
     fname = os.path.basename(input_path)
 
@@ -89,6 +99,8 @@ def process_single_file_worker(args_tuple):
         "run_num": run_num,
         "total_entries": 0,
         "saved_displays": 0,
+        "saved_in_acceptance": 0,
+        "saved_other": 0,
         "temp_root": None,
         "canvas_names": [],
         "status": "OK",
@@ -137,6 +149,13 @@ def process_single_file_worker(args_tuple):
         os.close(temp_fd)
         ftemp = ROOT.TFile.Open(temp_path, "RECREATE")
 
+        if split_acceptance:
+            tdir_in_acc = ftemp.mkdir(in_acc_name)
+            tdir_other = ftemp.mkdir(other_name)
+        else:
+            tdir_in_acc = ftemp
+            tdir_other = ftemp
+
         # Initialize display engine
         display = Snd2DEventDisplay(
             geo_file=geofile_to_use,
@@ -145,15 +164,16 @@ def process_single_file_worker(args_tuple):
             max_qdc=max_qdc,
         )
 
-        if save_images:
-            os.makedirs(images_dir, exist_ok=True)
-
         for iev in selected_entries:
             tree.GetEntry(iev)
             event_num = get_event_header_number(tree, default_idx=iev)
 
+            # Check DS acceptance for secondary muon from charm decay
+            n_ds_pts = count_mu2_ds_mcpoints(tree)
+            is_in_acceptance = (n_ds_pts >= min_ds_points)
+
             canvas_name = canvas_name_format.format(run_num=run_num, event_num=event_num)
-            canvas_title = f"SND@LHC Run {run_num} Event {event_num}"
+            canvas_title = f"SND@LHC Run {run_num} Event {event_num} (DS pts: {n_ds_pts})"
 
             canvas = display.draw_event(
                 tree,
@@ -164,13 +184,26 @@ def process_single_file_worker(args_tuple):
                 event_number=event_num,
             )
 
-            ftemp.cd()
+            if split_acceptance:
+                target_tdir = tdir_in_acc if is_in_acceptance else tdir_other
+                category = in_acc_name if is_in_acceptance else other_name
+            else:
+                target_tdir = ftemp
+                category = "default"
+
+            target_tdir.cd()
             canvas.Write(canvas_name)
             result["saved_displays"] += 1
-            result["canvas_names"].append(canvas_name)
+            if is_in_acceptance:
+                result["saved_in_acceptance"] += 1
+            else:
+                result["saved_other"] += 1
+            result["canvas_names"].append((canvas_name, category))
 
             if save_images:
-                img_path = os.path.join(images_dir, f"{canvas_name}.png")
+                sub_img_dir = os.path.join(images_dir, category) if split_acceptance else images_dir
+                os.makedirs(sub_img_dir, exist_ok=True)
+                img_path = os.path.join(sub_img_dir, f"{canvas_name}.png")
                 canvas.Print(img_path)
 
         ftemp.Close()
@@ -188,7 +221,7 @@ def main():
     default_config_path = os.path.join(PROJECT_ROOT, "config", "filter_numu_charm_config.yaml")
 
     parser = argparse.ArgumentParser(
-        description="Generate 2D interactive event displays for SND@LHC signal events into a single hierarchical ROOT file.",
+        description="Generate 2D interactive event displays for SND@LHC signal events partitioned by DS acceptance.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -225,7 +258,7 @@ def main():
         "--tdirectory",
         type=str,
         default=None,
-        help="Custom TDirectory hierarchy (e.g. neutrinoEvents/MuonNeutrinoEvents/... or arrow -> separated)",
+        help="Custom base TDirectory hierarchy (e.g. neutrinoEvents/numu/CC/toCharm/charmToMuon)",
     )
     parser.add_argument(
         "--candidates-only",
@@ -237,6 +270,29 @@ def main():
         "--all-events",
         action="store_true",
         help="Display all events in input files (overrides candidates_only)",
+    )
+    parser.add_argument(
+        "--min-ds-points",
+        type=int,
+        default=None,
+        help="Minimum number of DS MCPoints for outgoing charm muon to be categorized inAcceptance (default: 3)",
+    )
+    parser.add_argument(
+        "--no-acceptance-split",
+        action="store_true",
+        help="Disable splitting into inAcceptance and other subdirectories",
+    )
+    parser.add_argument(
+        "--in-acceptance-dir",
+        type=str,
+        default=None,
+        help="Subdirectory name for events in acceptance (default: 'inAcceptance')",
+    )
+    parser.add_argument(
+        "--other-dir",
+        type=str,
+        default=None,
+        help="Subdirectory name for events not in acceptance (default: 'other')",
     )
     parser.add_argument(
         "--save-images",
@@ -300,6 +356,17 @@ def main():
     else:
         candidates_only = bool(disp_cfg.get("candidates_only", True))
 
+    # Acceptance subdirectories config
+    acc_cfg = disp_cfg.get("acceptance_subdirs", {})
+    if args.no_acceptance_split:
+        split_acceptance = False
+    else:
+        split_acceptance = bool(acc_cfg.get("enabled", True))
+
+    min_ds_points = args.min_ds_points if args.min_ds_points is not None else int(acc_cfg.get("min_ds_points", 3))
+    in_acc_name = args.in_acceptance_dir or acc_cfg.get("in_acceptance", "inAcceptance")
+    other_name = args.other_dir or acc_cfg.get("other", "other")
+
     save_images = args.save_images if args.save_images is not None else bool(disp_cfg.get("save_images", False))
     images_dir = args.images_dir if args.images_dir is not None else disp_cfg.get("images_dir", "event_displays/images")
     if not os.path.isabs(images_dir):
@@ -309,7 +376,7 @@ def main():
     max_density = args.max_density if args.max_density is not None else int(disp_cfg.get("max_density", 40))
     max_qdc = args.max_qdc if args.max_qdc is not None else float(disp_cfg.get("max_qdc", 3200.0))
 
-    # Resolve TDirectory hierarchy
+    # Resolve base TDirectory hierarchy
     if args.tdirectory:
         hierarchy = [p.strip() for p in args.tdirectory.replace("->", "/").split("/") if p.strip()]
     else:
@@ -326,7 +393,13 @@ def main():
     print(f" Input Target:         {input_path}")
     print(f" Files Matched:        {len(input_files)}")
     print(f" Single Output ROOT:   {os.path.abspath(output_file)}")
-    print(f" TDirectory Hierarchy: {hierarchy_str}")
+    print(f" Base TDirectory:      {hierarchy_str}")
+    if split_acceptance:
+        print(f" Acceptance Splitting: Enabled (Min DS points: {min_ds_points})")
+        print(f"   In-Acceptance Dir:  {hierarchy_str}/{in_acc_name}")
+        print(f"   Other Dir:          {hierarchy_str}/{other_name}")
+    else:
+        print(f" Acceptance Splitting: Disabled")
     print(f" Canvas Name Format:   {canvas_name_format}")
     print(f" Filter Mode:          {'Candidates only (has_candidate=1)' if candidates_only else 'All events'}")
     print(f" QDC / Density Colors: {color_by_qdc_and_density} (Max Dens: {max_density}, Max QDC: {max_qdc})")
@@ -365,6 +438,10 @@ def main():
             args.max_events_per_file,
             save_images,
             images_dir,
+            split_acceptance,
+            min_ds_points,
+            in_acc_name,
+            other_name,
         ))
 
     # Initialize single output ROOT file and TDirectory hierarchy
@@ -374,9 +451,18 @@ def main():
     out_root_abs = os.path.abspath(output_file)
     os.makedirs(os.path.dirname(out_root_abs), exist_ok=True)
     fout = ROOT.TFile.Open(out_root_abs, "RECREATE")
-    target_tdir = get_or_create_tdirectory(fout, hierarchy)
+
+    base_tdir = get_or_create_tdirectory(fout, hierarchy)
+    if split_acceptance:
+        dest_in_acc = get_or_create_tdirectory(fout, hierarchy + [in_acc_name])
+        dest_other = get_or_create_tdirectory(fout, hierarchy + [other_name])
+    else:
+        dest_in_acc = base_tdir
+        dest_other = base_tdir
 
     total_saved = 0
+    total_in_acc = 0
+    total_other = 0
     total_processed = 0
     start_time = time.time()
 
@@ -392,28 +478,49 @@ def main():
                     temp_root = res["temp_root"]
                     saved_in_file = res["saved_displays"]
                     if saved_in_file > 0 and temp_root and os.path.exists(temp_root):
-                        # Merge canvases from temp ROOT file into single output ROOT file
                         ftemp = ROOT.TFile.Open(temp_root, "READ")
                         if ftemp and not ftemp.IsZombie():
-                            for key in ftemp.GetListOfKeys():
-                                obj = key.ReadObj()
-                                target_tdir.cd()
-                                obj.Write(key.GetName())
+                            if split_acceptance:
+                                src_in_acc = ftemp.GetDirectory(in_acc_name)
+                                if src_in_acc:
+                                    for key in src_in_acc.GetListOfKeys():
+                                        obj = key.ReadObj()
+                                        dest_in_acc.cd()
+                                        obj.Write(key.GetName())
+                                src_other = ftemp.GetDirectory(other_name)
+                                if src_other:
+                                    for key in src_other.GetListOfKeys():
+                                        obj = key.ReadObj()
+                                        dest_other.cd()
+                                        obj.Write(key.GetName())
+                            else:
+                                for key in ftemp.GetListOfKeys():
+                                    obj = key.ReadObj()
+                                    base_tdir.cd()
+                                    obj.Write(key.GetName())
                             ftemp.Close()
+
                         try:
                             os.remove(temp_root)
                         except OSError:
                             pass
 
-                        print(f" [{total_processed}/{len(input_files)}] {res['file']} (run {res['run_num']}): "
-                              f"+{saved_in_file} displays -> {hierarchy_str}/[{res['canvas_names'][0]}...]")
                         total_saved += saved_in_file
+                        total_in_acc += res["saved_in_acceptance"]
+                        total_other += res["saved_other"]
+
+                        if split_acceptance:
+                            print(f" [{total_processed}/{len(input_files)}] {res['file']} (run {res['run_num']}): "
+                                  f"+{saved_in_file} displays ({in_acc_name}: {res['saved_in_acceptance']}, {other_name}: {res['saved_other']})")
+                        else:
+                            print(f" [{total_processed}/{len(input_files)}] {res['file']} (run {res['run_num']}): "
+                                  f"+{saved_in_file} displays")
                     else:
                         print(f" [{total_processed}/{len(input_files)}] {res['file']} (run {res['run_num']}): 0 candidates found.")
                 else:
                     print(f" [{total_processed}/{len(input_files)}] {res['file']}: ERROR: {res['error']}")
 
-        # Flush and close the single output ROOT file
+        # Flush and close single output ROOT file
         fout.Write()
         fout.Close()
 
@@ -425,7 +532,10 @@ def main():
     print("=" * 78)
     print(f" Completed! Saved {total_saved} event displays in {elapsed:.1f} seconds.")
     print(f" Single Output ROOT File: {out_root_abs}")
-    print(f" TDirectory Hierarchy:    {hierarchy_str}")
+    print(f" Base TDirectory:         {hierarchy_str}")
+    if split_acceptance:
+        print(f"   -> {hierarchy_str}/{in_acc_name}: {total_in_acc} displays (mu2 DS points >= {min_ds_points})")
+        print(f"   -> {hierarchy_str}/{other_name}:        {total_other} displays (mu2 DS points < {min_ds_points})")
     if save_images:
         print(f" Exported PNG Images:     {images_dir}")
     print("=" * 78)

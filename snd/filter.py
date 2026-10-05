@@ -26,13 +26,18 @@ def build_processor(proc_cfg: dict) -> ROOT.snd.MuonNeutrinoTruthProcessor:
     config.minLeptonMomentum = float(proc_cfg.get("min_lepton_momentum", 0.0))
     config.maxCharmFlightDistance = float(proc_cfg.get("max_charm_flight_distance", 100.0))
     config.weightScale = float(proc_cfg.get("weight_scale", 1.0))
+    config.minDSPoints = int(proc_cfg.get("min_ds_points", 3))
     return ROOT.snd.MuonNeutrinoTruthProcessor(config)
 
 
-def resolve_hierarchical_selection(cfg: dict, cli_fiducial: bool = False) -> Tuple[str, str, Callable, Set[str]]:
+def resolve_hierarchical_selection(
+    cfg: dict,
+    cli_fiducial: bool = False,
+    cli_ds_acceptance: Optional[bool] = None,
+) -> Tuple[str, str, Callable, Set[str]]:
     """
     Parse the hierarchical selection options from the config file:
-      flavor -> interaction -> charm (require, species, decay, require_opposite_sign)
+      flavor -> interaction -> charm (require, species, decay, require_opposite_sign, require_ds_acceptance)
     Returns:
       filter_expr     : RDataFrame C++ boolean filter expression
       description     : Human-readable summary
@@ -50,6 +55,12 @@ def resolve_hierarchical_selection(cfg: dict, cli_fiducial: bool = False) -> Tup
     charm_decay = str(charm_cfg.get("decay", "any")).lower().replace("-", "").replace("_", "")
     require_os = bool(charm_cfg.get("require_opposite_sign", True))
     require_fiducial = cli_fiducial or bool(sel_cfg.get("require_fiducial", False))
+
+    if cli_ds_acceptance is not None:
+        require_ds_acc = cli_ds_acceptance
+    else:
+        require_ds_acc = bool(charm_cfg.get("require_ds_acceptance", False))
+    min_ds_points = int(charm_cfg.get("min_ds_points", 3))
 
     clauses = []
     desc_parts = []
@@ -123,6 +134,10 @@ def resolve_hierarchical_selection(cfg: dict, cli_fiducial: bool = False) -> Tup
             else:
                 clauses.append("has_prompt_charm_muon")
                 desc_parts.append("decay to prompt muon")
+
+            if require_ds_acc:
+                clauses.append("mu2_in_ds_acceptance")
+                desc_parts.append(f"mu2 DS acceptance (>= {min_ds_points} DS points)")
         elif charm_decay != "any":
             desc_parts.append(f"charm decay={charm_decay}")
     else:
@@ -162,6 +177,9 @@ def resolve_hierarchical_selection(cfg: dict, cli_fiducial: bool = False) -> Tup
                     if not (info.hasCandidate and info.isOppositeSignDimuon):
                         return False
                 elif not info.hasPromptCharmMuon:
+                    return False
+
+                if require_ds_acc and not info.mu2InDS:
                     return False
 
         if require_fiducial and not info.isFiducial:
@@ -233,7 +251,8 @@ def setup_truth_branches(trees: List[ROOT.TTree], active_tiers: Set[str]) -> Dic
     if "decay_muon" in active_tiers:
         int_vars.extend([
             "has_prompt_charm_muon", "mu2_track_id", "mu2_pdg", "mu2_charge",
-            "mu2_mother_track_id", "mu2_mother_pdg"
+            "mu2_mother_track_id", "mu2_mother_pdg",
+            "mu2_n_ds_points", "mu2_in_ds_acceptance"
         ])
         double_vars.extend([
             "mu2_p", "mu2_pt", "mu2_px", "mu2_py", "mu2_pz", "mu2_e", "mu2_eta", "mu2_phi", "mu2_theta",
@@ -380,6 +399,8 @@ def fill_truth_buffers(buffers: dict, info: Any, entry_idx: int, active_tiers: S
         buffers["mu2_charge"][0] = int(info.mu2Charge)
         buffers["mu2_mother_track_id"][0] = int(info.mu2MotherTrackId)
         buffers["mu2_mother_pdg"][0] = int(info.mu2MotherPdg)
+        buffers["mu2_n_ds_points"][0] = int(info.mu2nDSPoints)
+        buffers["mu2_in_ds_acceptance"][0] = int(info.mu2InDS)
 
         buffers["mu2_p"][0] = float(info.mu2P)
         buffers["mu2_pt"][0] = float(info.mu2Pt)
@@ -437,6 +458,7 @@ def process_single_file(
     skip_empty = cfg.get("output", {}).get("skip_empty_files", True)
 
     # Verify input file and tree existence
+    has_mufilter = False
     f_test = ROOT.TFile.Open(input_file)
     if not f_test or f_test.IsZombie():
         print(f"  [Warning] Cannot open input file: {input_file}")
@@ -448,6 +470,9 @@ def process_single_file(
             if f_test.Get(alt_name):
                 actual_tree_name = alt_name
                 break
+    t_check = f_test.Get(actual_tree_name)
+    if t_check and t_check.GetBranch("MuFilterPoint"):
+        has_mufilter = True
     f_test.Close()
 
     # Disable implicit multi-threading per file so Take("rdfentry_") is 100% exact and deterministic
@@ -459,8 +484,14 @@ def process_single_file(
         df_raw = df_raw.Range(max_entries)
 
     # Define truth observables
+    if has_mufilter:
+        proc_ds = ROOT.snd.MuonNeutrinoTruthWithDSProcessor(processor)
+        df_base = df_raw.Define("truth", proc_ds, ["MCTrack", "MuFilterPoint"])
+    else:
+        df_base = df_raw.Define("truth", processor, ["MCTrack"])
+
     df_truth = (
-        df_raw.Define("truth", processor, ["MCTrack"])
+        df_base
               .Define("nu_pdg", "truth.nuPdg")
               .Define("is_cc", "truth.isCC")
               .Define("is_nc", "truth.isNC")
@@ -504,6 +535,8 @@ def process_single_file(
               .Define("mu2_pt", "truth.mu2Pt")
               .Define("mu2_ip3d", "truth.mu2IP3D")
               .Define("mu2_ptrel", "truth.mu2PtRel")
+              .Define("mu2_n_ds_points", "truth.mu2nDSPoints")
+              .Define("mu2_in_ds_acceptance", "truth.mu2InDS")
               .Define("dimuon_mass", "truth.dimuonInvMass")
               .Define("dimuon_pt", "truth.dimuonPt")
               .Define("dimuon_opening_angle_mrad", "truth.dimuonOpeningAngleMrad")
@@ -589,7 +622,8 @@ def process_single_file(
     n_filled = 0
     for entry_idx in signal_entries:
         t_in.GetEntry(entry_idx)
-        info = processor.processMuonNeutrino(t_in.MCTrack)
+        mufilter_pts = getattr(t_in, "MuFilterPoint", None)
+        info = processor.processMuonNeutrino(t_in.MCTrack, mufilter_pts)
 
         # In-loop validation guard
         if not predicate(info):
@@ -634,3 +668,73 @@ def process_single_file(
         "status": "success",
         "output_file": output_file
     }
+
+
+def find_charm_muon_track_id(tree: Any) -> int:
+    """
+    Returns the MCTrack index of the secondary muon originating from the charm hadron decay.
+    First inspects tree.mu2_track_id if available, otherwise traces MCTrack parentage.
+    """
+    if hasattr(tree, "mu2_track_id"):
+        try:
+            tid = int(tree.mu2_track_id)
+            if tid >= 0:
+                return tid
+        except Exception:
+            pass
+
+    if not hasattr(tree, "MCTrack") or tree.MCTrack.GetEntries() == 0:
+        return -1
+
+    mu1_trk_id = -1
+    charm_trk_id = -1
+
+    # Locate primary prompt CC muon and primary charmed hadron
+    for i, trk in enumerate(tree.MCTrack):
+        pdg = trk.GetPdgCode()
+        mother = trk.GetMotherId()
+        abs_pdg = abs(pdg)
+        if abs_pdg == 13 and mother == 0 and mu1_trk_id < 0:
+            mu1_trk_id = i
+        elif abs_pdg in [411, 421, 431, 4122, 4232, 4132, 4332] and mother == 0 and charm_trk_id < 0:
+            charm_trk_id = i
+
+    if charm_trk_id < 0:
+        return -1
+
+    # Locate muon daughter descending from charm
+    n_tracks = tree.MCTrack.GetEntries()
+    for i, trk in enumerate(tree.MCTrack):
+        if abs(trk.GetPdgCode()) == 13 and i != mu1_trk_id:
+            curr = trk
+            curr_mid = curr.GetMotherId()
+            while 0 <= curr_mid < n_tracks:
+                if curr_mid == charm_trk_id:
+                    return i
+                curr = tree.MCTrack[curr_mid]
+                curr_mid = curr.GetMotherId()
+
+    return -1
+
+
+def count_mu2_ds_mcpoints(tree: Any, mu2_track_id: int = -1) -> int:
+    """
+    Count the number of MCPoints in the Downstream (DS) MuFilter system (system == 3)
+    produced by the outgoing muon from charm decay.
+    """
+    if mu2_track_id < 0:
+        mu2_track_id = find_charm_muon_track_id(tree)
+    if mu2_track_id < 0:
+        return 0
+
+    if not hasattr(tree, "MuFilterPoint"):
+        return 0
+
+    ds_points = 0
+    for pt in tree.MuFilterPoint:
+        if pt.GetTrackID() == mu2_track_id:
+            det_id = pt.GetDetectorID()
+            if (det_id // 10000) == 3:  # Downstream (DS) MuFilter subsystem
+                ds_points += 1
+
+    return ds_points

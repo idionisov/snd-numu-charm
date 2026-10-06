@@ -522,6 +522,8 @@ def main():
                         src_in_acc = ftemp.GetDirectory(in_acc_name)
                         if src_in_acc:
                             for key in src_in_acc.GetListOfKeys():
+                                if key.GetClassName() != "TCanvas":
+                                    continue
                                 obj = key.ReadObj()
                                 if not obj or (hasattr(obj, "IsZombie") and obj.IsZombie()):
                                     continue
@@ -530,6 +532,8 @@ def main():
                         src_other = ftemp.GetDirectory(other_name)
                         if src_other:
                             for key in src_other.GetListOfKeys():
+                                if key.GetClassName() != "TCanvas":
+                                    continue
                                 obj = key.ReadObj()
                                 if not obj or (hasattr(obj, "IsZombie") and obj.IsZombie()):
                                     continue
@@ -537,6 +541,8 @@ def main():
                                 obj.Write(key.GetName(), ROOT.TObject.kOverwrite)
                     else:
                         for key in ftemp.GetListOfKeys():
+                            if key.GetClassName() != "TCanvas":
+                                continue
                             obj = key.ReadObj()
                             if not obj or (hasattr(obj, "IsZombie") and obj.IsZombie()):
                                 continue

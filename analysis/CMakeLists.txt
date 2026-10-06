@@ -7,6 +7,7 @@ set(ANALYSIS_HEADERS
   PreselectionProcessor.h
   DataManager.h
   ProgressPrinter.h
+  AvgScifiFiducialCut.h
 )
 
 set(ANALYSIS_SRCS

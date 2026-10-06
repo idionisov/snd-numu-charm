@@ -25,5 +25,8 @@
 #pragma link C++ class snd::MuonNeutrinoTruthProcessor+;
 #pragma link C++ class snd::MuonNeutrinoTruthWithDSProcessor+;
 #pragma link C++ class snd::DataManager+;
+#pragma link C++ class snd::AvgScifiFiducialCut+;
+#pragma link C++ namespace snd::analysis_cuts;
+#pragma link C++ class snd::analysis_cuts::AvgScifiFiducialCut+;
 
 #endif

@@ -41,7 +41,7 @@ def load_trident_libraries(repo_root: Optional[str] = None):
         if os.path.exists(lib_path):
             ROOT.gSystem.Load(lib_path)
 
-    for h_name in ["DataManager.h", "NeutrinoTruthProcessor.h", "MuonNeutrinoTruthProcessor.h", "PreselectionProcessor.h"]:
+    for h_name in ["DataManager.h", "NeutrinoTruthProcessor.h", "MuonNeutrinoTruthProcessor.h", "PreselectionProcessor.h", "AvgScifiFiducialCut.h"]:
         header_file = os.path.join(analysis_inc, h_name)
         if os.path.exists(header_file):
             ROOT.gInterpreter.ProcessLine(f'#include "{header_file}"')

@@ -87,17 +87,28 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
             else:
                 matched_files.extend(all_valid)
     else:
-        if "/%s/" in pattern and "*" not in pattern:
-            base_dir, rest = pattern.split("/%s/", 1)
+        path_parts = pattern.split("/")
+        dir_s_indices = [i for i in range(len(path_parts) - 1) if "%s" in path_parts[i]]
+        if dir_s_indices and "*" not in pattern:
+            idx = dir_s_indices[0]
+            base_dir = "/".join(path_parts[:idx])
+            subdir_fmt = path_parts[idx]
+            rest = "/".join(path_parts[idx + 1:])
+            parts = subdir_fmt.split("%s")
+            regex_subdir = re.compile("^" + "(.*?)".join(map(re.escape, parts)) + "$")
             if os.path.isdir(base_dir):
-                subdirs = sorted(
+                all_subdirs = sorted(
                     [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))],
-                    key=lambda x: int(x) if x.isdigit() else x
+                    key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x)]
                 )
-                for d in subdirs:
+                for d in all_subdirs:
+                    m = regex_subdir.match(d)
+                    if not m:
+                        continue
                     if max_files > 0 and len(matched_files) >= max_files:
                         break
-                    fpath = os.path.join(base_dir, d, rest.replace("%s", d))
+                    captured_val = m.group(1)
+                    fpath = os.path.join(base_dir, d, rest.replace("%s", captured_val))
                     if os.path.exists(fpath):
                         matched_files.append(fpath)
         elif "/*/" in pattern and pattern.count("*") == 1 and "%s" not in pattern:

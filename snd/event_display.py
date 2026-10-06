@@ -573,6 +573,7 @@ class Snd2DEventDisplay:
             "; z [cm]; x [cm]",
             500, self.z_min, self.z_max, 100, self.x_min, self.x_max,
         )
+        hist_xz.SetDirectory(ROOT.nullptr)
         hist_xz.SetStats(0)
         hist_xz.GetXaxis().SetTitleSize(0.04)
         hist_xz.GetYaxis().SetTitleSize(0.04)
@@ -586,6 +587,7 @@ class Snd2DEventDisplay:
             "; z [cm]; y [cm]",
             500, self.z_min, self.z_max, 100, self.y_min, self.y_max,
         )
+        hist_yz.SetDirectory(ROOT.nullptr)
         hist_yz.SetStats(0)
         hist_yz.GetXaxis().SetTitleSize(0.04)
         hist_yz.GetYaxis().SetTitleSize(0.04)

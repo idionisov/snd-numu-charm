@@ -86,6 +86,65 @@ def format_partition_path(pattern: str, partition: str | int) -> str:
     return pattern
 
 
+_worker_processor = None
+_worker_cfg = None
+
+
+def _init_worker(config_path: Optional[str]):
+    """Initialize ROOT batch mode and build processor once per worker process."""
+    global _worker_processor, _worker_cfg
+    import ROOT
+    ROOT.gROOT.SetBatch(True)
+    from snd import load_trident_libraries, load_config, build_processor
+    load_trident_libraries()
+    _worker_cfg = load_config(config_path)
+    _worker_processor = build_processor(_worker_cfg.get("processor", {}))
+
+
+def _run_worker_task(task_args: tuple) -> dict:
+    """Worker task execution function for parallel partition processing."""
+    (
+        part_str,
+        in_file,
+        out_truth,
+        out_sig,
+        max_entries,
+        keep_empty_signal,
+        create_symlinks,
+        config_path,
+    ) = task_args
+    global _worker_processor, _worker_cfg
+    if _worker_processor is None:
+        _init_worker(config_path)
+
+    t0 = time.time()
+    try:
+        from snd import process_simulation_file_dual_truth
+        res = process_simulation_file_dual_truth(
+            input_file=in_file,
+            truth_output_file=out_truth,
+            signal_output_file=out_sig,
+            processor=_worker_processor,
+            cfg=_worker_cfg,
+            max_entries=max_entries,
+            skip_empty_signal=not keep_empty_signal,
+            create_symlinks=create_symlinks,
+        )
+        res["elapsed"] = time.time() - t0
+        res["partition"] = part_str
+        return res
+    except Exception as e:
+        return {
+            "partition": part_str,
+            "input_file": in_file,
+            "status": f"error: {str(e)}",
+            "total": 0,
+            "processed": 0,
+            "signal": 0,
+            "elapsed": time.time() - t0,
+        }
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Master truth extraction and signal skimming pipeline for SND@LHC MC simulations.",
@@ -146,6 +205,12 @@ def main():
         help="Disable automatic symlink creation for input directory ROOT files",
     )
     parser.add_argument(
+        "-j", "--jobs",
+        type=int,
+        default=1,
+        help="Number of parallel worker processes (e.g. -j 10)",
+    )
+    parser.add_argument(
         "--keep-empty-signal",
         action="store_true",
         default=False,
@@ -153,11 +218,6 @@ def main():
     )
 
     args = parser.parse_args()
-
-    # Preload C++ libraries and dictionaries
-    load_trident_libraries()
-    cfg = load_config(args.config)
-    processor = build_processor(cfg.get("processor", {}))
 
     # Resolve partition list and input files
     selected_partitions = parse_partitions(args.partitions)
@@ -191,6 +251,7 @@ def main():
     print("=" * 80)
     print(f" Input Pattern        : {args.input}")
     print(f" Partitions Matched   : {len(tasks)}")
+    print(f" Parallel Workers     : {args.jobs}")
     print(f" Output All Truth     : {args.output_truth}")
     print(f" Output Signal Truth  : {args.output_signal}")
     print(f" Max Entries/File     : {args.entries if args.entries > 0 else 'All'}")
@@ -203,36 +264,96 @@ def main():
     tot_events = 0
     tot_signal = 0
 
-    for idx, (part_str, in_file, out_truth, out_sig) in enumerate(tasks, start=1):
-        print(f"\n[{idx}/{len(tasks)}] Processing Partition: {part_str}")
-        print(f"  Input : {in_file}")
-        print(f"  Truth : {out_truth}")
-        print(f"  Signal: {out_sig}")
+    if args.jobs <= 1:
+        # Sequential processing in main process
+        load_trident_libraries()
+        cfg = load_config(args.config)
+        processor = build_processor(cfg.get("processor", {}))
 
-        t0 = time.time()
-        res = process_simulation_file_dual_truth(
-            input_file=in_file,
-            truth_output_file=out_truth,
-            signal_output_file=out_sig,
-            processor=processor,
-            cfg=cfg,
-            max_entries=args.entries,
-            skip_empty_signal=not args.keep_empty_signal,
-            create_symlinks=not args.no_symlinks,
-        )
-        elapsed = time.time() - t0
+        for idx, (part_str, in_file, out_truth, out_sig) in enumerate(tasks, start=1):
+            print(f"\n[{idx}/{len(tasks)}] Processing Partition: {part_str}")
+            print(f"  Input : {in_file}")
+            print(f"  Truth : {out_truth}")
+            print(f"  Signal: {out_sig}")
 
-        n_tot = res.get("total", 0)
-        n_proc = res.get("processed", 0)
-        n_sig = res.get("signal", 0)
-        tot_events += n_proc
-        tot_signal += n_sig
-        results.append(res)
+            t0 = time.time()
+            res = process_simulation_file_dual_truth(
+                input_file=in_file,
+                truth_output_file=out_truth,
+                signal_output_file=out_sig,
+                processor=processor,
+                cfg=cfg,
+                max_entries=args.entries,
+                skip_empty_signal=not args.keep_empty_signal,
+                create_symlinks=not args.no_symlinks,
+            )
+            elapsed = time.time() - t0
+            res["elapsed"] = elapsed
+            res["partition"] = part_str
 
-        sig_pct = (100.0 * n_sig / max(n_proc, 1)) if n_proc > 0 else 0.0
-        print(f"  Result: {n_proc}/{n_tot} processed -> {n_sig} signal ({sig_pct:.2f}%) in {elapsed:.1f}s")
-        if res.get("symlinks_created", 0) > 0:
-            print(f"  Symlinks: {res['symlinks_created']} file(s) linked in destination directory")
+            n_tot = res.get("total", 0)
+            n_proc = res.get("processed", 0)
+            n_sig = res.get("signal", 0)
+            tot_events += n_proc
+            tot_signal += n_sig
+            results.append(res)
+
+            sig_pct = (100.0 * n_sig / max(n_proc, 1)) if n_proc > 0 else 0.0
+            print(f"  Result: {n_proc}/{n_tot} processed -> {n_sig} signal ({sig_pct:.2f}%) in {elapsed:.1f}s")
+            if res.get("symlinks_created", 0) > 0:
+                print(f"  Symlinks: {res['symlinks_created']} file(s) linked in destination directory")
+    else:
+        # Multi-process parallel execution
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        worker_tasks = [
+            (
+                part_str,
+                in_file,
+                out_truth,
+                out_sig,
+                args.entries,
+                args.keep_empty_signal,
+                not args.no_symlinks,
+                args.config,
+            )
+            for (part_str, in_file, out_truth, out_sig) in tasks
+        ]
+
+        print(f"\n[Parallel] Dispatching {len(tasks)} partition tasks across {args.jobs} worker processes...\n")
+
+        with ProcessPoolExecutor(max_workers=args.jobs, initializer=_init_worker, initargs=(args.config,)) as executor:
+            future_to_part = {
+                executor.submit(_run_worker_task, wt): wt[0]
+                for wt in worker_tasks
+            }
+
+            completed_count = 0
+            for fut in as_completed(future_to_part):
+                completed_count += 1
+                res = fut.result()
+                results.append(res)
+
+                part_str = res.get("partition", "unknown")
+                n_tot = res.get("total", 0)
+                n_proc = res.get("processed", 0)
+                n_sig = res.get("signal", 0)
+                elapsed = res.get("elapsed", 0.0)
+                tot_events += n_proc
+                tot_signal += n_sig
+                sig_pct = (100.0 * n_sig / max(n_proc, 1)) if n_proc > 0 else 0.0
+
+                print(
+                    f"[{completed_count}/{len(tasks)}] Partition {part_str} finished: "
+                    f"{n_proc}/{n_tot} processed -> {n_sig} signal ({sig_pct:.2f}%) in {elapsed:.1f}s"
+                )
+
+        # Sort results by partition number for clean summary
+        def _sort_key(r):
+            p = r.get("partition", "")
+            return int(p) if str(p).isdigit() else str(p)
+
+        results.sort(key=_sort_key)
 
     total_elapsed = time.time() - start_time
     overall_sig_pct = (100.0 * tot_signal / max(tot_events, 1)) if tot_events > 0 else 0.0
@@ -242,7 +363,8 @@ def main():
     print("=" * 80)
     print(f"{'Partition':<10} | {'Processed':>10} | {'Signal Evts':>12} | {'Signal Yield':>14} | {'Status':<10}")
     print("-" * 80)
-    for (part_str, _, _, _), res in zip(tasks, results):
+    for res in results:
+        part_str = res.get("partition", "?")
         p_cnt = res.get("processed", 0)
         s_cnt = res.get("signal", 0)
         y_pct = (100.0 * s_cnt / max(p_cnt, 1)) if p_cnt > 0 else 0.0
@@ -250,12 +372,13 @@ def main():
         print(f"{part_str:<10} | {p_cnt:>10} | {s_cnt:>12} | {y_pct:>13.2f}% | {st:<10}")
 
     print("=" * 80)
-    print(f" Total Files Processed : {len(tasks)}")
-    print(f" Total Events Read     : {tot_events}")
-    print(f" Total Signal Selected : {tot_signal} ({overall_sig_pct:.2f}%)")
-    print(f" Total Elapsed Time    : {total_elapsed:.1f} seconds")
+    print(f" Total Partitions Processed : {len(tasks)}")
+    print(f" Total Events Read          : {tot_events}")
+    print(f" Total Signal Selected      : {tot_signal} ({overall_sig_pct:.2f}%)")
+    print(f" Total Elapsed Time         : {total_elapsed:.1f} seconds")
     print("=" * 80 + "\n")
 
 
 if __name__ == "__main__":
     main()
+

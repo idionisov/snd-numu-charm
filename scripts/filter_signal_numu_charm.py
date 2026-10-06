@@ -161,6 +161,12 @@ def parse_arguments():
         default=os.path.join(_repo_root, "config", "filter_numu_charm_config.yaml"),
         help="Path to YAML configuration file"
     )
+    parser.add_argument(
+        "-j", "--jobs",
+        type=int,
+        default=1,
+        help="Number of parallel worker processes (e.g. -j 10)",
+    )
     return parser.parse_args()
 
 

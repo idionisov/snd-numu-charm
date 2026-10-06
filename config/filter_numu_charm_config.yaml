@@ -147,6 +147,14 @@ histograms:
     xmax: 360.0
 
   # Primary Muon (mu_1)
+  - name: "h_signal_mu1_e"
+    title: "Primary #mu_{1} Energy;E_{#mu1} [GeV];Events"
+    column: "mu1_e"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 500.0
+
   - name: "h_signal_mu1_p"
     title: "Primary #mu_{1} Momentum;p_{#mu1} [GeV/c];Events"
     column: "mu1_p"
@@ -171,6 +179,14 @@ histograms:
     bins: 7
     xmin: 0.5
     xmax: 7.5
+
+  - name: "h_signal_charm_e"
+    title: "Charmed Hadron Energy;E_{charm} [GeV];Events"
+    column: "charm_e"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 500.0
 
   - name: "h_signal_charm_p"
     title: "Charmed Hadron Momentum;p_{charm} [GeV/c];Events"
@@ -197,6 +213,14 @@ histograms:
     xmax: 3.0
 
   # Decay Muon (mu_2)
+  - name: "h_signal_mu2_e"
+    title: "Charm Decay #mu_{2} Energy;E_{#mu2} [GeV];Events"
+    column: "mu2_e"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 200.0
+
   - name: "h_signal_mu2_p"
     title: "Charm Decay #mu_{2} Momentum;p_{#mu2} [GeV/c];Events"
     column: "mu2_p"

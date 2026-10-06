@@ -26,7 +26,24 @@
 #pragma link C++ class snd::MuonNeutrinoTruthWithDSProcessor+;
 #pragma link C++ class snd::DataManager+;
 #pragma link C++ class snd::AvgScifiFiducialCut+;
+#pragma link C++ class snd::AvgDSFiducialCut+;
+#pragma link C++ class snd::VetoCut+;
+#pragma link C++ class snd::SciFiStationCut+;
+#pragma link C++ class snd::DSDimuonActivityCut+;
+#pragma link C++ class snd::SciFiDSTimeCut+;
+#pragma link C++ class snd::DSActivityCut+;
+#pragma link C++ class snd::EventHeaderIP1Cut+;
+#pragma link C++ class snd::StableBeamsCut+;
+#pragma link C++ class snd::EventDeltatCut+;
 #pragma link C++ namespace snd::analysis_cuts;
 #pragma link C++ class snd::analysis_cuts::AvgScifiFiducialCut+;
+#pragma link C++ class snd::analysis_cuts::AvgDSFiducialCut+;
+#pragma link C++ class snd::analysis_cuts::VetoCut+;
+#pragma link C++ class snd::analysis_cuts::SciFiStationCut+;
+#pragma link C++ class snd::analysis_cuts::DSDimuonActivityCut+;
+#pragma link C++ class snd::analysis_cuts::SciFiDSTimeCut+;
+#pragma link C++ class snd::analysis_cuts::EventHeaderIP1Cut+;
+#pragma link C++ class snd::analysis_cuts::StableBeamsCut+;
+#pragma link C++ class snd::analysis_cuts::EventDeltatCut+;
 
 #endif

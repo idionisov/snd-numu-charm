@@ -12,7 +12,32 @@ cuts:
     enabled: true
     description: "Initial uncut event sample"
 
-  - id: "step1_scifi_fiducial"
+  # Data-only Upfront Cuts (skipped automatically for Monte Carlo simulations)
+  - id: "step1_ip1"
+    name: "LHC IP1 Collision Bunch Crossing"
+    filter: "pass_ip1_cut"
+    enabled: true
+    data_only: true
+    description: "Select collision bunch crossings from LHC IP1 (EventHeader.isIP1() == true)"
+
+  - id: "step2_stable_beams"
+    name: "LHC Stable Beams Mode"
+    filter: "pass_stable_beams_cut"
+    enabled: true
+    data_only: true
+    beam_mode: 11
+    description: "Select LHC physics run with Stable Beams (EventHeader.GetBeamMode() == 11)"
+
+  - id: "step3_event_deltat"
+    name: "Inter-Event Delta Time (>100 clock cycles)"
+    filter: "pass_event_deltat_cut"
+    enabled: true
+    data_only: true
+    min_delta_t: 100
+    description: "Reject events within 100 clock cycles of previous event to eliminate trigger burst noise"
+
+  # Physics & Detector Cuts (applied to both data and MC)
+  - id: "step4_scifi_fiducial"
     name: "SciFi Average Channel Fiducial"
     filter: "pass_scifi_fiducial"
     enabled: true
@@ -23,35 +48,65 @@ cuts:
     horizontal_max: 1336.0
     reversed: false
 
-  - id: "step2_scifi_min_hits"
-    name: "SciFi Minimum Hits (>= 4)"
-    filter: "scifi_nhits >= 4"
+  - id: "step5_ds_fiducial"
+    name: "Downstream MuFilter Average Bar Fiducial"
+    filter: "pass_ds_fiducial"
     enabled: true
-    description: "Require at least 4 valid SciFi hits"
+    description: "Average DS bar number within vertical [70, 105] and horizontal [10, 50] fiducial boundaries"
+    vertical_min: 70.0
+    vertical_max: 105.0
+    horizontal_min: 10.0
+    horizontal_max: 50.0
+    reversed: false
 
-  - id: "step3_scifi_stations"
-    name: "SciFi Stations Hit (>= 3)"
-    filter: "scifi_stations_hit >= 3"
+  - id: "step6_veto_hits"
+    name: "No Hits in Veto"
+    filter: "pass_veto_cut"
     enabled: true
-    description: "Require hits in at least 3 distinct SciFi stations"
+    description: "Veto system (System 1) hit count selection"
+    min_hits: 0
+    max_hits: 0
+    require_valid: false
 
-  - id: "step4_veto_quiet"
-    name: "Veto System Quiet (Veto QDC < 1000)"
-    filter: "veto_sum_qdc < 1000.0"
+  - id: "step7_scifi_station"
+    name: "SciFi Station Cut (Exclude Station 1)"
+    filter: "pass_scifi_station_cut"
     enabled: true
-    description: "Reject upstream charged particles entering the veto system"
+    description: "Exclude events starting in specified SciFi stations"
+    threshold: 0.0
+    excluded_stations: [1]
+    reversed: false
 
-  - id: "step5_hcal_activity"
-    name: "HCAL / US Activity (US QDC > 0)"
-    filter: "us_sum_qdc > 0.0"
+  - id: "step8_ds_dimuon"
+    name: "Downstream MuFilter Dimuon Activity Cut"
+    filter: "pass_ds_dimuon_cut"
     enabled: true
-    description: "Require energy deposition in the upstream muon filter (HCAL)"
+    description: "Require >=2 hits per plane in 3 separate planes in one projection, and >=1 hit per plane in 3 separate planes in the other"
+    min_planes_dimuon: 3
+    min_hits_dimuon: 2
+    min_planes_other: 3
+    min_hits_other: 1
+    require_valid: false
+    reversed: false
 
-  - id: "step6_ds_acceptance"
-    name: "DS Minimum Acceptance (DS Planes Hit >= 3)"
-    filter: "ds_planes_hit >= 3"
+  - id: "step9_ds_activity"
+    name: "Upstream (HCAL) Activity on Downstream Hits"
+    filter: "pass_ds_activity_cut"
     enabled: true
-    description: "Require downstream muon penetration through at least 3 DS planes"
+    description: "If there are DS hits, all 5 US planes must have valid hits"
+    min_us_planes: 5
+    require_ds_hits: true
+    require_valid: true
+    reversed: false
+
+  - id: "step10_scifi_ds_timing"
+    name: "SciFi to DS Hit Timing Sequence"
+    filter: "pass_scifi_ds_timing_cut"
+    enabled: true
+    description: "Require latest DS hit time > earliest SciFi hit time"
+    min_delta_t: 0.0
+    require_valid: true
+    reversed: false
 
 # Diagnostic Histograms booked at each incremental cut stage
 histograms:
@@ -75,6 +130,13 @@ histograms:
   - name: "h_scifi_busiest_station_id"
     title: "SciFi Busiest Station ID;Station Number;Events"
     var: "scifi_busiest_station_id"
+    bins: 6
+    xmin: 0.5
+    xmax: 6.5
+
+  - name: "h_scifi_first_station"
+    title: "SciFi First Station Hit;Station Number;Events"
+    var: "scifi_first_station"
     bins: 6
     xmin: 0.5
     xmax: 6.5
@@ -478,6 +540,33 @@ histograms:
     xmin: 0.0
     xmax: 4000.0
 
+  # DS Fiducial Average Bar Observables
+  - name: "h_ds_avg_bar_v"
+    title: "Average Vertical DS Bar;Vertical Bar Number (XZ);Events"
+    var: "ds_avg_bar_v"
+    bins: 60
+    xmin: 0.0
+    xmax: 60.0
+
+  - name: "h_ds_avg_bar_h"
+    title: "Average Horizontal DS Bar;Horizontal Bar Number (YZ);Events"
+    var: "ds_avg_bar_h"
+    bins: 60
+    xmin: 60.0
+    xmax: 120.0
+
+  - name: "h_ds_avg_bar_2d"
+    title: "Average DS Bars (H vs V);Vertical Bar (XZ);Horizontal Bar (YZ)"
+    type: "2D"
+    var_x: "ds_avg_bar_v"
+    var_y: "ds_avg_bar_h"
+    bins_x: 60
+    xmin: 0.0
+    xmax: 60.0
+    bins_y: 60
+    ymin: 60.0
+    ymax: 120.0
+
   # DS Hits per plane (7 planes)
   - name: "h_ds_nhits_st1_h"
     title: "DS St1 Horizontal Hits;N_{hits};Events"
@@ -709,3 +798,31 @@ histograms:
     bins: 100
     xmin: 0.0
     xmax: 5.0
+
+  - name: "h_ds_nplanes_ge1_h"
+    title: "DS Horizontal Planes with >=1 Hit;N_{planes};Events"
+    var: "ds_nplanes_ge1_h"
+    bins: 4
+    xmin: -0.5
+    xmax: 3.5
+
+  - name: "h_ds_nplanes_ge1_v"
+    title: "DS Vertical Planes with >=1 Hit;N_{planes};Events"
+    var: "ds_nplanes_ge1_v"
+    bins: 5
+    xmin: -0.5
+    xmax: 4.5
+
+  - name: "h_ds_nplanes_ge2_h"
+    title: "DS Horizontal Planes with >=2 Hits;N_{planes};Events"
+    var: "ds_nplanes_ge2_h"
+    bins: 4
+    xmin: -0.5
+    xmax: 3.5
+
+  - name: "h_ds_nplanes_ge2_v"
+    title: "DS Vertical Planes with >=2 Hits;N_{planes};Events"
+    var: "ds_nplanes_ge2_v"
+    bins: 5
+    xmin: -0.5
+    xmax: 4.5

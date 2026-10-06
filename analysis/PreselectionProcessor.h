@@ -41,6 +41,7 @@ struct PreselectionMetrics {
     int scifi_busiest_station_nhits{0};
     int scifi_busiest_station_id{0};
     double scifi_busiest_station_qdc{0.0};
+    int scifi_first_station{0};
     double scifi_avg_channel_v{-1.0};
     double scifi_avg_channel_h{-1.0};
 
@@ -114,6 +115,8 @@ struct PreselectionMetrics {
 
     int ds_busiest_station_nhits{0};
     double ds_busiest_station_qdc{0.0};
+    double ds_avg_bar_v{-1.0};
+    double ds_avg_bar_h{-1.0};
 
     // 9. Downstream Individual 7 Tracking Planes
     int ds_nhits_st1_h{0};
@@ -137,7 +140,13 @@ struct PreselectionMetrics {
     double ds_nhits_ratio_back_front{0.0};
     double ds_qdc_ratio_ds4_ds1{0.0};
 
-    // 11. Cross-System Global Metrics
+    // 11. Downstream Multi-Track Plane Activity
+    int ds_nplanes_ge1_h{0};
+    int ds_nplanes_ge1_v{0};
+    int ds_nplanes_ge2_h{0};
+    int ds_nplanes_ge2_v{0};
+
+    // 12. Cross-System Global Metrics
     int total_nhits{0};
     double total_sum_qdc{0.0};
     double ratio_ds_to_scifi_qdc{0.0};

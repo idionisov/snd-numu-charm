@@ -401,11 +401,12 @@ namespace snd {
     }
 
     ROOT::RDataFrame DataManager::GetDataFrame() {
+        if (fChain) {
+            fChain->SetCacheSize(0);
+            return ROOT::RDataFrame(*fChain);
+        }
         if (!fFiles.empty()) {
             return ROOT::RDataFrame(fTreeName, fFiles);
-        }
-        if (fChain) {
-            return ROOT::RDataFrame(*fChain);
         }
         throw std::runtime_error("Cannot create RDataFrame: No files or chain available!");
     }

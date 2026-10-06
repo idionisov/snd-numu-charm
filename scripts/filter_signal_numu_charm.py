@@ -50,6 +50,8 @@ from snd import (
     build_processor,
     resolve_hierarchical_selection,
     process_single_file,
+    process_simulation_file_dual_truth,
+    extract_captures,
 )
 
 # Pre-load libraries so ROOT has all custom C++ dictionaries and classes available
@@ -130,6 +132,30 @@ def parse_arguments():
         help="Only create symlinks to input ROOT files in output directories without running event skimmer"
     )
     parser.add_argument(
+        "--extract-all-truth",
+        action="store_true",
+        default=False,
+        help="Extract truth branches for ALL events without exception into output-truth, and simultaneously store signal events in output-signal",
+    )
+    parser.add_argument(
+        "--output-truth",
+        type=str,
+        default="/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_truth.root",
+        help="Output ROOT file pattern for ALL events with truth branches (when using --extract-all-truth)",
+    )
+    parser.add_argument(
+        "--output-signal",
+        type=str,
+        default="/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_truth_numuCC_charm_dimuon.root",
+        help="Output ROOT file pattern for SIGNAL events (when using --extract-all-truth)",
+    )
+    parser.add_argument(
+        "-p", "--partitions",
+        type=str,
+        default=None,
+        help="Partitions to process: range ('0-400'), comma-separated ('0,1,2'), or 'all'",
+    )
+    parser.add_argument(
         "-c", "--config",
         type=str,
         default=os.path.join(_repo_root, "config", "filter_numu_charm_config.yaml"),
@@ -198,6 +224,48 @@ def main():
             print(f"[{idx + 1}/{total_files}] Partition {partition:<6} | {len(created)} ROOT file(s) symlinked -> {out_dir}")
         print("=" * 80)
         print(f"Done! Verified/created symlinks across {total_files} partition(s).")
+        return
+
+    # Dual truth extraction mode (All Events + Signal with symlinks)
+    if args.extract_all_truth:
+        proc_cfg = cfg.get("processor", {})
+        processor = build_processor(proc_cfg)
+        print("=" * 80)
+        print(" SND@LHC: Dual Truth Extraction (All Events & Signal)")
+        print("=" * 80)
+        print(f"Input file pattern       : {file_pattern}")
+        print(f"Output All-Events Truth  : {args.output_truth}")
+        print(f"Output Signal Truth      : {args.output_signal}")
+        print(f"Total files to process   : {total_files}")
+        print(f"Max events per file      : {args.entries if args.entries > 0 else 'All'}")
+        print(f"Create symlinks          : {do_symlink}")
+        print("=" * 80)
+
+        for idx, in_file in enumerate(input_files):
+            captures = extract_captures(in_file, file_pattern)
+            part_str = captures[0] if captures else str(idx)
+            count_t = args.output_truth.count("%s")
+            out_truth = args.output_truth % tuple(part_str for _ in range(count_t)) if count_t > 0 else args.output_truth
+            count_s = args.output_signal.count("%s")
+            out_sig = args.output_signal % tuple(part_str for _ in range(count_s)) if count_s > 0 else args.output_signal
+
+            print(f"\n[{idx + 1}/{total_files}] Processing Partition: {part_str}")
+            print(f"  Input : {in_file}")
+            print(f"  Truth : {out_truth}")
+            print(f"  Signal: {out_sig}")
+
+            res = process_simulation_file_dual_truth(
+                input_file=in_file,
+                truth_output_file=out_truth,
+                signal_output_file=out_sig,
+                processor=processor,
+                cfg=cfg,
+                max_entries=args.entries,
+                create_symlinks=do_symlink,
+            )
+            n_proc = res.get("processed", 0)
+            n_sig = res.get("signal", 0)
+            print(f"  Result: {n_proc} total processed -> {n_sig} signal events saved.")
         return
 
     # 4. Configure Processor

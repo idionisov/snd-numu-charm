@@ -514,10 +514,12 @@ def process_single_file(
               .Define("hadronic_w", "truth.HadronicW")
               .Define("mu1_p", "truth.mu1P")
               .Define("mu1_pt", "truth.mu1Pt")
+              .Define("mu1_e", "truth.mu1E")
               .Define("charm_pdg", "truth.charmPdg")
               .Define("abs_charm_pdg", "std::abs(truth.charmPdg)")
               .Define("charm_p", "truth.charmP")
               .Define("charm_pt", "truth.charmPt")
+              .Define("charm_e", "truth.charmE")
               .Define("charm_decay_length", "truth.decayLength3D")
               .Define("decay_length_3d", "truth.decayLength3D")
               .Define("proper_lifetime_ps", "truth.properLifetimePs")
@@ -540,6 +542,7 @@ def process_single_file(
               .Define("mu2_track_id", "truth.mu2TrackId")
               .Define("mu2_p", "truth.mu2P")
               .Define("mu2_pt", "truth.mu2Pt")
+              .Define("mu2_e", "truth.mu2E")
               .Define("mu2_ip3d", "truth.mu2IP3D")
               .Define("mu2_ptrel", "truth.mu2PtRel")
               .Define("mu2_n_ds_points", "truth.mu2nDSPoints")
@@ -827,3 +830,194 @@ def count_mu2_ds_mcpoints(tree: Any, mu2_track_id: int = -1) -> int:
         mu2_track_id = find_charm_muon_track_id(tree)
     _, _, total = count_ds_mcpoints(tree, mu2_track_id)
     return total
+
+
+def process_simulation_file_dual_truth(
+    input_file: str,
+    truth_output_file: str,
+    signal_output_file: Optional[str] = None,
+    processor: Optional[ROOT.snd.MuonNeutrinoTruthProcessor] = None,
+    cfg: Optional[dict] = None,
+    signal_filter_expr: Optional[str] = None,
+    max_entries: int = -1,
+    skip_empty_signal: bool = True,
+    create_symlinks: bool = True,
+) -> Dict[str, Any]:
+    """
+    Extract truth observables for ALL events into truth_output_file,
+    and simultaneously extract signal events (nu_mu CC charm dimuon in DS acceptance)
+    into signal_output_file in a single pass over the input simulation file.
+    Also creates symlinks to auxiliary input ROOT files in the output directory.
+    """
+    from .io_utils import copy_auxiliary_metadata, symlink_input_root_files, load_config
+
+    if cfg is None:
+        cfg = load_config()
+    if processor is None:
+        processor = build_processor(cfg.get("processor", {}))
+
+    if signal_filter_expr is None:
+        signal_filter_expr = (
+            "(is_numu_cc || is_anti_numu_cc) && has_charm && "
+            "has_prompt_charm_muon && is_opposite_sign && mu2_in_ds_acceptance"
+        )
+
+    # 1. Inspect input tree
+    f_test = ROOT.TFile.Open(input_file, "READ")
+    if not f_test or f_test.IsZombie():
+        return {"input_file": input_file, "total": 0, "signal": 0, "status": "error_open_in"}
+
+    actual_tree_name = "cbmsim"
+    if not f_test.Get(actual_tree_name):
+        for alt in ["rawConv", "events"]:
+            if f_test.Get(alt):
+                actual_tree_name = alt
+                break
+
+    t_check = f_test.Get(actual_tree_name)
+    if not t_check:
+        f_test.Close()
+        return {"input_file": input_file, "total": 0, "signal": 0, "status": "no_tree"}
+
+    n_tot = t_check.GetEntries()
+    has_mufilter = bool(t_check.GetBranch("MuFilterPoint"))
+    f_test.Close()
+
+    ROOT.DisableImplicitMT()
+
+    # 2. RDataFrame truth evaluation & signal entry extraction
+    df_raw = ROOT.RDataFrame(actual_tree_name, input_file)
+    if max_entries > 0:
+        df_raw = df_raw.Range(max_entries)
+    n_process = min(n_tot, max_entries) if max_entries > 0 else n_tot
+
+    if has_mufilter:
+        proc_ds = ROOT.snd.MuonNeutrinoTruthWithDSProcessor(processor)
+        df_base = df_raw.Define("truth", proc_ds, ["MCTrack", "MuFilterPoint"])
+    else:
+        df_base = df_raw.Define("truth", processor, ["MCTrack"])
+
+    df_truth = (
+        df_base
+        .Define("nu_pdg", "truth.nuPdg")
+        .Define("is_cc", "truth.isCC")
+        .Define("is_nc", "truth.isNC")
+        .Define("is_numu_cc", "truth.isNuMuCC")
+        .Define("is_anti_numu_cc", "truth.isAntiNuMuCC")
+        .Define("is_fiducial", "truth.isFiducial")
+        .Define("has_charm", "truth.hasCharm")
+        .Define("has_prompt_charm_muon", "truth.hasPromptCharmMuon")
+        .Define("is_opposite_sign", "truth.isOppositeSignDimuon")
+        .Define("has_candidate", "truth.hasCandidate")
+        .Define("mu1_in_ds_acceptance", "truth.mu1InDS")
+        .Define("mu2_in_ds_acceptance", "truth.mu2InDS")
+        .Define("dimuon_in_ds_acceptance", "truth.dimuonInDSAcceptance")
+    )
+
+    df_sig = df_truth.Filter(signal_filter_expr, "Signal Selection")
+    c_sig = df_sig.Count()
+    sig_entries_rptr = df_sig.Take["ULong64_t"]("rdfentry_")
+    ROOT.RDF.RunGraphs([c_sig, sig_entries_rptr])
+
+    n_sig = int(c_sig.GetValue())
+    signal_entries_set = set(sig_entries_rptr.GetValue())
+
+    # 3. Setup output file for ALL events
+    out_dir_1 = os.path.dirname(os.path.abspath(truth_output_file))
+    if out_dir_1:
+        os.makedirs(out_dir_1, exist_ok=True)
+
+    f_in = ROOT.TFile.Open(input_file, "READ")
+    t_in = f_in.Get(actual_tree_name)
+
+    f_out_all = ROOT.TFile.Open(truth_output_file, "RECREATE")
+    if not f_out_all or f_out_all.IsZombie():
+        f_in.Close()
+        return {"input_file": input_file, "total": n_tot, "signal": 0, "status": "error_create_all"}
+
+    out_tree_all = t_in.CloneTree(0)
+    out_tree_all.SetName(actual_tree_name)
+    truth_tree_all = ROOT.TTree("truth", "Hierarchical Truth Observables for All Events")
+    all_tiers = {"universal", "lepton", "charm", "decay_muon", "dimuon"}
+    truth_buffers_all = setup_truth_branches([out_tree_all, truth_tree_all], all_tiers)
+
+    # 4. Setup output file for SIGNAL events
+    write_signal = bool(signal_output_file and (n_sig > 0 or not skip_empty_signal))
+    f_out_sig = None
+    out_tree_sig = None
+    truth_tree_sig = None
+    truth_buffers_sig = None
+
+    if write_signal:
+        out_dir_2 = os.path.dirname(os.path.abspath(signal_output_file))
+        if out_dir_2:
+            os.makedirs(out_dir_2, exist_ok=True)
+        f_out_sig = ROOT.TFile.Open(signal_output_file, "RECREATE")
+        if f_out_sig and not f_out_sig.IsZombie():
+            out_tree_sig = t_in.CloneTree(0)
+            out_tree_sig.SetName(actual_tree_name)
+            truth_tree_sig = ROOT.TTree("truth", "Hierarchical Truth Observables for NuMu CC Charm Dimuon Signal")
+            truth_buffers_sig = setup_truth_branches([out_tree_sig, truth_tree_sig], all_tiers)
+
+    # 5. Single-pass Fill Loop
+    n_sig_filled = 0
+    for iev in range(n_process):
+        t_in.GetEntry(iev)
+        mufilter_pts = getattr(t_in, "MuFilterPoint", None)
+        info = processor.processMuonNeutrino(t_in.MCTrack, mufilter_pts)
+
+        # Always fill all-events trees
+        fill_truth_buffers(truth_buffers_all, info, iev, all_tiers)
+        out_tree_all.Fill()
+        truth_tree_all.Fill()
+
+        # Fill signal trees if event matched
+        if f_out_sig and (iev in signal_entries_set):
+            fill_truth_buffers(truth_buffers_sig, info, iev, all_tiers)
+            out_tree_sig.Fill()
+            truth_tree_sig.Fill()
+            n_sig_filled += 1
+
+    # 6. Write and close
+    f_out_all.cd()
+    out_tree_all.Write()
+    truth_tree_all.Write()
+    f_out_all.Close()
+
+    if f_out_sig:
+        f_out_sig.cd()
+        out_tree_sig.Write()
+        truth_tree_sig.Write()
+        f_out_sig.Close()
+
+    f_in.Close()
+
+    # 7. Copy FairRoot metadata
+    copy_auxiliary_metadata(input_file, truth_output_file)
+    if write_signal and signal_output_file and os.path.exists(signal_output_file):
+        copy_auxiliary_metadata(input_file, signal_output_file)
+
+    # 8. Symlink auxiliary input files into output directory
+    symlinks_created = 0
+    if create_symlinks:
+        in_dir = os.path.dirname(os.path.abspath(input_file))
+        exclude = {
+            os.path.basename(truth_output_file),
+            os.path.basename(input_file),
+        }
+        if signal_output_file:
+            exclude.add(os.path.basename(signal_output_file))
+        links = symlink_input_root_files(input_dir=in_dir, output_dir=out_dir_1, exclude_filenames=exclude)
+        symlinks_created = len(links)
+
+    return {
+        "input_file": input_file,
+        "total": n_tot,
+        "processed": n_process,
+        "signal": n_sig_filled,
+        "truth_file": truth_output_file,
+        "signal_file": signal_output_file if (write_signal and n_sig_filled > 0) else None,
+        "symlinks_created": symlinks_created,
+        "status": "success",
+    }
+

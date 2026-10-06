@@ -383,3 +383,38 @@ def get_event_header_number(tree: Any, default_idx: int = 0) -> int:
                 pass
     return default_idx
 
+
+def copy_auxiliary_metadata(input_path: str, output_path: str) -> None:
+    """
+    Copy FairRoot metadata keys (BranchList, TimeBasedBranchList, FileHeader, FileHeaderHeader)
+    from input ROOT file to output ROOT file if present.
+    """
+    import ROOT
+    keys_to_copy = ["BranchList", "TimeBasedBranchList", "FileHeader", "FileHeaderHeader"]
+    try:
+        fin = ROOT.TFile.Open(input_path, "READ")
+        if not fin or fin.IsZombie():
+            return
+
+        found_objects = []
+        for key_name in keys_to_copy:
+            obj = fin.Get(key_name)
+            if obj:
+                found_objects.append((key_name, obj.Clone()))
+        fin.Close()
+
+        if not found_objects:
+            return
+
+        fout = ROOT.TFile.Open(output_path, "UPDATE")
+        if fout and not fout.IsZombie():
+            fout.cd()
+            for key_name, obj in found_objects:
+                if not fout.Get(key_name):
+                    obj.Write(key_name, ROOT.TObject.kSingleKey)
+            fout.Write()
+            fout.Close()
+    except Exception as err:
+        print(f"  [Warning] Could not copy auxiliary metadata: {err}")
+
+

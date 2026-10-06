@@ -180,6 +180,14 @@ PreselectionMetrics PreselectionProcessor::process(
             }
         }
 
+        // First SciFi station containing hits (threshold 0.0)
+        for (int s = 0; s < 5; ++s) {
+            if (nhits_st[s] > 0) {
+                m.scifi_first_station = s + 1;
+                break;
+            }
+        }
+
         m.scifi_nhits_st1_h = nhits_plane_h[0]; m.scifi_nhits_st1_v = nhits_plane_v[0];
         m.scifi_nhits_st2_h = nhits_plane_h[1]; m.scifi_nhits_st2_v = nhits_plane_v[1];
         m.scifi_nhits_st3_h = nhits_plane_h[2]; m.scifi_nhits_st3_v = nhits_plane_v[2];
@@ -225,6 +233,9 @@ PreselectionMetrics PreselectionProcessor::process(
         double ds_qdc_plane_h[4] = {0.0};
         double ds_qdc_plane_v[4] = {0.0};
 
+        double sum_ds_bar_v = 0.0, sum_ds_bar_h = 0.0;
+        int n_ds_bar_v = 0, n_ds_bar_h = 0;
+
         for (int i = 0; i < n_mf; ++i) {
             auto* h = static_cast<MuFilterHit*>(mufiHits->At(i));
             if (!h || !h->isValid()) continue;
@@ -256,6 +267,16 @@ PreselectionMetrics PreselectionProcessor::process(
                 m.ds_nhits += 1;
                 m.ds_sum_qdc += qdc;
                 if (qdc > m.ds_max_qdc) m.ds_max_qdc = qdc;
+
+                int x_bar = det_id % 1000;
+                if (is_vert) {
+                    sum_ds_bar_v += x_bar;
+                    n_ds_bar_v++;
+                } else {
+                    sum_ds_bar_h += x_bar;
+                    n_ds_bar_h++;
+                }
+
                 if (plane_idx >= 0 && plane_idx < 4) {
                     ds_stations.insert(plane_idx + 1);
                     if ((plane_idx + 1) > m.ds_deepest_station) m.ds_deepest_station = plane_idx + 1;
@@ -279,6 +300,9 @@ PreselectionMetrics PreselectionProcessor::process(
         m.us_planes_hit = static_cast<int>(us_planes.size());
         m.ds_planes_hit = static_cast<int>(ds_planes.size());
         m.ds_stations_hit = static_cast<int>(ds_stations.size());
+
+        if (n_ds_bar_v > 0) m.ds_avg_bar_v = sum_ds_bar_v / n_ds_bar_v;
+        if (n_ds_bar_h > 0) m.ds_avg_bar_h = sum_ds_bar_h / n_ds_bar_h;
 
         // Assign US station metrics
         m.us_nhits_st1 = us_nhits_st[0]; m.us_nhits_st2 = us_nhits_st[1];
@@ -317,6 +341,16 @@ PreselectionMetrics PreselectionProcessor::process(
             if (ds_nhits_plane_v[s] > m.ds_max_nhits_plane) m.ds_max_nhits_plane = ds_nhits_plane_v[s];
             if (ds_qdc_plane_h[s] > m.ds_max_qdc_plane) m.ds_max_qdc_plane = ds_qdc_plane_h[s];
             if (ds_qdc_plane_v[s] > m.ds_max_qdc_plane) m.ds_max_qdc_plane = ds_qdc_plane_v[s];
+        }
+
+        // Downstream multi-track plane activity
+        for (int p = 0; p < 3; ++p) {
+            if (ds_nhits_plane_h[p] >= 1) m.ds_nplanes_ge1_h++;
+            if (ds_nhits_plane_h[p] >= 2) m.ds_nplanes_ge2_h++;
+        }
+        for (int p = 0; p < 4; ++p) {
+            if (ds_nhits_plane_v[p] >= 1) m.ds_nplanes_ge1_v++;
+            if (ds_nhits_plane_v[p] >= 2) m.ds_nplanes_ge2_v++;
         }
 
         double front_ds_qdc = ds_qdc_plane_h[0] + ds_qdc_plane_v[0] + ds_qdc_plane_h[1] + ds_qdc_plane_v[1];

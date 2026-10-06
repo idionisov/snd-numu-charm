@@ -8,6 +8,13 @@ set(ANALYSIS_HEADERS
   DataManager.h
   ProgressPrinter.h
   AvgScifiFiducialCut.h
+  AvgDSFiducialCut.h
+  VetoCut.h
+  SciFiStationCut.h
+  DSDimuonActivityCut.h
+  SciFiDSTimeCut.h
+  DSActivityCut.h
+  EventHeaderCuts.h
 )
 
 set(ANALYSIS_SRCS

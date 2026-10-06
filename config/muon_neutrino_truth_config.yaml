@@ -18,21 +18,19 @@ output:
 performance:
   threads: 1                     # Default number of worker threads (overridden by -j CLI flag)
 
-# Neutrino Truth Processor fiducial and selection parameters
+# Neutrino Truth Processor fiducial and selection parameters (identical to filter_signal_numu_charm.py)
 processor:
-  # SciFi / Target fiducial volume [cm]
   target_z_min: 260.0
   target_z_max: 360.0
-  fid_x_min: -47.5
-  fid_x_max: -8.5
-  fid_y_min: 15.5
-  fid_y_max: 54.5
-  fiducial_margin: 1.5           # Distance from detector edges [cm]
-
-  # Kinematic and geometric cuts
-  min_lepton_momentum: 0.5       # Minimum muon momentum threshold [GeV/c]
-  max_charm_flight_distance: 15.0 # Max physical flight path for prompt charm [cm]
-  weight_scale: 1.0              # Global scale factor for event weights
+  fid_x_min: -60.0
+  fid_x_max: -0.0
+  fid_y_min: 3.0
+  fid_y_max: 63.0
+  fiducial_margin: 0.0             # Distance from detector edges [cm]
+  min_lepton_momentum: 0.0         # Minimum muon momentum threshold [GeV/c]
+  max_charm_flight_distance: 100.0 # Max physical flight path for prompt charm [cm]
+  weight_scale: 1.0                # Global scale factor for event weights
+  min_ds_points: 3                 # Minimum DS points for muon acceptance
 
 # Histogram definitions (names, titles, filter stages, bins, edges, and ranges)
 histograms:
@@ -92,6 +90,15 @@ histograms:
     xmax: 360.0
 
   # Primary Muon (mu_1) Kinematics
+  - name: "h_truth_mu1_e"
+    title: "Primary #mu_{1} Energy;E_{#mu1} [GeV];Events"
+    filter: "fiducial"
+    column: "mu1_e"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 800.0
+
   - name: "h_truth_mu1_p"
     title: "Primary #mu_{1} Total Momentum;p_{#mu1} [GeV/c];Events"
     filter: "fiducial"
@@ -221,6 +228,15 @@ histograms:
     xmin: 0.0
     xmax: 3.0
 
+  - name: "h_truth_mu2_e"
+    title: "Secondary #mu_{2} Energy;E_{#mu2} [GeV];Events"
+    filter: "candidate"
+    column: "mu2_e"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 300.0
+
   - name: "h_truth_mu2_p"
     title: "Secondary #mu_{2} Momentum;p_{#mu2} [GeV/c];Events"
     filter: "candidate"
@@ -302,7 +318,46 @@ histograms_2d:
     ymin: 0.0
     ymax: 50.0
 
-  # Lepton and Neutrino Momenta Correlations
+  # Lepton and Neutrino Momenta and Energy Correlations
+  - name: "h2_truth_mu2_e_vs_mu1_e"
+    title: "Dimuon Energy Correlation (E_{#mu2} vs E_{#mu1});E_{#mu1} [GeV];E_{#mu2} [GeV]"
+    filter: "candidate"
+    x_column: "mu1_e"
+    y_column: "mu2_e"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 500.0
+    bins_y: 50
+    ymin: 0.0
+    ymax: 200.0
+
+  - name: "h2_truth_mu1_e_vs_nu_e"
+    title: "Primary #mu_{1} Energy vs E_{#nu};E_{#nu} [GeV];E_{#mu1} [GeV]"
+    filter: "fiducial"
+    x_column: "nu_e"
+    y_column: "mu1_e"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 800.0
+    bins_y: 50
+    ymin: 0.0
+    ymax: 500.0
+
+  - name: "h2_truth_mu2_e_vs_charm_e"
+    title: "Secondary #mu_{2} Energy vs Charm Hadron Energy;E_{charm} [GeV];E_{#mu2} [GeV]"
+    filter: "candidate"
+    x_column: "charm_e"
+    y_column: "mu2_e"
+    weight: "mc_weight"
+    bins_x: 50
+    xmin: 0.0
+    xmax: 400.0
+    bins_y: 50
+    ymin: 0.0
+    ymax: 200.0
+
   - name: "h2_truth_mu1_p_vs_nu_e"
     title: "Primary #mu_{1} Momentum vs E_{#nu};E_{#nu} [GeV];p_{#mu1} [GeV/c]"
     filter: "fiducial"
@@ -427,6 +482,36 @@ histograms_2d:
 # TProfiles (TProfile1D)
 # ==============================================================================
 profiles:
+  - name: "p_truth_mu1_e_vs_nu_e"
+    title: "Mean Primary #mu_{1} Energy vs E_{#nu};E_{#nu} [GeV];<E_{#mu1}> [GeV]"
+    filter: "fiducial"
+    x_column: "nu_e"
+    y_column: "mu1_e"
+    weight: "mc_weight"
+    bins: 40
+    xmin: 0.0
+    xmax: 800.0
+
+  - name: "p_truth_mu2_e_vs_nu_e"
+    title: "Mean Secondary #mu_{2} Energy vs E_{#nu};E_{#nu} [GeV];<E_{#mu2}> [GeV]"
+    filter: "candidate"
+    x_column: "nu_e"
+    y_column: "mu2_e"
+    weight: "mc_weight"
+    bins: 40
+    xmin: 0.0
+    xmax: 800.0
+
+  - name: "p_truth_mu2_e_vs_charm_e"
+    title: "Mean Secondary #mu_{2} Energy vs Charm Hadron Energy;E_{charm} [GeV];<E_{#mu2}> [GeV]"
+    filter: "candidate"
+    x_column: "charm_e"
+    y_column: "mu2_e"
+    weight: "mc_weight"
+    bins: 40
+    xmin: 0.0
+    xmax: 500.0
+
   - name: "p_truth_mu1_p_vs_nu_e"
     title: "Mean Primary #mu_{1} Momentum vs E_{#nu};E_{#nu} [GeV];<p_{#mu1}> [GeV/c]"
     filter: "fiducial"

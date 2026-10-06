@@ -29,12 +29,25 @@ from .filter import (
     count_mu2_ds_mcpoints,
     is_dimuon_in_ds_acceptance,
 )
-from .cuts import AvgScifiFiducialCut, get_avg_scifi_fiducial_cut
+from .cuts import (
+    AvgScifiFiducialCut,
+    get_avg_scifi_fiducial_cut,
+    load_cutflow_config,
+    get_preselection_metric_columns,
+    define_preselection_metrics,
+    save_cutflow_root_file,
+    merge_stage_histograms,
+)
 
 __all__ = [
     "DataManager",
     "AvgScifiFiducialCut",
     "get_avg_scifi_fiducial_cut",
+    "load_cutflow_config",
+    "get_preselection_metric_columns",
+    "define_preselection_metrics",
+    "save_cutflow_root_file",
+    "merge_stage_histograms",
     "load_trident_libraries",
     "load_neutrino_libraries",
     "Snd2DEventDisplay",

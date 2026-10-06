@@ -1,0 +1,711 @@
+# ==============================================================================
+# SND@LHC Prefilter: Cutflow Sequence and Diagnostic Histograms Configuration
+# ==============================================================================
+
+# Incremental Cutflow Selection Sequence
+# Each cut is applied sequentially after the preceding one.
+# Diagnostic histograms are booked and filled for each enabled cut stage.
+cuts:
+  - id: "step0_raw"
+    name: "Raw / All Events"
+    filter: ""
+    enabled: true
+    description: "Initial uncut event sample"
+
+  - id: "step1_scifi_fiducial"
+    name: "SciFi Average Channel Fiducial"
+    filter: "pass_scifi_fiducial"
+    enabled: true
+    description: "Average SciFi channel within horizontal and vertical fiducial boundaries"
+    vertical_min: 200.0
+    vertical_max: 1200.0
+    horizontal_min: 300.0
+    horizontal_max: 1336.0
+    reversed: false
+
+  - id: "step2_scifi_min_hits"
+    name: "SciFi Minimum Hits (>= 4)"
+    filter: "scifi_nhits >= 4"
+    enabled: true
+    description: "Require at least 4 valid SciFi hits"
+
+  - id: "step3_scifi_stations"
+    name: "SciFi Stations Hit (>= 3)"
+    filter: "scifi_stations_hit >= 3"
+    enabled: true
+    description: "Require hits in at least 3 distinct SciFi stations"
+
+  - id: "step4_veto_quiet"
+    name: "Veto System Quiet (Veto QDC < 1000)"
+    filter: "veto_sum_qdc < 1000.0"
+    enabled: true
+    description: "Reject upstream charged particles entering the veto system"
+
+  - id: "step5_hcal_activity"
+    name: "HCAL / US Activity (US QDC > 0)"
+    filter: "us_sum_qdc > 0.0"
+    enabled: true
+    description: "Require energy deposition in the upstream muon filter (HCAL)"
+
+  - id: "step6_ds_acceptance"
+    name: "DS Minimum Acceptance (DS Planes Hit >= 3)"
+    filter: "ds_planes_hit >= 3"
+    enabled: true
+    description: "Require downstream muon penetration through at least 3 DS planes"
+
+# Diagnostic Histograms booked at each incremental cut stage
+histograms:
+  # ----------------------------------------------------------------------------
+  # 1. SciFi Global & Station Hits
+  # ----------------------------------------------------------------------------
+  - name: "h_scifi_nhits"
+    title: "SciFi Total Valid Hits;N_{hits}^{SciFi};Events"
+    var: "scifi_nhits"
+    bins: 100
+    xmin: 0.0
+    xmax: 2000.0
+
+  - name: "h_scifi_busiest_station_nhits"
+    title: "SciFi Hits in Busiest Station;N_{hits}^{busiest};Events"
+    var: "scifi_busiest_station_nhits"
+    bins: 100
+    xmin: 0.0
+    xmax: 1000.0
+
+  - name: "h_scifi_busiest_station_id"
+    title: "SciFi Busiest Station ID;Station Number;Events"
+    var: "scifi_busiest_station_id"
+    bins: 6
+    xmin: 0.5
+    xmax: 6.5
+
+  - name: "h_scifi_stations_hit"
+    title: "SciFi Stations with Hits;N_{stations};Events"
+    var: "scifi_stations_hit"
+    bins: 6
+    xmin: -0.5
+    xmax: 5.5
+
+  - name: "h_scifi_planes_hit"
+    title: "SciFi Planes with Hits;N_{planes};Events"
+    var: "scifi_planes_hit"
+    bins: 11
+    xmin: -0.5
+    xmax: 10.5
+
+  - name: "h_scifi_max_nhits_plane"
+    title: "SciFi Max Hits in Single Plane;N_{hits}^{plane, max};Events"
+    var: "scifi_max_nhits_plane"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  # SciFi Hits per station (1 to 5)
+  - name: "h_scifi_nhits_st1"
+    title: "SciFi Station 1 Hits;N_{hits};Events"
+    var: "scifi_nhits_st1"
+    bins: 100
+    xmin: 0.0
+    xmax: 1000.0
+
+  - name: "h_scifi_nhits_st2"
+    title: "SciFi Station 2 Hits;N_{hits};Events"
+    var: "scifi_nhits_st2"
+    bins: 100
+    xmin: 0.0
+    xmax: 1000.0
+
+  - name: "h_scifi_nhits_st3"
+    title: "SciFi Station 3 Hits;N_{hits};Events"
+    var: "scifi_nhits_st3"
+    bins: 100
+    xmin: 0.0
+    xmax: 1000.0
+
+  - name: "h_scifi_nhits_st4"
+    title: "SciFi Station 4 Hits;N_{hits};Events"
+    var: "scifi_nhits_st4"
+    bins: 100
+    xmin: 0.0
+    xmax: 1000.0
+
+  - name: "h_scifi_nhits_st5"
+    title: "SciFi Station 5 Hits;N_{hits};Events"
+    var: "scifi_nhits_st5"
+    bins: 100
+    xmin: 0.0
+    xmax: 1000.0
+
+  # SciFi Hits per tracking plane (10 planes, H=YZ, V=XZ)
+  - name: "h_scifi_nhits_st1_h"
+    title: "SciFi St1 Horizontal (YZ) Hits;N_{hits};Events"
+    var: "scifi_nhits_st1_h"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "h_scifi_nhits_st1_v"
+    title: "SciFi St1 Vertical (XZ) Hits;N_{hits};Events"
+    var: "scifi_nhits_st1_v"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "h_scifi_nhits_st2_h"
+    title: "SciFi St2 Horizontal (YZ) Hits;N_{hits};Events"
+    var: "scifi_nhits_st2_h"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "h_scifi_nhits_st2_v"
+    title: "SciFi St2 Vertical (XZ) Hits;N_{hits};Events"
+    var: "scifi_nhits_st2_v"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "h_scifi_nhits_st3_h"
+    title: "SciFi St3 Horizontal (YZ) Hits;N_{hits};Events"
+    var: "scifi_nhits_st3_h"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "h_scifi_nhits_st3_v"
+    title: "SciFi St3 Vertical (XZ) Hits;N_{hits};Events"
+    var: "scifi_nhits_st3_v"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "h_scifi_nhits_st4_h"
+    title: "SciFi St4 Horizontal (YZ) Hits;N_{hits};Events"
+    var: "scifi_nhits_st4_h"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "h_scifi_nhits_st4_v"
+    title: "SciFi St4 Vertical (XZ) Hits;N_{hits};Events"
+    var: "scifi_nhits_st4_v"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "h_scifi_nhits_st5_h"
+    title: "SciFi St5 Horizontal (YZ) Hits;N_{hits};Events"
+    var: "scifi_nhits_st5_h"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "h_scifi_nhits_st5_v"
+    title: "SciFi St5 Vertical (XZ) Hits;N_{hits};Events"
+    var: "scifi_nhits_st5_v"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  # ----------------------------------------------------------------------------
+  # 2. SciFi QDC & Density Weights
+  # ----------------------------------------------------------------------------
+  - name: "h_scifi_sum_qdc"
+    title: "SciFi Total Integrated QDC;QDC;Events"
+    var: "scifi_sum_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 20000.0
+
+  - name: "h_scifi_max_qdc"
+    title: "SciFi Maximum Hit QDC;QDC;Events"
+    var: "scifi_max_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 1000.0
+
+  - name: "h_scifi_mean_qdc"
+    title: "SciFi Mean Hit QDC;Mean QDC;Events"
+    var: "scifi_mean_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 200.0
+
+  - name: "h_scifi_sum_hit_density"
+    title: "SciFi Sum of Hit Density Weights;Sum Hit Density;Events"
+    var: "scifi_sum_hit_density"
+    bins: 100
+    xmin: 0.0
+    xmax: 10000.0
+
+  - name: "h_scifi_max_hit_density"
+    title: "SciFi Maximum Hit Density Weight;Max Hit Density;Events"
+    var: "scifi_max_hit_density"
+    bins: 100
+    xmin: 0.0
+    xmax: 200.0
+
+  - name: "h_scifi_sum_qdc_density"
+    title: "SciFi Sum of QDC Density Weights;Sum QDC Density;Events"
+    var: "scifi_sum_qdc_density"
+    bins: 100
+    xmin: 0.0
+    xmax: 100000.0
+
+  - name: "h_scifi_max_qdc_density"
+    title: "SciFi Maximum QDC Density Weight;Max QDC Density;Events"
+    var: "scifi_max_qdc_density"
+    bins: 100
+    xmin: 0.0
+    xmax: 2000.0
+
+  # SciFi QDC per station
+  - name: "h_scifi_qdc_st1"
+    title: "SciFi Station 1 QDC;QDC;Events"
+    var: "scifi_qdc_st1"
+    bins: 100
+    xmin: 0.0
+    xmax: 8000.0
+
+  - name: "h_scifi_qdc_st2"
+    title: "SciFi Station 2 QDC;QDC;Events"
+    var: "scifi_qdc_st2"
+    bins: 100
+    xmin: 0.0
+    xmax: 8000.0
+
+  - name: "h_scifi_qdc_st3"
+    title: "SciFi Station 3 QDC;QDC;Events"
+    var: "scifi_qdc_st3"
+    bins: 100
+    xmin: 0.0
+    xmax: 8000.0
+
+  - name: "h_scifi_qdc_st4"
+    title: "SciFi Station 4 QDC;QDC;Events"
+    var: "scifi_qdc_st4"
+    bins: 100
+    xmin: 0.0
+    xmax: 8000.0
+
+  - name: "h_scifi_qdc_st5"
+    title: "SciFi Station 5 QDC;QDC;Events"
+    var: "scifi_qdc_st5"
+    bins: 100
+    xmin: 0.0
+    xmax: 8000.0
+
+  - name: "h_scifi_busiest_station_qdc"
+    title: "SciFi Busiest Station QDC;QDC;Events"
+    var: "scifi_busiest_station_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 8000.0
+
+  # ----------------------------------------------------------------------------
+  # 3. SciFi Fiducial Position Observables
+  # ----------------------------------------------------------------------------
+  - name: "h_scifi_avg_channel_v"
+    title: "Average Vertical SciFi Channel;Channel (XZ);Events"
+    var: "scifi_avg_channel_v"
+    bins: 120
+    xmin: 0.0
+    xmax: 1536.0
+
+  - name: "h_scifi_avg_channel_h"
+    title: "Average Horizontal SciFi Channel;Channel (YZ);Events"
+    var: "scifi_avg_channel_h"
+    bins: 120
+    xmin: 0.0
+    xmax: 1536.0
+
+  - name: "h_scifi_avg_channel_2d"
+    title: "Average SciFi Channels (H vs V);Vertical Channel (XZ);Horizontal Channel (YZ)"
+    type: "2D"
+    var_x: "scifi_avg_channel_v"
+    var_y: "scifi_avg_channel_h"
+    bins_x: 60
+    xmin: 0.0
+    xmax: 1536.0
+    bins_y: 60
+    ymin: 0.0
+    ymax: 1536.0
+
+  # ----------------------------------------------------------------------------
+  # 4. HCAL / Upstream MuFilter (US, System 2)
+  # ----------------------------------------------------------------------------
+  - name: "h_us_sum_qdc"
+    title: "HCAL (US) Total Integrated QDC;QDC_{US};Events"
+    var: "us_sum_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 10000.0
+
+  - name: "h_us_max_qdc"
+    title: "HCAL (US) Maximum Bar QDC;Max QDC_{US};Events"
+    var: "us_max_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 2000.0
+
+  - name: "h_us_nhits"
+    title: "HCAL (US) Total Hits;N_{hits}^{US};Events"
+    var: "us_nhits"
+    bins: 50
+    xmin: 0.0
+    xmax: 50.0
+
+  - name: "h_us_planes_hit"
+    title: "HCAL (US) Stations Hit;N_{stations}^{US};Events"
+    var: "us_planes_hit"
+    bins: 6
+    xmin: -0.5
+    xmax: 5.5
+
+  - name: "h_us_busiest_station_nhits"
+    title: "HCAL (US) Busiest Station Hits;N_{hits};Events"
+    var: "us_busiest_station_nhits"
+    bins: 20
+    xmin: 0.0
+    xmax: 20.0
+
+  - name: "h_us_busiest_station_qdc"
+    title: "HCAL (US) Busiest Station QDC;QDC;Events"
+    var: "us_busiest_station_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 4000.0
+
+  # HCAL QDC per station
+  - name: "h_us_qdc_st1"
+    title: "HCAL St1 QDC;QDC;Events"
+    var: "us_qdc_st1"
+    bins: 100
+    xmin: 0.0
+    xmax: 4000.0
+
+  - name: "h_us_qdc_st2"
+    title: "HCAL St2 QDC;QDC;Events"
+    var: "us_qdc_st2"
+    bins: 100
+    xmin: 0.0
+    xmax: 4000.0
+
+  - name: "h_us_qdc_st3"
+    title: "HCAL St3 QDC;QDC;Events"
+    var: "us_qdc_st3"
+    bins: 100
+    xmin: 0.0
+    xmax: 4000.0
+
+  - name: "h_us_qdc_st4"
+    title: "HCAL St4 QDC;QDC;Events"
+    var: "us_qdc_st4"
+    bins: 100
+    xmin: 0.0
+    xmax: 4000.0
+
+  - name: "h_us_qdc_st5"
+    title: "HCAL St5 QDC;QDC;Events"
+    var: "us_qdc_st5"
+    bins: 100
+    xmin: 0.0
+    xmax: 4000.0
+
+  # ----------------------------------------------------------------------------
+  # 5. Downstream MuFilter (DS, System 3)
+  # ----------------------------------------------------------------------------
+  - name: "h_ds_sum_qdc"
+    title: "DS Total Integrated QDC;QDC_{DS};Events"
+    var: "ds_sum_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 10000.0
+
+  - name: "h_ds_max_qdc"
+    title: "DS Maximum Bar QDC;Max QDC_{DS};Events"
+    var: "ds_max_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 2000.0
+
+  - name: "h_ds_nhits"
+    title: "DS Total Hits;N_{hits}^{DS};Events"
+    var: "ds_nhits"
+    bins: 50
+    xmin: 0.0
+    xmax: 50.0
+
+  - name: "h_ds_stations_hit"
+    title: "DS Stations Hit;N_{stations}^{DS};Events"
+    var: "ds_stations_hit"
+    bins: 5
+    xmin: -0.5
+    xmax: 4.5
+
+  - name: "h_ds_planes_hit"
+    title: "DS Planes Hit;N_{planes}^{DS};Events"
+    var: "ds_planes_hit"
+    bins: 8
+    xmin: -0.5
+    xmax: 7.5
+
+  - name: "h_ds_deepest_station"
+    title: "DS Deepest Station Hit;Station;Events"
+    var: "ds_deepest_station"
+    bins: 5
+    xmin: -0.5
+    xmax: 4.5
+
+  - name: "h_ds_deepest_plane"
+    title: "DS Deepest Plane Hit;Plane;Events"
+    var: "ds_deepest_plane"
+    bins: 8
+    xmin: -0.5
+    xmax: 7.5
+
+  - name: "h_ds_busiest_station_nhits"
+    title: "DS Busiest Station Hits;N_{hits};Events"
+    var: "ds_busiest_station_nhits"
+    bins: 20
+    xmin: 0.0
+    xmax: 20.0
+
+  - name: "h_ds_busiest_station_qdc"
+    title: "DS Busiest Station QDC;QDC;Events"
+    var: "ds_busiest_station_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 4000.0
+
+  # DS Hits per plane (7 planes)
+  - name: "h_ds_nhits_st1_h"
+    title: "DS St1 Horizontal Hits;N_{hits};Events"
+    var: "ds_nhits_st1_h"
+    bins: 20
+    xmin: 0.0
+    xmax: 20.0
+
+  - name: "h_ds_nhits_st1_v"
+    title: "DS St1 Vertical Hits;N_{hits};Events"
+    var: "ds_nhits_st1_v"
+    bins: 20
+    xmin: 0.0
+    xmax: 20.0
+
+  - name: "h_ds_nhits_st2_h"
+    title: "DS St2 Horizontal Hits;N_{hits};Events"
+    var: "ds_nhits_st2_h"
+    bins: 20
+    xmin: 0.0
+    xmax: 20.0
+
+  - name: "h_ds_nhits_st2_v"
+    title: "DS St2 Vertical Hits;N_{hits};Events"
+    var: "ds_nhits_st2_v"
+    bins: 20
+    xmin: 0.0
+    xmax: 20.0
+
+  - name: "h_ds_nhits_st3_h"
+    title: "DS St3 Horizontal Hits;N_{hits};Events"
+    var: "ds_nhits_st3_h"
+    bins: 20
+    xmin: 0.0
+    xmax: 20.0
+
+  - name: "h_ds_nhits_st3_v"
+    title: "DS St3 Vertical Hits;N_{hits};Events"
+    var: "ds_nhits_st3_v"
+    bins: 20
+    xmin: 0.0
+    xmax: 20.0
+
+  - name: "h_ds_nhits_st4_v"
+    title: "DS St4 Vertical Hits;N_{hits};Events"
+    var: "ds_nhits_st4_v"
+    bins: 20
+    xmin: 0.0
+    xmax: 20.0
+
+  # DS QDC per plane (7 planes)
+  - name: "h_ds_qdc_st1_h"
+    title: "DS St1 Horizontal QDC;QDC;Events"
+    var: "ds_qdc_st1_h"
+    bins: 100
+    xmin: 0.0
+    xmax: 3000.0
+
+  - name: "h_ds_qdc_st1_v"
+    title: "DS St1 Vertical QDC;QDC;Events"
+    var: "ds_qdc_st1_v"
+    bins: 100
+    xmin: 0.0
+    xmax: 3000.0
+
+  - name: "h_ds_qdc_st2_h"
+    title: "DS St2 Horizontal QDC;QDC;Events"
+    var: "ds_qdc_st2_h"
+    bins: 100
+    xmin: 0.0
+    xmax: 3000.0
+
+  - name: "h_ds_qdc_st2_v"
+    title: "DS St2 Vertical QDC;QDC;Events"
+    var: "ds_qdc_st2_v"
+    bins: 100
+    xmin: 0.0
+    xmax: 3000.0
+
+  - name: "h_ds_qdc_st3_h"
+    title: "DS St3 Horizontal QDC;QDC;Events"
+    var: "ds_qdc_st3_h"
+    bins: 100
+    xmin: 0.0
+    xmax: 3000.0
+
+  - name: "h_ds_qdc_st3_v"
+    title: "DS St3 Vertical QDC;QDC;Events"
+    var: "ds_qdc_st3_v"
+    bins: 100
+    xmin: 0.0
+    xmax: 3000.0
+
+  - name: "h_ds_qdc_st4_v"
+    title: "DS St4 Vertical QDC;QDC;Events"
+    var: "ds_qdc_st4_v"
+    bins: 100
+    xmin: 0.0
+    xmax: 3000.0
+
+  # ----------------------------------------------------------------------------
+  # 6. Veto System (System 1)
+  # ----------------------------------------------------------------------------
+  - name: "h_veto_sum_qdc"
+    title: "Veto System Total QDC;QDC_{veto};Events"
+    var: "veto_sum_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 2000.0
+
+  - name: "h_veto_max_qdc"
+    title: "Veto System Maximum Bar QDC;Max QDC_{veto};Events"
+    var: "veto_max_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 1000.0
+
+  - name: "h_veto_nhits"
+    title: "Veto System Total Hits;N_{hits}^{veto};Events"
+    var: "veto_nhits"
+    bins: 20
+    xmin: 0.0
+    xmax: 20.0
+
+  - name: "h_veto_planes_hit"
+    title: "Veto Planes Hit;N_{planes}^{veto};Events"
+    var: "veto_planes_hit"
+    bins: 3
+    xmin: -0.5
+    xmax: 2.5
+
+  # ----------------------------------------------------------------------------
+  # 7. Cross-System Global & Longitudinal Ratios
+  # ----------------------------------------------------------------------------
+  - name: "h_total_nhits"
+    title: "Total Hits Across All Detector Systems;Total Hits;Events"
+    var: "total_nhits"
+    bins: 100
+    xmin: 0.0
+    xmax: 2500.0
+
+  - name: "h_total_sum_qdc"
+    title: "Total QDC Across All Detector Systems;Total QDC;Events"
+    var: "total_sum_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 30000.0
+
+  - name: "h_ratio_ds_to_scifi_qdc"
+    title: "Ratio QDC_{DS} / QDC_{SciFi};Ratio;Events"
+    var: "ratio_ds_to_scifi_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 5.0
+
+  - name: "h_ratio_ds_to_scifi_nhits"
+    title: "Ratio N_{hits}^{DS} / N_{hits}^{SciFi};Ratio;Events"
+    var: "ratio_ds_to_scifi_nhits"
+    bins: 100
+    xmin: 0.0
+    xmax: 1.0
+
+  - name: "h_ratio_us_to_scifi_qdc"
+    title: "Ratio QDC_{HCAL} / QDC_{SciFi};Ratio;Events"
+    var: "ratio_us_to_scifi_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 5.0
+
+  - name: "h_ratio_mufi_to_scifi_qdc"
+    title: "Ratio QDC_{MuFilter} / QDC_{SciFi};Ratio;Events"
+    var: "ratio_mufi_to_scifi_qdc"
+    bins: 100
+    xmin: 0.0
+    xmax: 5.0
+
+  - name: "h_scifi_qdc_ratio_down_up"
+    title: "SciFi Downstream to Upstream QDC Ratio;Ratio;Events"
+    var: "scifi_qdc_ratio_down_up"
+    bins: 100
+    xmin: 0.0
+    xmax: 5.0
+
+  - name: "h_scifi_nhits_ratio_down_up"
+    title: "SciFi Downstream to Upstream Hits Ratio;Ratio;Events"
+    var: "scifi_nhits_ratio_down_up"
+    bins: 100
+    xmin: 0.0
+    xmax: 5.0
+
+  - name: "h_scifi_qdc_ratio_st5_st1"
+    title: "SciFi Station 5 to Station 1 QDC Ratio;Ratio;Events"
+    var: "scifi_qdc_ratio_st5_st1"
+    bins: 100
+    xmin: 0.0
+    xmax: 5.0
+
+  - name: "h_scifi_qdc_asym_xy"
+    title: "SciFi QDC Asymmetry (X - Y) / (X + Y);Asymmetry;Events"
+    var: "scifi_qdc_asym_xy"
+    bins: 100
+    xmin: -1.0
+    xmax: 1.0
+
+  - name: "h_scifi_nhits_asym_xy"
+    title: "SciFi Hits Asymmetry (X - Y) / (X + Y);Asymmetry;Events"
+    var: "scifi_nhits_asym_xy"
+    bins: 100
+    xmin: -1.0
+    xmax: 1.0
+
+  - name: "h_ds_qdc_ratio_back_front"
+    title: "DS Back to Front QDC Ratio;Ratio;Events"
+    var: "ds_qdc_ratio_back_front"
+    bins: 100
+    xmin: 0.0
+    xmax: 5.0
+
+  - name: "h_ds_nhits_ratio_back_front"
+    title: "DS Back to Front Hits Ratio;Ratio;Events"
+    var: "ds_nhits_ratio_back_front"
+    bins: 100
+    xmin: 0.0
+    xmax: 5.0
+
+  - name: "h_ds_qdc_ratio_ds4_ds1"
+    title: "DS Station 4 to Station 1 QDC Ratio;Ratio;Events"
+    var: "ds_qdc_ratio_ds4_ds1"
+    bins: 100
+    xmin: 0.0
+    xmax: 5.0

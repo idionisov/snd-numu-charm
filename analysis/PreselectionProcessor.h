@@ -38,6 +38,12 @@ struct PreselectionMetrics {
     double scifi_qdc_st4{0.0};
     double scifi_qdc_st5{0.0};
 
+    int scifi_busiest_station_nhits{0};
+    int scifi_busiest_station_id{0};
+    double scifi_busiest_station_qdc{0.0};
+    double scifi_avg_channel_v{-1.0};
+    double scifi_avg_channel_h{-1.0};
+
     // 4. SciFi Individual 10 Tracking Planes (Horizontal YZ and Vertical XZ)
     int scifi_nhits_st1_h{0};
     int scifi_nhits_st1_v{0};
@@ -92,6 +98,9 @@ struct PreselectionMetrics {
     double us_qdc_st4{0.0};
     double us_qdc_st5{0.0};
 
+    int us_busiest_station_nhits{0};
+    double us_busiest_station_qdc{0.0};
+
     // 8. Downstream MuFilter (DS, System 3 - 4 Stations, 7 Planes)
     int ds_nhits{0};
     double ds_sum_qdc{0.0};
@@ -102,6 +111,9 @@ struct PreselectionMetrics {
     int ds_deepest_plane{0};
     int ds_max_nhits_plane{0};
     double ds_max_qdc_plane{0.0};
+
+    int ds_busiest_station_nhits{0};
+    double ds_busiest_station_qdc{0.0};
 
     // 9. Downstream Individual 7 Tracking Planes
     int ds_nhits_st1_h{0};

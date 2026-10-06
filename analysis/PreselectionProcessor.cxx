@@ -60,6 +60,23 @@ PreselectionMetrics PreselectionProcessor::process(
         double qdc_plane_h[5] = {0.0};
         double qdc_plane_v[5] = {0.0};
 
+        double sum_ch_v = 0.0, sum_ch_h = 0.0;
+        int n_ch_v = 0, n_ch_h = 0;
+
+        int plane_hits[5][2][1536];
+        double plane_qdc[5][2][1536];
+        std::memset(plane_hits, 0, sizeof(plane_hits));
+        std::memset(plane_qdc, 0, sizeof(plane_qdc));
+
+        struct ScifiHitInfo {
+            int st;
+            int is_vert;
+            int ch;
+            double qdc;
+        };
+        std::vector<ScifiHitInfo> valid_hits;
+        valid_hits.reserve(n_sf);
+
         for (int i = 0; i < n_sf; ++i) {
             auto* h = static_cast<sndScifiHit*>(scifiHits->At(i));
             if (!h || !h->isValid()) continue;
@@ -71,6 +88,21 @@ PreselectionMetrics PreselectionProcessor::process(
 
             int st = h->GetStation(); // 1..5
             int is_vert = h->isVertical() ? 1 : 0; // 1 = XZ, 0 = YZ
+
+            int mat = h->GetMat();
+            int sipm = h->GetSiPM();
+            int channel = h->GetSiPMChan();
+            int ch = channel + sipm * 128 + mat * 512;
+            if (ch < 0) ch = 0;
+            if (ch > 1535) ch = 1535;
+
+            if (is_vert == 1) {
+                sum_ch_v += ch;
+                n_ch_v++;
+            } else {
+                sum_ch_h += ch;
+                n_ch_h++;
+            }
 
             if (st >= 1 && st <= 5) {
                 sf_stations.insert(st);
@@ -86,14 +118,37 @@ PreselectionMetrics PreselectionProcessor::process(
                     qdc_plane_h[st - 1] += qdc;
                     qdc_y += qdc; hits_y += 1;
                 }
+                plane_hits[st - 1][is_vert][ch]++;
+                plane_qdc[st - 1][is_vert][ch] += qdc;
+                valid_hits.push_back({st - 1, is_vert, ch, qdc});
             }
+        }
 
-            double hit_w = static_cast<double>(snd::analysis_tools::densityScifi(
-                h->GetChannelID(), *const_cast<TClonesArray*>(scifiHits), fDensityRadius, 1000000.0, false));
+        // Fast prefix sum density calculation: O(N) total vs O(N^2)
+        int prefix_hits[5][2][1536];
+        double prefix_qdc[5][2][1536];
+        for (int s = 0; s < 5; ++s) {
+            for (int o = 0; o < 2; ++o) {
+                int run_h = 0;
+                double run_q = 0.0;
+                for (int c = 0; c < 1536; ++c) {
+                    run_h += plane_hits[s][o][c];
+                    run_q += plane_qdc[s][o][c];
+                    prefix_hits[s][o][c] = run_h;
+                    prefix_qdc[s][o][c] = run_q;
+                }
+            }
+        }
+
+        int rad = static_cast<int>(fDensityRadius);
+        for (const auto& vh : valid_hits) {
+            int high = std::min(1535, vh.ch + rad);
+            int low = vh.ch - rad;
+            double hit_w = prefix_hits[vh.st][vh.is_vert][high] - (low > 0 ? prefix_hits[vh.st][vh.is_vert][low - 1] : 0);
+            double qdc_w = prefix_qdc[vh.st][vh.is_vert][high] - (low > 0 ? prefix_qdc[vh.st][vh.is_vert][low - 1] : 0.0);
+
             m.scifi_sum_hit_density += hit_w;
             if (hit_w > m.scifi_max_hit_density) m.scifi_max_hit_density = hit_w;
-
-            double qdc_w = qdcDensityFast(h->GetChannelID(), scifiHits, static_cast<int>(fDensityRadius));
             m.scifi_sum_qdc_density += qdc_w;
             if (qdc_w > m.scifi_max_qdc_density) m.scifi_max_qdc_density = qdc_w;
         }
@@ -103,6 +158,9 @@ PreselectionMetrics PreselectionProcessor::process(
         m.scifi_planes_hit = static_cast<int>(sf_planes.size());
         m.scifi_stations_hit = static_cast<int>(sf_stations.size());
 
+        if (n_ch_v > 0) m.scifi_avg_channel_v = sum_ch_v / n_ch_v;
+        if (n_ch_h > 0) m.scifi_avg_channel_h = sum_ch_h / n_ch_h;
+
         // Assign individual station and plane metrics
         m.scifi_nhits_st1 = nhits_st[0]; m.scifi_nhits_st2 = nhits_st[1];
         m.scifi_nhits_st3 = nhits_st[2]; m.scifi_nhits_st4 = nhits_st[3];
@@ -111,6 +169,16 @@ PreselectionMetrics PreselectionProcessor::process(
         m.scifi_qdc_st1 = qdc_st[0]; m.scifi_qdc_st2 = qdc_st[1];
         m.scifi_qdc_st3 = qdc_st[2]; m.scifi_qdc_st4 = qdc_st[3];
         m.scifi_qdc_st5 = qdc_st[4];
+
+        for (int s = 0; s < 5; ++s) {
+            if (nhits_st[s] > m.scifi_busiest_station_nhits) {
+                m.scifi_busiest_station_nhits = nhits_st[s];
+                m.scifi_busiest_station_id = s + 1;
+            }
+            if (qdc_st[s] > m.scifi_busiest_station_qdc) {
+                m.scifi_busiest_station_qdc = qdc_st[s];
+            }
+        }
 
         m.scifi_nhits_st1_h = nhits_plane_h[0]; m.scifi_nhits_st1_v = nhits_plane_v[0];
         m.scifi_nhits_st2_h = nhits_plane_h[1]; m.scifi_nhits_st2_v = nhits_plane_v[1];
@@ -221,6 +289,11 @@ PreselectionMetrics PreselectionProcessor::process(
         m.us_qdc_st3 = us_qdc_st[2]; m.us_qdc_st4 = us_qdc_st[3];
         m.us_qdc_st5 = us_qdc_st[4];
 
+        for (int s = 0; s < 5; ++s) {
+            if (us_nhits_st[s] > m.us_busiest_station_nhits) m.us_busiest_station_nhits = us_nhits_st[s];
+            if (us_qdc_st[s] > m.us_busiest_station_qdc) m.us_busiest_station_qdc = us_qdc_st[s];
+        }
+
         // Assign DS individual plane metrics
         m.ds_nhits_st1_h = ds_nhits_plane_h[0]; m.ds_nhits_st1_v = ds_nhits_plane_v[0];
         m.ds_nhits_st2_h = ds_nhits_plane_h[1]; m.ds_nhits_st2_v = ds_nhits_plane_v[1];
@@ -231,6 +304,13 @@ PreselectionMetrics PreselectionProcessor::process(
         m.ds_qdc_st2_h = ds_qdc_plane_h[1]; m.ds_qdc_st2_v = ds_qdc_plane_v[1];
         m.ds_qdc_st3_h = ds_qdc_plane_h[2]; m.ds_qdc_st3_v = ds_qdc_plane_v[2];
         m.ds_qdc_st4_v = ds_qdc_plane_v[3];
+
+        for (int s = 0; s < 4; ++s) {
+            int st_h = ds_nhits_plane_h[s] + ds_nhits_plane_v[s];
+            double st_q = ds_qdc_plane_h[s] + ds_qdc_plane_v[s];
+            if (st_h > m.ds_busiest_station_nhits) m.ds_busiest_station_nhits = st_h;
+            if (st_q > m.ds_busiest_station_qdc) m.ds_busiest_station_qdc = st_q;
+        }
 
         for (int s = 0; s < 4; ++s) {
             if (ds_nhits_plane_h[s] > m.ds_max_nhits_plane) m.ds_max_nhits_plane = ds_nhits_plane_h[s];

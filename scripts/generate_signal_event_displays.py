@@ -121,6 +121,7 @@ def process_single_file_worker(args_tuple):
         min_ds_ver_points,
         in_acc_name,
         other_name,
+        reco_muons,
     ) = args_tuple
 
     import ROOT
@@ -311,6 +312,7 @@ def process_single_file_worker(args_tuple):
                 run_number=ev_run_id,
                 event_number=event_num,
                 show_mc_truth=mc_truth,
+                draw_reco_tracks=reco_muons,
             )
 
             target_tdir = get_or_create_tdirectory(ftemp, target_parts)
@@ -385,6 +387,13 @@ def main():
         action="store_true",
         default=False,
         help="Enable Monte Carlo truth overlay (tracks, vertices, kinematics table) and default top TDirectory 'MCTruth'",
+    )
+    parser.add_argument(
+        "--recoMuons", "--reco-muons",
+        dest="reco_muons",
+        action="store_true",
+        default=False,
+        help="Plot reconstructed muon tracks from Reco_MuonTracks branch",
     )
     parser.add_argument(
         "--events",
@@ -561,6 +570,7 @@ def main():
         print(f" Acceptance Splitting: Disabled")
     print(f" Canvas Name Format:   {canvas_name_format}")
     print(f" Filter Candidates:    {'Candidates only (has_candidate=1)' if candidates_only else 'All events'}")
+    print(f" Plot Reco Tracks:     {args.reco_muons}")
     print(f" QDC / Density Colors: {color_by_qdc_and_density} (Max Dens: {max_density}, Max QDC: {max_qdc})")
     print(f" Parallel Workers:     {args.jobs}")
     print(f" Save PNG Images:      {save_images}" + (f" -> {images_dir}" if save_images else ""))
@@ -611,6 +621,7 @@ def main():
             min_ds_ver_points,
             in_acc_name,
             other_name,
+            args.reco_muons,
         ))
 
     total_saved = 0

@@ -526,6 +526,7 @@ class Snd2DEventDisplay:
         run_number: Optional[int] = None,
         event_number: Optional[int] = None,
         show_mc_truth: bool = False,
+        draw_reco_tracks: bool = False,
     ) -> ROOT.TCanvas:
         """
         Builds the 2D event display TCanvas mimicking EventDisplay_Task simpleDisplay.
@@ -800,6 +801,125 @@ class Snd2DEventDisplay:
                 m_end_yz.Draw("same")
                 track_objs.extend([m_end_xz, m_end_yz])
 
+        # 4b. Draw Reconstructed Tracks (Reco_MuonTracks)
+        reco_track_objs = []
+        if draw_reco_tracks and hasattr(tree, "Reco_MuonTracks") and tree.Reco_MuonTracks is not None:
+            n_reco_tracks = 0
+            try:
+                n_reco_tracks = tree.Reco_MuonTracks.GetEntries()
+            except Exception:
+                n_reco_tracks = len(tree.Reco_MuonTracks) if hasattr(tree.Reco_MuonTracks, "__len__") else 0
+
+            for i_trk in range(n_reco_tracks):
+                aTrack = tree.Reco_MuonTracks[i_trk]
+                if not aTrack:
+                    continue
+
+                # Check fit status
+                if hasattr(aTrack, "getTrackFlag") and not aTrack.getTrackFlag():
+                    continue
+                elif hasattr(aTrack, "getFitStatus") and not aTrack.getFitStatus().isFitConverged():
+                    continue
+
+                # Determine track type and color matching 2dEventDisplay.py
+                tr_type = 0
+                if hasattr(aTrack, "getTrackType"):
+                    tr_type = aTrack.getTrackType()
+                if tr_type == 0 and hasattr(aTrack, "GetUniqueID"):
+                    tr_type = aTrack.GetUniqueID()
+
+                if tr_type == 1:
+                    track_color = ROOT.kBlue + 2     # SciFi track
+                elif tr_type == 3:
+                    track_color = ROOT.kBlack        # DS track
+                elif tr_type == 11:
+                    track_color = ROOT.kAzure - 2    # HT SciFi track
+                elif tr_type == 13:
+                    track_color = ROOT.kGray + 2     # HT DS track
+                elif tr_type == 15:
+                    track_color = ROOT.kOrange + 7   # HT cross-system track
+                else:
+                    track_color = ROOT.kRed          # Generic reco track
+
+                # Extract track points
+                pts = []
+                if hasattr(aTrack, "getTrackPoints"):
+                    try:
+                        raw_pts = aTrack.getTrackPoints()
+                        for pt in raw_pts:
+                            pts.append((float(pt.X()), float(pt.Y()), float(pt.Z())))
+                    except Exception:
+                        pass
+                elif hasattr(aTrack, "getNumPointsWithMeasurement"):
+                    try:
+                        for idx_pt in range(aTrack.getNumPointsWithMeasurement()):
+                            st = aTrack.getFittedState(idx_pt)
+                            p = st.getPos()
+                            pts.append((float(p.X()), float(p.Y()), float(p.Z())))
+                    except Exception:
+                        pass
+
+                # Fallback to start / stop if no intermediate points
+                if not pts and hasattr(aTrack, "getStart") and hasattr(aTrack, "getStop"):
+                    try:
+                        st = aTrack.getStart()
+                        sp = aTrack.getStop()
+                        pts = [
+                            (float(st.X()), float(st.Y()), float(st.Z())),
+                            (float(sp.X()), float(sp.Y()), float(sp.Z())),
+                        ]
+                    except Exception:
+                        pass
+
+                # Extrapolate upstream (z_min) and downstream (z_max) matching 2dEventDisplay.py
+                pt_up = None
+                pt_down = None
+                if hasattr(aTrack, "getPointAtZ"):
+                    try:
+                        p_u = aTrack.getPointAtZ(self.z_min)
+                        p_d = aTrack.getPointAtZ(self.z_max)
+                        pt_up = (float(p_u.X()), float(p_u.Y()), self.z_min)
+                        pt_down = (float(p_d.X()), float(p_d.Y()), self.z_max)
+                    except Exception:
+                        pass
+                elif hasattr(aTrack, "getFittedState"):
+                    try:
+                        mom = aTrack.getFittedState().getMom()
+                        pos = aTrack.getFittedState().getPos()
+                        if abs(mom.Z()) > 1e-4:
+                            lam_u = (self.z_min - pos.Z()) / mom.Z()
+                            pt_up = (float(pos.X() + lam_u * mom.X()), float(pos.Y() + lam_u * mom.Y()), self.z_min)
+                            lam_d = (self.z_max - pos.Z()) / mom.Z()
+                            pt_down = (float(pos.X() + lam_d * mom.X()), float(pos.Y() + lam_d * mom.Y()), self.z_max)
+                    except Exception:
+                        pass
+
+                all_pts = []
+                if pt_up:
+                    all_pts.append(pt_up)
+                all_pts.extend(pts)
+                if pt_down:
+                    all_pts.append(pt_down)
+                all_pts.sort(key=lambda p: p[2])
+
+                if len(all_pts) >= 2:
+                    line_xz = ROOT.TPolyLine()
+                    line_yz = ROOT.TPolyLine()
+                    for idx, pt in enumerate(all_pts):
+                        line_xz.SetPoint(idx, pt[2], pt[0])
+                        line_yz.SetPoint(idx, pt[2], pt[1])
+
+                    for l in [line_xz, line_yz]:
+                        l.SetLineColor(track_color)
+                        l.SetLineWidth(2)
+                        l.SetLineStyle(1)
+
+                    pad_xz.cd()
+                    line_xz.Draw("same")
+                    pad_yz.cd()
+                    line_yz.Draw("same")
+                    reco_track_objs.extend([line_xz, line_yz])
+
         # 5. Draw Official SND@LHC Logo and Run/Event info subpads
         logo_objs_1 = self._draw_logo_and_info(pad_xz, 1, run_id, ev_id)
         logo_objs_2 = self._draw_logo_and_info(pad_yz, 2, run_id, ev_id)
@@ -895,8 +1015,29 @@ class Snd2DEventDisplay:
                 leg.AddEntry(d_vtx, "Primary Interaction Vertex", "p")
             if tracks.get("charm_decay") is not None:
                 leg.AddEntry(d_dec, "Charm Decay Vertex", "p")
+            if reco_track_objs:
+                d_reco = ROOT.TLine()
+                d_reco.SetLineColor(ROOT.kRed)
+                d_reco.SetLineWidth(2)
+                leg.AddEntry(d_reco, "Reconstructed Track", "l")
+                truth_leg_markers.append(d_reco)
             leg.Draw("same")
-            truth_leg_markers = [d_mu1, d_charm, d_mu2, d_vtx, d_dec]
+            truth_leg_markers.extend([d_mu1, d_charm, d_mu2, d_vtx, d_dec])
+
+        # Standalone Reconstructed Tracks Legend in Real Data mode
+        if draw_reco_tracks and reco_track_objs and not show_mc_truth:
+            pad_xz.cd()
+            reco_leg = ROOT.TLegend(0.68, 0.78, 0.96, 0.92)
+            reco_leg.SetBorderSize(1)
+            reco_leg.SetFillColor(ROOT.kWhite)
+            reco_leg.SetTextFont(42)
+            reco_leg.SetTextSize(0.027)
+            d_reco_leg = ROOT.TLine()
+            d_reco_leg.SetLineColor(ROOT.kRed)
+            d_reco_leg.SetLineWidth(2)
+            reco_leg.AddEntry(d_reco_leg, f"Reco Tracks ({len(reco_track_objs)//2})", "l")
+            reco_leg.Draw("same")
+            reco_track_objs.extend([reco_leg, d_reco_leg])
 
         # Keep Python object references alive on canvas to prevent GC
         canvas._keep_alive = [hist_xz, hist_yz]
@@ -908,6 +1049,7 @@ class Snd2DEventDisplay:
         canvas._keep_alive.extend(scifi_markers)
         canvas._keep_alive.extend(filled_bars)
         canvas._keep_alive.extend(track_objs)
+        canvas._keep_alive.extend(reco_track_objs)
         canvas._keep_alive.extend(logo_objs_1)
         canvas._keep_alive.extend(logo_objs_2)
         canvas._keep_alive.extend(legend_objs_1)
@@ -924,6 +1066,7 @@ class Snd2DEventDisplay:
         name: str = None,
         subdir: str = "eventdisplay",
         show_mc_truth: bool = False,
+        draw_reco_tracks: bool = False,
     ):
         """
         Generates and saves the TCanvas into the given ROOT TFile under subdir.
@@ -942,6 +1085,7 @@ class Snd2DEventDisplay:
             canvas_name=name,
             canvas_title=f"Event {event_idx}",
             show_mc_truth=show_mc_truth,
+            draw_reco_tracks=draw_reco_tracks,
         )
         canvas.Write(name)
         return canvas
@@ -952,11 +1096,17 @@ class Snd2DEventDisplay:
         event_idx: int = 0,
         output_path: str = "event_display.png",
         show_mc_truth: bool = False,
+        draw_reco_tracks: bool = False,
     ):
         """
         Renders the event display and saves it to an image (PNG, PDF, SVG).
         """
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        canvas = self.draw_event(tree, event_idx, show_mc_truth=show_mc_truth)
+        canvas = self.draw_event(
+            tree,
+            event_idx,
+            show_mc_truth=show_mc_truth,
+            draw_reco_tracks=draw_reco_tracks,
+        )
         canvas.Print(output_path)
         return output_path

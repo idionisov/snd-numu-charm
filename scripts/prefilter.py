@@ -510,8 +510,14 @@ def main():
     parser.add_argument(
         "-o", "--output",
         type=str,
-        required=True,
-        help="Output file pattern with '%%s' placeholder (e.g. /path/to/out/%%s/preselected_run%%s.root)",
+        default=None,
+        help="Output file pattern with '%%s' placeholder (optional if only generating cutflow)",
+    )
+    parser.add_argument(
+        "-p", "--partitions",
+        type=str,
+        default=None,
+        help="Partitions to process: range ('0-400'), comma-separated ('0,1,2'), or 'all'",
     )
     parser.add_argument(
         "--cutflow",
@@ -607,8 +613,29 @@ def main():
             for c in cutflow_cfg["cuts"]:
                 c["enabled"] = (c.get("id") in selected_ids or c.get("id") == "step0_raw")
 
+    if not args.output and not args.cutflow:
+        print("[Error] Must specify either -o/--output to write preselected files or --cutflow to produce cutflow histograms.")
+        sys.exit(1)
+
     # Resolve input files
-    input_files = resolve_input_files(args.input, max_files=args.max_files)
+    if args.partitions:
+        from scripts.extract_simulation_truth import parse_partitions
+        selected_partitions = parse_partitions(args.partitions)
+        input_files = []
+        if selected_partitions is not None:
+            for p in selected_partitions:
+                p_str = str(p)
+                c_p = args.input.count("%s")
+                p_file = args.input % tuple(p_str for _ in range(c_p)) if c_p > 0 else args.input
+                if os.path.exists(p_file):
+                    input_files.append(p_file)
+                else:
+                    print(f"[Warning] Partition {p} input file not found: {p_file}")
+        else:
+            input_files = resolve_input_files(args.input, max_files=args.max_files)
+    else:
+        input_files = resolve_input_files(args.input, max_files=args.max_files)
+
     if not input_files:
         print(f"[Error] No files matched input pattern: {args.input}")
         sys.exit(1)
@@ -710,12 +737,45 @@ def main():
     static_sig_stats = []
     if args.signal_cutflow:
         static_sig_stats = load_cutflow_stats_from_root(args.signal_cutflow)
+        cumulative_sig_stats = list(static_sig_stats)
+
+    # If a consolidated static signal sample is given without placeholders, evaluate it once upfront
+    if args.signal_input and "%s" not in args.signal_input and not static_sig_stats:
+        if os.path.exists(args.signal_input):
+            print(f"Evaluating consolidated signal sample: {os.path.basename(args.signal_input)} ...")
+            sig_res = prefilter_file(
+                input_file=args.signal_input,
+                output_file=None,
+                cut_scifi=cut_scifi,
+                cut_ds=cut_ds,
+                cut_veto=cut_veto,
+                cut_scifi_station=cut_scifi_station,
+                cut_ds_dimuon=cut_ds_dimuon,
+                cut_ds_activity=cut_ds_activity,
+                cut_scifi_ds_timing=cut_scifi_ds_timing,
+                cut_ip1=cut_ip1,
+                cut_stable_beams=cut_stable_beams,
+                cutflow_config=cutflow_cfg,
+                record_cutflow=False,
+                tree_name=args.tree_name,
+                jobs=1,
+                max_events=args.max_events,
+                create_symlinks=False,
+                skip_empty=False,
+            )
+            if sig_res["status"] == "OK":
+                static_sig_stats = sig_res.get("cutflow_stats", [])
+                cumulative_sig_stats = list(static_sig_stats)
+                print(f"Signal sample: {sig_res['passed_entries']}/{sig_res['total_entries']} signal events passed\n")
+        else:
+            print(f"[Warning] Signal file not found: {args.signal_input}")
 
     for idx, input_file in enumerate(input_files, start=1):
-        out_file = format_output_path(input_file, args.input, args.output, index=idx)
+        out_file = format_output_path(input_file, args.input, args.output, index=idx) if args.output else None
         print(f"[{idx}/{len(input_files)}] Processing: {os.path.basename(input_file)}")
         print(f"  Input:  {input_file}")
-        print(f"  Output: {out_file}")
+        if out_file:
+            print(f"  Output: {out_file}")
 
         file_start = time.time()
         res = prefilter_file(
@@ -735,14 +795,14 @@ def main():
             tree_name=args.tree_name,
             jobs=args.jobs,
             max_events=args.max_events,
-            create_symlinks=not args.no_symlinks,
+            create_symlinks=(not args.no_symlinks and bool(out_file)),
             skip_empty=args.skip_empty,
         )
         elapsed_file = time.time() - file_start
 
         if res["status"] == "OK":
             print(f"  Result: {res['passed_entries']}/{res['total_entries']} passed ({res['yield_pct']:.2f}%) in {elapsed_file:.1f}s")
-            if res["symlinks_created"] > 0:
+            if res.get("symlinks_created", 0) > 0:
                 print(f"  Symlinks: {res['symlinks_created']} file(s) linked")
         elif res["status"] == "SKIPPED_EMPTY":
             print(f"  Result: 0/{res['total_entries']} passed (skipped creating empty output)")
@@ -751,9 +811,9 @@ def main():
 
         results.append(res)
 
-        # Process signal sample if requested
+        # Process signal sample if requested and partitioned
         file_sig_stats = list(static_sig_stats) if static_sig_stats else []
-        if args.signal_input:
+        if args.signal_input and "%s" in args.signal_input:
             sig_file = format_output_path(input_file, args.input, args.signal_input, index=idx)
             if os.path.exists(sig_file):
                 print(f"  Signal: Evaluating {os.path.basename(sig_file)} ...")
@@ -772,7 +832,7 @@ def main():
                     cutflow_config=cutflow_cfg,
                     record_cutflow=False,
                     tree_name=args.tree_name,
-                    jobs=args.jobs,
+                    jobs=1,
                     max_events=args.max_events,
                     create_symlinks=False,
                     skip_empty=False,
@@ -781,6 +841,7 @@ def main():
                     file_sig_stats = sig_res.get("cutflow_stats", [])
                     print(f"  Signal: {sig_res['passed_entries']}/{sig_res['total_entries']} signal events passed")
             else:
+                pass
                 print(f"  [Warning] Signal file not found: {sig_file}")
 
         # Handle cutflow recording

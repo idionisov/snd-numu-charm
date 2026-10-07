@@ -122,16 +122,26 @@ def main():
         description="Overlay All Events vs Signal selection cutflow on a single canvas.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("-a", "--all", required=True, help="Path to all-events cutflow ROOT file")
-    parser.add_argument("-s", "--signal", required=True, help="Path to signal cutflow ROOT file")
+    parser.add_argument("-c", "--combined", default=None, help="Path to combined cutflow ROOT file containing both all-events and signal cutflow")
+    parser.add_argument("-a", "--all", default=None, help="Path to all-events cutflow ROOT file")
+    parser.add_argument("-s", "--signal", default=None, help="Path to signal cutflow ROOT file")
     parser.add_argument("-o", "--output", default="cutflow_comparison.png", help="Output file path (.root, .png, .pdf)")
     parser.add_argument("--all-label", default="All Events", help="Legend label for all events")
     parser.add_argument("--sig-label", default="Signal (#nu_{#mu} Charm #rightarrow #mu_{2} in DS)", help="Legend label for signal")
     args = parser.parse_args()
 
+    if args.combined:
+        all_path = args.combined
+        sig_path = args.combined
+    elif args.all and args.signal:
+        all_path = args.all
+        sig_path = args.signal
+    else:
+        parser.error("Must specify either -c/--combined <file.root> OR both -a/--all and -s/--signal")
+
     plot_cutflow_comparison(
-        all_filepath=args.all,
-        sig_filepath=args.signal,
+        all_filepath=all_path,
+        sig_filepath=sig_path,
         output_filepath=args.output,
         all_label=args.all_label,
         sig_label=args.sig_label,

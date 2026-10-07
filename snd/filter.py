@@ -268,7 +268,8 @@ def setup_truth_branches(trees: List[ROOT.TTree], active_tiers: Set[str]) -> Dic
         double_vars.extend([
             "dimuon_mass", "dimuon_pt", "dimuon_p", "dimuon_opening_angle",
             "dimuon_opening_angle_mrad", "dimuon_delta_phi", "dimuon_delta_eta", "dimuon_delta_r",
-            "dimuon_energy_asym", "dimuon_p_ratio"
+            "dimuon_energy_asym", "dimuon_p_ratio",
+            "dimuon_delta_e", "dimuon_abs_delta_e", "dimuon_delta_p", "dimuon_delta_pt", "dimuon_e_ratio"
         ])
 
     buffers: Dict[str, array.array] = {}
@@ -434,6 +435,11 @@ def fill_truth_buffers(buffers: dict, info: Any, entry_idx: int, active_tiers: S
         buffers["dimuon_delta_r"][0] = float(info.dimuonDeltaR)
         buffers["dimuon_energy_asym"][0] = float(info.dimuonEnergyAsymmetry)
         buffers["dimuon_p_ratio"][0] = float(info.dimuonMomentumRatio)
+        buffers["dimuon_delta_e"][0] = float(info.mu1E - info.mu2E)
+        buffers["dimuon_abs_delta_e"][0] = float(abs(info.mu1E - info.mu2E))
+        buffers["dimuon_delta_p"][0] = float(info.mu1P - info.mu2P)
+        buffers["dimuon_delta_pt"][0] = float(info.mu1Pt - info.mu2Pt)
+        buffers["dimuon_e_ratio"][0] = float(info.mu2E / info.mu1E) if info.mu1E > 1e-6 else 0.0
 
 
 def process_single_file(
@@ -554,6 +560,12 @@ def process_single_file(
               .Define("dimuon_pt", "truth.dimuonPt")
               .Define("dimuon_opening_angle_mrad", "truth.dimuonOpeningAngleMrad")
               .Define("dimuon_delta_phi", "truth.dimuonDeltaPhi")
+              .Define("dimuon_e_sum", "mu1_e + mu2_e")
+              .Define("dimuon_delta_e", "mu1_e - mu2_e")
+              .Define("dimuon_abs_delta_e", "std::abs(mu1_e - mu2_e)")
+              .Define("dimuon_delta_p", "truth.mu1P - mu2_p")
+              .Define("dimuon_delta_pt", "truth.mu1Pt - mu2_pt")
+              .Define("dimuon_e_ratio", "(mu1_e > 1e-6) ? (mu2_e / mu1_e) : 0.0")
     )
 
     df_filtered = df_truth.Filter(filter_expr, "Event Selection")

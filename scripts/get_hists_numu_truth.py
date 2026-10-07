@@ -347,6 +347,12 @@ def main():
 
               # Derived composite and acceptance indicators for histograms & TProfiles
               .Define("dimuon_e_sum", "mu1_e + mu2_e")
+              .Define("dimuon_delta_e", "mu1_e - mu2_e")
+              .Define("dimuon_abs_delta_e", "std::abs(mu1_e - mu2_e)")
+              .Define("dimuon_delta_p", "mu1_p - mu2_p")
+              .Define("dimuon_abs_delta_p", "std::abs(mu1_p - mu2_p)")
+              .Define("dimuon_delta_pt", "mu1_pt - mu2_pt")
+              .Define("dimuon_e_ratio", "(mu1_e > 1e-6) ? (mu2_e / mu1_e) : 0.0")
               .Define("dimuon_e_frac_nu", "(nu_e > 1e-6) ? (mu1_e + mu2_e) / nu_e : 0.0")
               .Define("mu2_e_frac_charm", "(charm_e > 1e-6) ? mu2_e / charm_e : 0.0")
               .Define("mu1_e_frac_nu", "(nu_e > 1e-6) ? mu1_e / nu_e : 0.0")
@@ -471,17 +477,27 @@ def main():
     for prefix, node, label in samples_1d:
         # Muon Energies (user-requested core focus)
         book_1d(f"h_{prefix}_mu1_e", f"Primary #mu_{{1}} Energy ({label});E_{{#mu1}} [GeV];Events", "mu1_e", node, 100, 0.0, 800.0)
-        book_1d(f"h_{prefix}_mu2_e", f"Charm Decay #mu_{{2}} Energy ({label});E_{{#mu2}} [GeV];Events", "mu2_e", node, 100, 0.0, 400.0)
+        book_1d(f"h_{prefix}_mu2_e", f"Charm Decay #mu_{{2}} Energy ({label});E_{{#mu2}} [GeV];Events", "mu2_e", node, 100, 0.0, 10.0)
+        book_1d(f"h_{prefix}_mu2_e_zoom", f"Charm Decay #mu_{{2}} Energy (Zoom) ({label});E_{{#mu2}} [GeV];Events", "mu2_e", node, 60, 0.0, 3.0)
+        book_1d(f"h_{prefix}_mu2_e_wide", f"Charm Decay #mu_{{2}} Energy (Full Tail) ({label});E_{{#mu2}} [GeV];Events", "mu2_e", node, 100, 0.0, 50.0)
         book_1d(f"h_{prefix}_dimuon_e_sum", f"Total Muon Energy E_{{#mu1}} + E_{{#mu2}} ({label});E_{{#mu1}} + E_{{#mu2}} [GeV];Events", "dimuon_e_sum", node, 100, 0.0, 1000.0)
+        book_1d(f"h_{prefix}_dimuon_delta_e", f"Muon Energy Difference E_{{#mu1}} - E_{{#mu2}} ({label});E_{{#mu1}} - E_{{#mu2}} [GeV];Events", "dimuon_delta_e", node, 100, -50.0, 700.0)
+        book_1d(f"h_{prefix}_dimuon_abs_delta_e", f"Absolute Muon Energy Difference |E_{{#mu1}} - E_{{#mu2}}| ({label});|E_{{#mu1}} - E_{{#mu2}}| [GeV];Events", "dimuon_abs_delta_e", node, 100, 0.0, 700.0)
+        book_1d(f"h_{prefix}_dimuon_e_ratio", f"Muon Energy Ratio E_{{#mu2}} / E_{{#mu1}} ({label});E_{{#mu2}} / E_{{#mu1}};Events", "dimuon_e_ratio", node, 50, 0.0, 0.2)
+        book_1d(f"h_{prefix}_dimuon_delta_p", f"Muon Momentum Difference p_{{#mu1}} - p_{{#mu2}} ({label});p_{{#mu1}} - p_{{#mu2}} [GeV/c];Events", "dimuon_delta_p", node, 100, -50.0, 700.0)
+        book_1d(f"h_{prefix}_dimuon_delta_pt", f"Muon Transverse Momentum Difference p_{{T,#mu1}} - p_{{T,#mu2}} ({label});p_{{T,#mu1}} - p_{{T,#mu2}} [GeV/c];Events", "dimuon_delta_pt", node, 50, -2.0, 5.0)
         book_1d(f"h_{prefix}_dimuon_e_frac_nu", f"Dimuon Energy Fraction of E_{{#nu}} ({label});(E_{{#mu1}} + E_{{#mu2}}) / E_{{#nu}};Events", "dimuon_e_frac_nu", node, 50, 0.0, 1.0)
         book_1d(f"h_{prefix}_mu1_e_frac_nu", f"Primary #mu_{{1}} Energy Fraction of E_{{#nu}} ({label});E_{{#mu1}} / E_{{#nu}};Events", "mu1_e_frac_nu", node, 50, 0.0, 1.0)
         book_1d(f"h_{prefix}_mu2_e_frac_charm", f"Decay #mu_{{2}} Energy Fraction of E_{{charm}} ({label});E_{{#mu2}} / E_{{charm}};Events", "mu2_e_frac_charm", node, 50, 0.0, 1.0)
 
         # Muon Momenta and Angles
         book_1d(f"h_{prefix}_mu1_p", f"Primary #mu_{{1}} Total Momentum ({label});p_{{#mu1}} [GeV/c];Events", "mu1_p", node, 100, 0.0, 800.0)
-        book_1d(f"h_{prefix}_mu2_p", f"Charm Decay #mu_{{2}} Total Momentum ({label});p_{{#mu2}} [GeV/c];Events", "mu2_p", node, 100, 0.0, 400.0)
+        book_1d(f"h_{prefix}_mu2_p", f"Charm Decay #mu_{{2}} Total Momentum ({label});p_{{#mu2}} [GeV/c];Events", "mu2_p", node, 100, 0.0, 10.0)
+        book_1d(f"h_{prefix}_mu2_p_zoom", f"Charm Decay #mu_{{2}} Total Momentum (Zoom) ({label});p_{{#mu2}} [GeV/c];Events", "mu2_p", node, 60, 0.0, 3.0)
+        book_1d(f"h_{prefix}_mu2_p_wide", f"Charm Decay #mu_{{2}} Total Momentum (Full Tail) ({label});p_{{#mu2}} [GeV/c];Events", "mu2_p", node, 100, 0.0, 50.0)
         book_1d(f"h_{prefix}_mu1_pt", f"Primary #mu_{{1}} Transverse Momentum ({label});p_{{T,#mu1}} [GeV/c];Events", "mu1_pt", node, 50, 0.0, 5.0)
-        book_1d(f"h_{prefix}_mu2_pt", f"Charm Decay #mu_{{2}} Transverse Momentum ({label});p_{{T,#mu2}} [GeV/c];Events", "mu2_pt", node, 50, 0.0, 5.0)
+        book_1d(f"h_{prefix}_mu2_pt", f"Charm Decay #mu_{{2}} Transverse Momentum ({label});p_{{T,#mu2}} [GeV/c];Events", "mu2_pt", node, 60, 0.0, 1.5)
+        book_1d(f"h_{prefix}_mu2_pt_zoom", f"Charm Decay #mu_{{2}} Transverse Momentum (Zoom) ({label});p_{{T,#mu2}} [GeV/c];Events", "mu2_pt", node, 50, 0.0, 0.5)
         book_1d(f"h_{prefix}_mu1_eta", f"Primary #mu_{{1}} Pseudorapidity ({label});#eta_{{#mu1}};Events", "mu1_eta", node, 50, 4.0, 10.0)
         book_1d(f"h_{prefix}_mu2_eta", f"Charm Decay #mu_{{2}} Pseudorapidity ({label});#eta_{{#mu2}};Events", "mu2_eta", node, 50, 4.0, 10.0)
         book_1d(f"h_{prefix}_mu1_theta", f"Primary #mu_{{1}} Polar Angle ({label});#theta_{{#mu1}} [rad];Events", "mu1_theta", node, 50, 0.0, 0.2)
@@ -533,25 +549,37 @@ def main():
     # --------------------------------------------------------------------------
     # Core Dimuon Energy Correlation (E_mu2 vs E_mu1) across samples
     for prefix, node, label in samples_1d:
-        book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e", f"Dimuon Energy Correlation ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "mu2_e", node, 50, 0.0, 500.0, 50, 0.0, 300.0)
-        book_2d(f"h2_{prefix}_mu2_p_vs_mu1_p", f"Dimuon Momentum Correlation ({label});p_{{#mu1}} [GeV/c];p_{{#mu2}} [GeV/c]", "mu1_p", "mu2_p", node, 50, 0.0, 500.0, 50, 0.0, 300.0)
-        book_2d(f"h2_{prefix}_mu2_pt_vs_mu1_pt", f"Dimuon Transverse Momentum Correlation ({label});p_{{T,#mu1}} [GeV/c];p_{{T,#mu2}} [GeV/c]", "mu1_pt", "mu2_pt", node, 50, 0.0, 4.0, 50, 0.0, 4.0)
+        book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e", f"Dimuon Energy Correlation ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "mu2_e", node, 50, 0.0, 500.0, 50, 0.0, 10.0)
+        book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e_zoom", f"Dimuon Energy Correlation (Zoom) ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "mu2_e", node, 50, 0.0, 500.0, 60, 0.0, 3.0)
+        book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e_wide", f"Dimuon Energy Correlation (Wide) ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "mu2_e", node, 50, 0.0, 500.0, 50, 0.0, 50.0)
+
+        book_2d(f"h2_{prefix}_mu2_p_vs_mu1_p", f"Dimuon Momentum Correlation ({label});p_{{#mu1}} [GeV/c];p_{{#mu2}} [GeV/c]", "mu1_p", "mu2_p", node, 50, 0.0, 500.0, 50, 0.0, 10.0)
+        book_2d(f"h2_{prefix}_mu2_p_vs_mu1_p_zoom", f"Dimuon Momentum Correlation (Zoom) ({label});p_{{#mu1}} [GeV/c];p_{{#mu2}} [GeV/c]", "mu1_p", "mu2_p", node, 50, 0.0, 500.0, 60, 0.0, 3.0)
+        book_2d(f"h2_{prefix}_mu2_p_vs_mu1_p_wide", f"Dimuon Momentum Correlation (Wide) ({label});p_{{#mu1}} [GeV/c];p_{{#mu2}} [GeV/c]", "mu1_p", "mu2_p", node, 50, 0.0, 500.0, 50, 0.0, 50.0)
+
+        book_2d(f"h2_{prefix}_mu2_pt_vs_mu1_pt", f"Dimuon Transverse Momentum Correlation ({label});p_{{T,#mu1}} [GeV/c];p_{{T,#mu2}} [GeV/c]", "mu1_pt", "mu2_pt", node, 50, 0.0, 4.0, 50, 0.0, 1.5)
+        book_2d(f"h2_{prefix}_mu2_pt_vs_mu1_pt_zoom", f"Dimuon Transverse Momentum Correlation (Zoom) ({label});p_{{T,#mu1}} [GeV/c];p_{{T,#mu2}} [GeV/c]", "mu1_pt", "mu2_pt", node, 50, 0.0, 4.0, 50, 0.0, 0.5)
         book_2d(f"h2_{prefix}_mu2_eta_vs_mu1_eta", f"Dimuon Pseudorapidity Correlation ({label});#eta_{{#mu1}};#eta_{{#mu2}}", "mu1_eta", "mu2_eta", node, 50, 4.0, 10.0, 50, 4.0, 10.0)
 
     # Kinematic correlations for candidate signal
     book_2d("h2_signal_mu1_e_vs_nu_e", "Primary #mu_{1} Energy vs E_{#nu};E_{#nu} [GeV];E_{#mu1} [GeV]", "nu_e", "mu1_e", df_candidate, 50, 0.0, 800.0, 50, 0.0, 600.0)
-    book_2d("h2_signal_mu2_e_vs_nu_e", "Decay #mu_{2} Energy vs E_{#nu};E_{#nu} [GeV];E_{#mu2} [GeV]", "nu_e", "mu2_e", df_candidate, 50, 0.0, 800.0, 50, 0.0, 300.0)
-    book_2d("h2_signal_mu2_e_vs_charm_e", "Decay #mu_{2} Energy vs Charm Energy;E_{charm} [GeV];E_{#mu2} [GeV]", "charm_e", "mu2_e", df_candidate, 50, 0.0, 500.0, 50, 0.0, 300.0)
+    book_2d("h2_signal_mu2_e_vs_nu_e", "Decay #mu_{2} Energy vs E_{#nu};E_{#nu} [GeV];E_{#mu2} [GeV]", "nu_e", "mu2_e", df_candidate, 50, 0.0, 800.0, 50, 0.0, 10.0)
+    book_2d("h2_signal_mu2_e_vs_nu_e_zoom", "Decay #mu_{2} Energy vs E_{#nu} (Zoom);E_{#nu} [GeV];E_{#mu2} [GeV]", "nu_e", "mu2_e", df_candidate, 50, 0.0, 800.0, 60, 0.0, 3.0)
+    book_2d("h2_signal_dimuon_delta_e_vs_nu_e", "Muon Energy Difference vs E_{#nu};E_{#nu} [GeV];E_{#mu1} - E_{#mu2} [GeV]", "nu_e", "dimuon_delta_e", df_candidate, 50, 0.0, 800.0, 50, -50.0, 600.0)
+    book_2d("h2_signal_dimuon_delta_e_vs_dimuon_mass", "Muon Energy Difference vs M_{#mu#mu};M_{#mu#mu} [GeV/c^{2}];E_{#mu1} - E_{#mu2} [GeV]", "dimuon_mass", "dimuon_delta_e", df_candidate, 50, 0.0, 8.0, 50, -50.0, 600.0)
+    book_2d("h2_signal_dimuon_delta_e_vs_opening_angle", "Muon Energy Difference vs #theta_{#mu#mu};#theta_{#mu#mu} [mrad];E_{#mu1} - E_{#mu2} [GeV]", "dimuon_opening_angle_mrad", "dimuon_delta_e", df_candidate, 50, 0.0, 200.0, 50, -50.0, 600.0)
+    book_2d("h2_signal_mu2_e_vs_delta_e", "Decay #mu_{2} Energy vs (E_{#mu1} - E_{#mu2});E_{#mu1} - E_{#mu2} [GeV];E_{#mu2} [GeV]", "dimuon_delta_e", "mu2_e", df_candidate, 50, -50.0, 600.0, 50, 0.0, 10.0)
+    book_2d("h2_signal_mu2_e_vs_charm_e", "Decay #mu_{2} Energy vs Charm Energy;E_{charm} [GeV];E_{#mu2} [GeV]", "charm_e", "mu2_e", df_candidate, 50, 0.0, 500.0, 50, 0.0, 10.0)
     book_2d("h2_signal_dimuon_mass_vs_opening_angle", "Dimuon Mass vs Opening Angle;#theta_{#mu#mu} [mrad];M_{#mu#mu} [GeV/c^{2}]", "dimuon_opening_angle_mrad", "dimuon_mass", df_candidate, 50, 0.0, 200.0, 50, 0.0, 8.0)
     book_2d("h2_signal_dimuon_mass_vs_pt", "Dimuon Mass vs Pair p_{T};p_{T,#mu#mu} [GeV/c];M_{#mu#mu} [GeV/c^{2}]", "dimuon_pt", "dimuon_mass", df_candidate, 50, 0.0, 8.0, 50, 0.0, 8.0)
     book_2d("h2_signal_opening_angle_vs_delta_phi", "Opening Angle vs Azimuthal Separation;#Delta#phi_{#mu#mu} [rad];#theta_{#mu#mu} [mrad]", "dimuon_delta_phi", "dimuon_opening_angle_mrad", df_candidate, 50, 0.0, 3.14159, 50, 0.0, 200.0)
-    book_2d("h2_signal_mu2_ptrel_vs_mu2_p", "Decay #mu_{2} p_{T}^{rel} vs p_{#mu2};p_{#mu2} [GeV/c];p_{T}^{rel} [GeV/c]", "mu2_p", "mu2_ptrel", df_candidate, 50, 0.0, 300.0, 50, 0.0, 2.0)
+    book_2d("h2_signal_mu2_ptrel_vs_mu2_p", "Decay #mu_{2} p_{T}^{rel} vs p_{#mu2};p_{#mu2} [GeV/c];p_{T}^{rel} [GeV/c]", "mu2_p", "mu2_ptrel", df_candidate, 50, 0.0, 10.0, 50, 0.0, 2.0)
     book_2d("h2_signal_mu2_ip3d_vs_decay_length", "Decay #mu_{2} IP_{3D} vs Charm Flight Length;L_{3D} [cm];IP_{3D} [cm]", "decay_length_3d", "mu2_ip3d", df_candidate, 50, 0.0, 3.0, 50, 0.0, 0.3)
     book_2d("h2_signal_decay_length_vs_charm_p", "Charm Flight Length vs Momentum;p_{charm} [GeV/c];L_{3D} [cm]", "charm_p", "decay_length_3d", df_candidate, 50, 0.0, 500.0, 50, 0.0, 5.0)
     book_2d("h2_signal_q2_vs_bjorken_x", "Q^{2} vs Bjorken x;Bjorken x;Q^{2} [GeV^{2}]", "bjorken_x", "q2", df_candidate, 50, 0.0, 1.0, 50, 0.0, 50.0)
     book_2d("h2_signal_vtx_xy", "Interaction Vertex Transverse Profile;x_{vtx} [cm];y_{vtx} [cm]", "vtx_x", "vtx_y", df_candidate, 60, -60.0, 0.0, 60, 3.0, 63.0)
     book_2d("h2_signal_mu1_nds_vs_mu1_e", "Primary #mu_{1} DS MCPoints vs Energy;E_{#mu1} [GeV];N_{DS}(#mu_{1})", "mu1_e", "mu1_n_ds_points", df_candidate, 50, 0.0, 800.0, 20, -0.5, 19.5)
-    book_2d("h2_signal_mu2_nds_vs_mu2_e", "Charm Decay #mu_{2} DS MCPoints vs Energy;E_{#mu2} [GeV];N_{DS}(#mu_{2})", "mu2_e", "mu2_n_ds_points", df_candidate, 50, 0.0, 300.0, 20, -0.5, 19.5)
+    book_2d("h2_signal_mu2_nds_vs_mu2_e", "Charm Decay #mu_{2} DS MCPoints vs Energy;E_{#mu2} [GeV];N_{DS}(#mu_{2})", "mu2_e", "mu2_n_ds_points", df_candidate, 50, 0.0, 10.0, 20, -0.5, 19.5)
     book_2d("h2_signal_mu2_nds_vs_mu2_eta", "Charm Decay #mu_{2} DS MCPoints vs #eta;#eta_{#mu2};N_{DS}(#mu_{2})", "mu2_eta", "mu2_n_ds_points", df_candidate, 50, 4.0, 10.0, 20, -0.5, 19.5)
 
     # --------------------------------------------------------------------------
@@ -575,11 +603,14 @@ def main():
     # Acceptance Probability Profiles (TProfile on 0/1 indicator = exact acceptance efficiency!)
     book_prof("p_acc_eff_vs_nu_e", "Dimuon DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance Efficiency #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 800.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_mu1_e", "Dimuon DS Acceptance Efficiency vs E_{#mu1};E_{#mu1} [GeV];Acceptance Efficiency #epsilon_{DS}", "mu1_e", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 800.0, 0.0, 1.0)
-    book_prof("p_acc_eff_vs_mu2_e", "Dimuon DS Acceptance Efficiency vs E_{#mu2};E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}", "mu2_e", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 300.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_mu2_e", "Dimuon DS Acceptance Efficiency vs E_{#mu2};E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}", "mu2_e", "dimuon_in_ds_acc_double", df_candidate, 50, 0.0, 10.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_dimuon_delta_e", "Dimuon DS Acceptance Efficiency vs (E_{#mu1} - E_{#mu2});E_{#mu1} - E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}", "dimuon_delta_e", "dimuon_in_ds_acc_double", df_candidate, 40, -50.0, 600.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_dimuon_abs_delta_e", "Dimuon DS Acceptance Efficiency vs |E_{#mu1} - E_{#mu2}|;|E_{#mu1} - E_{#mu2}| [GeV];Acceptance Efficiency #epsilon_{DS}", "dimuon_abs_delta_e", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 600.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_dimuon_energy_asym", "Dimuon DS Acceptance Efficiency vs Energy Asymmetry;A_{E} = (E_{1}-E_{2})/(E_{1}+E_{2});Acceptance Efficiency #epsilon_{DS}", "dimuon_energy_asym", "dimuon_in_ds_acc_double", df_candidate, 40, -1.0, 1.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_mu1_p", "Dimuon DS Acceptance Efficiency vs p_{#mu1};p_{#mu1} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "mu1_p", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 800.0, 0.0, 1.0)
-    book_prof("p_acc_eff_vs_mu2_p", "Dimuon DS Acceptance Efficiency vs p_{#mu2};p_{#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "mu2_p", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 300.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_mu2_p", "Dimuon DS Acceptance Efficiency vs p_{#mu2};p_{#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "mu2_p", "dimuon_in_ds_acc_double", df_candidate, 50, 0.0, 10.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_mu1_pt", "Dimuon DS Acceptance Efficiency vs p_{T,#mu1};p_{T,#mu1} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "mu1_pt", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 4.0, 0.0, 1.0)
-    book_prof("p_acc_eff_vs_mu2_pt", "Dimuon DS Acceptance Efficiency vs p_{T,#mu2};p_{T,#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "mu2_pt", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 4.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_mu2_pt", "Dimuon DS Acceptance Efficiency vs p_{T,#mu2};p_{T,#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "mu2_pt", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 1.5, 0.0, 1.0)
     book_prof("p_acc_eff_vs_mu1_eta", "Dimuon DS Acceptance Efficiency vs #eta_{#mu1};#eta_{#mu1};Acceptance Efficiency #epsilon_{DS}", "mu1_eta", "dimuon_in_ds_acc_double", df_candidate, 40, 4.0, 10.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_mu2_eta", "Dimuon DS Acceptance Efficiency vs #eta_{#mu2};#eta_{#mu2};Acceptance Efficiency #epsilon_{DS}", "mu2_eta", "dimuon_in_ds_acc_double", df_candidate, 40, 4.0, 10.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_opening_angle", "Dimuon DS Acceptance Efficiency vs #theta_{#mu#mu};#theta_{#mu#mu} [mrad];Acceptance Efficiency #epsilon_{DS}", "dimuon_opening_angle_mrad", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 200.0, 0.0, 1.0)
@@ -588,9 +619,9 @@ def main():
 
     book_prof("p_mu1_acc_eff_vs_mu1_e", "Primary #mu_{1} DS Acceptance vs E_{#mu1};E_{#mu1} [GeV];Acceptance Efficiency #epsilon_{DS}(#mu_{1})", "mu1_e", "mu1_in_ds_acc_double", df_candidate, 40, 0.0, 800.0, 0.0, 1.0)
     book_prof("p_mu1_acc_eff_vs_mu1_eta", "Primary #mu_{1} DS Acceptance vs #eta_{#mu1};#eta_{#mu1};Acceptance Efficiency #epsilon_{DS}(#mu_{1})", "mu1_eta", "mu1_in_ds_acc_double", df_candidate, 40, 4.0, 10.0, 0.0, 1.0)
-    book_prof("p_mu2_acc_eff_vs_mu2_e", "Decay #mu_{2} DS Acceptance vs E_{#mu2};E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "mu2_e", "mu2_in_ds_acc_double", df_candidate, 40, 0.0, 300.0, 0.0, 1.0)
+    book_prof("p_mu2_acc_eff_vs_mu2_e", "Decay #mu_{2} DS Acceptance vs E_{#mu2};E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "mu2_e", "mu2_in_ds_acc_double", df_candidate, 50, 0.0, 10.0, 0.0, 1.0)
     book_prof("p_mu2_acc_eff_vs_mu2_eta", "Decay #mu_{2} DS Acceptance vs #eta_{#mu2};#eta_{#mu2};Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "mu2_eta", "mu2_in_ds_acc_double", df_candidate, 40, 4.0, 10.0, 0.0, 1.0)
-    book_prof("p_mu2_acc_eff_vs_mu2_pt", "Decay #mu_{2} DS Acceptance vs p_{T,#mu2};p_{T,#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "mu2_pt", "mu2_in_ds_acc_double", df_candidate, 40, 0.0, 4.0, 0.0, 1.0)
+    book_prof("p_mu2_acc_eff_vs_mu2_pt", "Decay #mu_{2} DS Acceptance vs p_{T,#mu2};p_{T,#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "mu2_pt", "mu2_in_ds_acc_double", df_candidate, 40, 0.0, 1.5, 0.0, 1.0)
 
     # --------------------------------------------------------------------------
     # 8d. Charmed Hadron Species Breakdowns
@@ -604,7 +635,9 @@ def main():
 
     for sp_key, sp_node, sp_lbl in species_samples:
         book_1d(f"h_species_{sp_key}_mu1_e", f"Primary #mu_{{1}} Energy ({sp_lbl});E_{{#mu1}} [GeV];Events", "mu1_e", sp_node, 50, 0.0, 600.0)
-        book_1d(f"h_species_{sp_key}_mu2_e", f"Decay #mu_{{2}} Energy ({sp_lbl});E_{{#mu2}} [GeV];Events", "mu2_e", sp_node, 50, 0.0, 300.0)
+        book_1d(f"h_species_{sp_key}_mu2_e", f"Decay #mu_{{2}} Energy ({sp_lbl});E_{{#mu2}} [GeV];Events", "mu2_e", sp_node, 50, 0.0, 10.0)
+        book_1d(f"h_species_{sp_key}_mu2_e_zoom", f"Decay #mu_{{2}} Energy (Zoom) ({sp_lbl});E_{{#mu2}} [GeV];Events", "mu2_e", sp_node, 60, 0.0, 3.0)
+        book_1d(f"h_species_{sp_key}_dimuon_delta_e", f"Muon Energy Difference E_{{#mu1}} - E_{{#mu2}} ({sp_lbl});E_{{#mu1}} - E_{{#mu2}} [GeV];Events", "dimuon_delta_e", sp_node, 50, -50.0, 600.0)
         book_1d(f"h_species_{sp_key}_charm_p", f"{sp_lbl} Momentum;p_{{charm}} [GeV/c];Events", "charm_p", sp_node, 50, 0.0, 500.0)
         book_1d(f"h_species_{sp_key}_decay_length", f"{sp_lbl} 3D Flight Length;L_{{3D}} [cm];Events", "decay_length_3d", sp_node, 50, 0.0, 5.0)
         book_1d(f"h_species_{sp_key}_lifetime", f"{sp_lbl} Proper Lifetime;#tau [ps];Events", "proper_lifetime_ps", sp_node, 50, 0.0, 3.0)
@@ -782,6 +815,8 @@ def main():
         ("Dimuon Invariant Mass [GeV/c^2]", "h_signal_dimuon_mass", "h_in_acc_dimuon_mass", "h_out_acc_dimuon_mass"),
         ("Dimuon Opening Angle [mrad]", "h_signal_dimuon_opening_angle_mrad", "h_in_acc_dimuon_opening_angle_mrad", "h_out_acc_dimuon_opening_angle_mrad"),
         ("Dimuon Energy Sum [GeV]", "h_signal_dimuon_e_sum", "h_in_acc_dimuon_e_sum", "h_out_acc_dimuon_e_sum"),
+        ("Dimuon Energy Diff [GeV]", "h_signal_dimuon_delta_e", "h_in_acc_dimuon_delta_e", "h_out_acc_dimuon_delta_e"),
+        ("Dimuon Energy Asymmetry", "h_signal_dimuon_energy_asym", "h_in_acc_dimuon_energy_asym", "h_out_acc_dimuon_energy_asym"),
         ("Neutrino Energy E(nu) [GeV]", "h_signal_nu_e", "h_in_acc_nu_e", "h_out_acc_nu_e"),
         ("Charm 3D Flight Length [cm]", "h_signal_decay_length_3d", "h_in_acc_decay_length_3d", "h_out_acc_decay_length_3d"),
         ("Decay Muon IP_3D [cm]", "h_signal_mu2_ip3d", "h_in_acc_mu2_ip3d", "h_out_acc_mu2_ip3d"),

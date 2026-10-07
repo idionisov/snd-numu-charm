@@ -217,17 +217,33 @@ histograms:
     title: "Charm Decay #mu_{2} Energy;E_{#mu2} [GeV];Events"
     column: "mu2_e"
     weight: "mc_weight"
-    bins: 50
+    bins: 100
     xmin: 0.0
-    xmax: 200.0
+    xmax: 10.0
+
+  - name: "h_signal_mu2_e_zoom"
+    title: "Charm Decay #mu_{2} Energy (Zoom);E_{#mu2} [GeV];Events"
+    column: "mu2_e"
+    weight: "mc_weight"
+    bins: 60
+    xmin: 0.0
+    xmax: 3.0
 
   - name: "h_signal_mu2_p"
     title: "Charm Decay #mu_{2} Momentum;p_{#mu2} [GeV/c];Events"
     column: "mu2_p"
     weight: "mc_weight"
-    bins: 50
+    bins: 100
     xmin: 0.0
-    xmax: 200.0
+    xmax: 10.0
+
+  - name: "h_signal_mu2_p_zoom"
+    title: "Charm Decay #mu_{2} Momentum (Zoom);p_{#mu2} [GeV/c];Events"
+    column: "mu2_p"
+    weight: "mc_weight"
+    bins: 60
+    xmin: 0.0
+    xmax: 3.0
 
   - name: "h_signal_mu2_ptrel"
     title: "Decay #mu_{2} p_{T}^{rel} to Charm Axis;p_{T}^{rel} [GeV/c];Events"
@@ -269,6 +285,30 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 3.14159
+
+  - name: "h_signal_dimuon_delta_e"
+    title: "Muon Energy Difference E_{#mu1} - E_{#mu2};E_{#mu1} - E_{#mu2} [GeV];Events"
+    column: "dimuon_delta_e"
+    weight: "mc_weight"
+    bins: 50
+    xmin: -100.0
+    xmax: 600.0
+
+  - name: "h_signal_dimuon_abs_delta_e"
+    title: "Absolute Muon Energy Difference |E_{#mu1} - E_{#mu2}|;|E_{#mu1} - E_{#mu2}| [GeV];Events"
+    column: "dimuon_abs_delta_e"
+    weight: "mc_weight"
+    bins: 50
+    xmin: 0.0
+    xmax: 600.0
+
+  - name: "h_signal_dimuon_energy_asym"
+    title: "Dimuon Energy Asymmetry;(E_{#mu1} - E_{#mu2}) / (E_{#mu1} + E_{#mu2});Events"
+    column: "dimuon_energy_asym"
+    weight: "mc_weight"
+    bins: 50
+    xmin: -1.0
+    xmax: 1.0
 
 # ==============================================================================
 # 2D Interactive Event Displays Configuration

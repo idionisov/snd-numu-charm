@@ -16,7 +16,10 @@ from .io_utils import (
     resolve_tdirectory_hierarchy,
     get_or_create_tdirectory,
     get_event_header_number,
+    get_event_header_run_id,
     copy_auxiliary_metadata,
+    load_geo_paths,
+    get_geofile_for_run,
 )
 from .filter import (
     build_processor,
@@ -57,6 +60,8 @@ from .cuts import (
     define_preselection_metrics,
     save_cutflow_root_file,
     merge_stage_histograms,
+    shorten_cut_label,
+    draw_rotated_labels_on_canvas,
 )
 
 __all__ = [
@@ -86,6 +91,8 @@ __all__ = [
     "define_preselection_metrics",
     "save_cutflow_root_file",
     "merge_stage_histograms",
+    "shorten_cut_label",
+    "draw_rotated_labels_on_canvas",
     "load_trident_libraries",
     "load_neutrino_libraries",
     "Snd2DEventDisplay",
@@ -98,7 +105,10 @@ __all__ = [
     "resolve_tdirectory_hierarchy",
     "get_or_create_tdirectory",
     "get_event_header_number",
+    "get_event_header_run_id",
     "copy_auxiliary_metadata",
+    "load_geo_paths",
+    "get_geofile_for_run",
     "build_processor",
     "resolve_hierarchical_selection",
     "setup_truth_branches",

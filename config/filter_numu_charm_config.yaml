@@ -320,8 +320,8 @@ event_displays:
   output_file: "event_displays/signal_event_displays.root"
   # TDirectory hierarchy where canvases will be stored inside the single ROOT file
   # Supports slash '/' or arrow '->' separated path.
-  # Hierarchy: neutrinoEvents -> numu -> CC -> toCharm -> charmToMuon
-  tdirectory_path: "neutrinoEvents/numu/CC/toCharm/charmToMuon"
+  # Hierarchy: MCTruth -> numu -> CC -> toCharm -> charmToMuon
+  tdirectory_path: "MCTruth/numu/CC/toCharm/charmToMuon"
   # Acceptance subdirectories based on charm decay muon DS MCPoints
   # Partitions canvases into inAcceptance (>= min_ds_points) and other (< min_ds_points)
   acceptance_subdirs:
@@ -332,7 +332,7 @@ event_displays:
   # Canvas name format. {run_num} = parent directory (0..399), {event_num} = EventHeader event number
   canvas_name_format: "c_run{run_num}_ev{event_num}"
   # Whether to only display candidate signal events (has_candidate == 1)
-  candidates_only: true
+  candidates_only: false
   # Hit density & QDC color coding
   color_by_qdc_and_density: true
   max_density: 40

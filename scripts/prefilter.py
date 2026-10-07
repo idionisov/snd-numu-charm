@@ -62,6 +62,7 @@ from snd import (
     define_preselection_metrics,
     save_cutflow_root_file,
     merge_stage_histograms,
+    shorten_cut_label,
 )
 
 
@@ -164,7 +165,7 @@ def print_cutflow_summary(
             cum_sig = (s_val / raw_sig * 100.0) if raw_sig > 0 else 0.0
             prev_sig = s_val
 
-            name = step.get("name", step["id"])[:34]
+            name = shorten_cut_label(step.get("name", step["id"]))[:34]
             print(f"{i:<4} | {name:<34} | {int(c_val):>9} | {rel_all:>7.1f}% | {int(s_val):>7} | {rel_sig:>7.1f}% | {cum_sig:>7.1f}%")
     else:
         print(" CUTFLOW PROCESSING SUMMARY")
@@ -178,7 +179,7 @@ def print_cutflow_summary(
             c_val = float(step["count"])
             rel_pct = (c_val / prev_count * 100.0) if prev_count > 0 else 0.0
             cum_pct = (c_val / raw_count * 100.0) if raw_count > 0 else 0.0
-            name = step.get("name", step["id"])[:38]
+            name = shorten_cut_label(step.get("name", step["id"]))[:38]
             print(f"{i:<5} | {name:<38} | {int(c_val):>10} | {rel_pct:>9.2f}% | {cum_pct:>9.2f}%")
             prev_count = c_val
 
@@ -261,22 +262,22 @@ def prefilter_file(
         # If no cuts specified in config, use default cut chain
         if not active_cuts:
             active_cuts = [
-                {"id": "step0_raw", "name": "Raw / All Events", "filter": ""},
-                {"id": "step1_ip1", "name": "LHC IP1 Collision Bunch Crossing", "filter": "pass_ip1_cut", "data_only": True},
-                {"id": "step2_stable_beams", "name": "LHC Stable Beams Mode", "filter": "pass_stable_beams_cut", "data_only": True},
-                {"id": "step3_event_deltat", "name": "Inter-Event Delta Time (>100 clock cycles)", "filter": "pass_event_deltat_cut", "data_only": True},
-                {"id": "step4_scifi_fiducial", "name": "SciFi Average Channel Fiducial", "filter": "pass_scifi_fiducial"},
-                {"id": "step5_ds_fiducial", "name": "Downstream MuFilter Average Bar Fiducial", "filter": "pass_ds_fiducial"},
-                {"id": "step6_veto_hits", "name": "No Hits in Veto", "filter": "pass_veto_cut"},
-                {"id": "step7_scifi_station", "name": "SciFi Station Cut (Exclude Station 1)", "filter": "pass_scifi_station_cut"},
-                {"id": "step8_ds_dimuon", "name": "Downstream MuFilter Dimuon Activity Cut", "filter": "pass_ds_dimuon_cut"},
-                {"id": "step9_ds_activity", "name": "Upstream (HCAL) Activity on Downstream Hits", "filter": "pass_ds_activity_cut"},
-                {"id": "step10_scifi_ds_timing", "name": "SciFi to DS Hit Timing Sequence", "filter": "pass_scifi_ds_timing_cut"},
+                {"id": "step0_raw", "name": "All Events", "filter": ""},
+                {"id": "step1_ip1", "name": "LHC IP1", "filter": "pass_ip1_cut", "data_only": True},
+                {"id": "step2_stable_beams", "name": "Stable Beams", "filter": "pass_stable_beams_cut", "data_only": True},
+                {"id": "step3_event_deltat", "name": "Event #Delta t", "filter": "pass_event_deltat_cut", "data_only": True},
+                {"id": "step4_scifi_fiducial", "name": "SciFi Fiducial", "filter": "pass_scifi_fiducial"},
+                {"id": "step5_ds_fiducial", "name": "DS Fiducial", "filter": "pass_ds_fiducial"},
+                {"id": "step6_veto_hits", "name": "Veto Cut", "filter": "pass_veto_cut"},
+                {"id": "step7_scifi_station", "name": "SciFi Station #neq 1", "filter": "pass_scifi_station_cut"},
+                {"id": "step8_ds_dimuon", "name": "DS Dimuon", "filter": "pass_ds_dimuon_cut"},
+                {"id": "step9_ds_activity", "name": "DS+US Activity", "filter": "pass_ds_activity_cut"},
+                {"id": "step10_scifi_ds_timing", "name": "SciFi-DS Timing", "filter": "pass_scifi_ds_timing_cut"},
             ]
 
-        # On Monte Carlo, automatically omit data-only cuts from cutflow sequence
-        if not is_data:
-            active_cuts = [c for c in active_cuts if not c.get("data_only", False)]
+        # On Monte Carlo, data-only cuts (IP1, Stable Beams, Delta-t) are preserved in the
+        # cutflow sequence and evaluate to 'true' (see below). They do not remove any simulation
+        # events, ensuring that data and simulation cutflows match 1-to-1 on the x-axis.
 
         # Define metrics observables if MuFilter is present
         has_mufi = dm.has_branch("Digi_MuFilterHits")

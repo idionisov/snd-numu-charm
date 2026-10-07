@@ -525,13 +525,18 @@ class Snd2DEventDisplay:
         canvas_title: str = "2d event display",
         run_number: Optional[int] = None,
         event_number: Optional[int] = None,
+        show_mc_truth: bool = False,
     ) -> ROOT.TCanvas:
         """
         Builds the 2D event display TCanvas mimicking EventDisplay_Task simpleDisplay.
         """
         tree.GetEntry(event_idx)
-        truth = self._extract_truth(tree)
-        tracks = self._find_truth_tracks(tree, truth)
+        if show_mc_truth:
+            truth = self._extract_truth(tree)
+            tracks = self._find_truth_tracks(tree, truth)
+        else:
+            truth = None
+            tracks = None
 
         if run_number is not None:
             run_id = run_number
@@ -683,116 +688,117 @@ class Snd2DEventDisplay:
 
         # 4. Draw MC Truth Tracks (Matching original simpleTracking color scheme)
         track_objs = []
-        # Primary Muon 1: Solid Blue (kBlue), line width 2
-        if tracks["mu1"] is not None and len(tracks["mu1"]) > 1:
-            mu1_line_xz = ROOT.TPolyLine()
-            mu1_line_yz = ROOT.TPolyLine()
-            for idx, pt in enumerate(tracks["mu1"]):
-                mu1_line_xz.SetPoint(idx, pt[2], pt[0])
-                mu1_line_yz.SetPoint(idx, pt[2], pt[1])
+        if show_mc_truth and tracks is not None:
+            # Primary Muon 1: Solid Blue (kBlue), line width 2
+            if tracks.get("mu1") is not None and len(tracks["mu1"]) > 1:
+                mu1_line_xz = ROOT.TPolyLine()
+                mu1_line_yz = ROOT.TPolyLine()
+                for idx, pt in enumerate(tracks["mu1"]):
+                    mu1_line_xz.SetPoint(idx, pt[2], pt[0])
+                    mu1_line_yz.SetPoint(idx, pt[2], pt[1])
 
-            for line in [mu1_line_xz, mu1_line_yz]:
-                line.SetLineColor(ROOT.kBlue)
-                line.SetLineWidth(2)
-                line.SetLineStyle(1)
+                for line in [mu1_line_xz, mu1_line_yz]:
+                    line.SetLineColor(ROOT.kBlue)
+                    line.SetLineWidth(2)
+                    line.SetLineStyle(1)
 
-            pad_xz.cd()
-            mu1_line_xz.Draw("same")
-            pad_yz.cd()
-            mu1_line_yz.Draw("same")
-            track_objs.extend([mu1_line_xz, mu1_line_yz])
+                pad_xz.cd()
+                mu1_line_xz.Draw("same")
+                pad_yz.cd()
+                mu1_line_yz.Draw("same")
+                track_objs.extend([mu1_line_xz, mu1_line_yz])
 
-        # Charm Hadron Flight: Green dashed line (kGreen+2), line width 3
-        if tracks["charm"] is not None and len(tracks["charm"]) > 1:
-            charm_line_xz = ROOT.TPolyLine()
-            charm_line_yz = ROOT.TPolyLine()
-            for idx, pt in enumerate(tracks["charm"]):
-                charm_line_xz.SetPoint(idx, pt[2], pt[0])
-                charm_line_yz.SetPoint(idx, pt[2], pt[1])
+            # Charm Hadron Flight: Green dashed line (kGreen+2), line width 3
+            if tracks.get("charm") is not None and len(tracks["charm"]) > 1:
+                charm_line_xz = ROOT.TPolyLine()
+                charm_line_yz = ROOT.TPolyLine()
+                for idx, pt in enumerate(tracks["charm"]):
+                    charm_line_xz.SetPoint(idx, pt[2], pt[0])
+                    charm_line_yz.SetPoint(idx, pt[2], pt[1])
 
-            for line in [charm_line_xz, charm_line_yz]:
-                line.SetLineColor(ROOT.kGreen + 2)
-                line.SetLineWidth(3)
-                line.SetLineStyle(2)
+                for line in [charm_line_xz, charm_line_yz]:
+                    line.SetLineColor(ROOT.kGreen + 2)
+                    line.SetLineWidth(3)
+                    line.SetLineStyle(2)
 
-            pad_xz.cd()
-            charm_line_xz.Draw("same")
-            pad_yz.cd()
-            charm_line_yz.Draw("same")
-            track_objs.extend([charm_line_xz, charm_line_yz])
+                pad_xz.cd()
+                charm_line_xz.Draw("same")
+                pad_yz.cd()
+                charm_line_yz.Draw("same")
+                track_objs.extend([charm_line_xz, charm_line_yz])
 
-        # Secondary Decay Muon 2: Solid Red (kRed), line width 2
-        if tracks["mu2"] is not None and len(tracks["mu2"]) > 1:
-            mu2_line_xz = ROOT.TPolyLine()
-            mu2_line_yz = ROOT.TPolyLine()
-            for idx, pt in enumerate(tracks["mu2"]):
-                mu2_line_xz.SetPoint(idx, pt[2], pt[0])
-                mu2_line_yz.SetPoint(idx, pt[2], pt[1])
+            # Secondary Decay Muon 2: Solid Red (kRed), line width 2
+            if tracks.get("mu2") is not None and len(tracks["mu2"]) > 1:
+                mu2_line_xz = ROOT.TPolyLine()
+                mu2_line_yz = ROOT.TPolyLine()
+                for idx, pt in enumerate(tracks["mu2"]):
+                    mu2_line_xz.SetPoint(idx, pt[2], pt[0])
+                    mu2_line_yz.SetPoint(idx, pt[2], pt[1])
 
-            for line in [mu2_line_xz, mu2_line_yz]:
-                line.SetLineColor(ROOT.kRed)
-                line.SetLineWidth(2)
-                line.SetLineStyle(1)
+                for line in [mu2_line_xz, mu2_line_yz]:
+                    line.SetLineColor(ROOT.kRed)
+                    line.SetLineWidth(2)
+                    line.SetLineStyle(1)
 
-            pad_xz.cd()
-            mu2_line_xz.Draw("same")
-            pad_yz.cd()
-            mu2_line_yz.Draw("same")
-            track_objs.extend([mu2_line_xz, mu2_line_yz])
+                pad_xz.cd()
+                mu2_line_xz.Draw("same")
+                pad_yz.cd()
+                mu2_line_yz.Draw("same")
+                track_objs.extend([mu2_line_xz, mu2_line_yz])
 
-        # Interaction Vertex & Charm Decay Vertex Markers
-        vtx = tracks["vtx"]
-        if vtx[2] > -9000.0:
-            m_vtx_xz = ROOT.TMarker(vtx[2], vtx[0], 29)
-            m_vtx_yz = ROOT.TMarker(vtx[2], vtx[1], 29)
-            for m in [m_vtx_xz, m_vtx_yz]:
-                m.SetMarkerColor(ROOT.kMagenta + 2)
-                m.SetMarkerSize(2.2)
-            pad_xz.cd()
-            m_vtx_xz.Draw("same")
-            pad_yz.cd()
-            m_vtx_yz.Draw("same")
-            track_objs.extend([m_vtx_xz, m_vtx_yz])
+            # Interaction Vertex & Charm Decay Vertex Markers
+            vtx = tracks.get("vtx", (0.0, 0.0, -9999.0))
+            if vtx[2] > -9000.0:
+                m_vtx_xz = ROOT.TMarker(vtx[2], vtx[0], 29)
+                m_vtx_yz = ROOT.TMarker(vtx[2], vtx[1], 29)
+                for m in [m_vtx_xz, m_vtx_yz]:
+                    m.SetMarkerColor(ROOT.kMagenta + 2)
+                    m.SetMarkerSize(2.2)
+                pad_xz.cd()
+                m_vtx_xz.Draw("same")
+                pad_yz.cd()
+                m_vtx_yz.Draw("same")
+                track_objs.extend([m_vtx_xz, m_vtx_yz])
 
-        if tracks["charm_decay"] is not None:
-            cdec = tracks["charm_decay"]
-            m_dec_xz = ROOT.TMarker(cdec[2], cdec[0], 34)
-            m_dec_yz = ROOT.TMarker(cdec[2], cdec[1], 34)
-            for m in [m_dec_xz, m_dec_yz]:
-                m.SetMarkerColor(ROOT.kOrange + 2)
-                m.SetMarkerSize(2.0)
-            pad_xz.cd()
-            m_dec_xz.Draw("same")
-            pad_yz.cd()
-            m_dec_yz.Draw("same")
-            track_objs.extend([m_dec_xz, m_dec_yz])
+            if tracks.get("charm_decay") is not None:
+                cdec = tracks["charm_decay"]
+                m_dec_xz = ROOT.TMarker(cdec[2], cdec[0], 34)
+                m_dec_yz = ROOT.TMarker(cdec[2], cdec[1], 34)
+                for m in [m_dec_xz, m_dec_yz]:
+                    m.SetMarkerColor(ROOT.kOrange + 2)
+                    m.SetMarkerSize(2.0)
+                pad_xz.cd()
+                m_dec_xz.Draw("same")
+                pad_yz.cd()
+                m_dec_yz.Draw("same")
+                track_objs.extend([m_dec_xz, m_dec_yz])
 
-        # Track endpoint markers
-        if tracks["mu1"] is not None and len(tracks["mu1"]) > 1:
-            end_pt = tracks["mu1"][-1]
-            m_end_xz = ROOT.TMarker(end_pt[2], end_pt[0], 20)
-            m_end_yz = ROOT.TMarker(end_pt[2], end_pt[1], 20)
-            for m in [m_end_xz, m_end_yz]:
-                m.SetMarkerColor(ROOT.kBlue)
-                m.SetMarkerSize(1.0)
-            pad_xz.cd()
-            m_end_xz.Draw("same")
-            pad_yz.cd()
-            m_end_yz.Draw("same")
-            track_objs.extend([m_end_xz, m_end_yz])
+            # Track endpoint markers
+            if tracks.get("mu1") is not None and len(tracks["mu1"]) > 1:
+                end_pt = tracks["mu1"][-1]
+                m_end_xz = ROOT.TMarker(end_pt[2], end_pt[0], 20)
+                m_end_yz = ROOT.TMarker(end_pt[2], end_pt[1], 20)
+                for m in [m_end_xz, m_end_yz]:
+                    m.SetMarkerColor(ROOT.kBlue)
+                    m.SetMarkerSize(1.0)
+                pad_xz.cd()
+                m_end_xz.Draw("same")
+                pad_yz.cd()
+                m_end_yz.Draw("same")
+                track_objs.extend([m_end_xz, m_end_yz])
 
-        if tracks["mu2"] is not None and len(tracks["mu2"]) > 1:
-            end_pt = tracks["mu2"][-1]
-            m_end_xz = ROOT.TMarker(end_pt[2], end_pt[0], 20)
-            m_end_yz = ROOT.TMarker(end_pt[2], end_pt[1], 20)
-            for m in [m_end_xz, m_end_yz]:
-                m.SetMarkerColor(ROOT.kRed)
-                m.SetMarkerSize(1.0)
-            pad_xz.cd()
-            m_end_xz.Draw("same")
-            pad_yz.cd()
-            m_end_yz.Draw("same")
-            track_objs.extend([m_end_xz, m_end_yz])
+            if tracks.get("mu2") is not None and len(tracks["mu2"]) > 1:
+                end_pt = tracks["mu2"][-1]
+                m_end_xz = ROOT.TMarker(end_pt[2], end_pt[0], 20)
+                m_end_yz = ROOT.TMarker(end_pt[2], end_pt[1], 20)
+                for m in [m_end_xz, m_end_yz]:
+                    m.SetMarkerColor(ROOT.kRed)
+                    m.SetMarkerSize(1.0)
+                pad_xz.cd()
+                m_end_xz.Draw("same")
+                pad_yz.cd()
+                m_end_yz.Draw("same")
+                track_objs.extend([m_end_xz, m_end_yz])
 
         # 5. Draw Official SND@LHC Logo and Run/Event info subpads
         logo_objs_1 = self._draw_logo_and_info(pad_xz, 1, run_id, ev_id)
@@ -804,94 +810,101 @@ class Snd2DEventDisplay:
         if self.color_by_qdc_and_density:
             legend_objs_1 = self._draw_density_and_qdc_legend(pad_xz)
 
-        # 7. Physics Truth Kinematic Summary Table (XZ Upper Left Area)
-        pad_xz.cd()
-        pave_info = ROOT.TPaveText(0.10, 0.70, 0.52, 0.92, "NDC")
-        pave_info.SetBorderSize(1)
-        pave_info.SetFillColor(ROOT.kWhite)
-        pave_info.SetTextAlign(12)
-        pave_info.SetTextFont(42)
-        pave_info.SetTextSize(0.028)
+        pave_info = None
+        leg = None
+        truth_leg_markers = []
+        if show_mc_truth and truth is not None and tracks is not None:
+            # 7. Physics Truth Kinematic Summary Table (XZ Upper Left Area)
+            pad_xz.cd()
+            pave_info = ROOT.TPaveText(0.10, 0.70, 0.52, 0.92, "NDC")
+            pave_info.SetBorderSize(1)
+            pave_info.SetFillColor(ROOT.kWhite)
+            pave_info.SetTextAlign(12)
+            pave_info.SetTextFont(42)
+            pave_info.SetTextSize(0.028)
 
-        # Dynamic topology classification
-        has_cand = truth.get("has_candidate", False) or (truth["charm_pdg"] != 0 and truth["mu2_p"] > 0)
-        has_charm = truth.get("has_charm", False) or truth["charm_pdg"] != 0
-        is_numu = truth.get("is_numu_cc", False) or (truth.get("is_cc", False) and truth["mu1_p"] > 0)
+            # Dynamic topology classification
+            has_cand = truth.get("has_candidate", False) or (truth["charm_pdg"] != 0 and truth["mu2_p"] > 0)
+            has_charm = truth.get("has_charm", False) or truth["charm_pdg"] != 0
+            is_numu = truth.get("is_numu_cc", False) or (truth.get("is_cc", False) and truth["mu1_p"] > 0)
 
-        if has_cand:
-            topo_tag = "#nu_{#mu} CC Dimuon + Charm"
-        elif has_charm:
-            topo_tag = "#nu_{#mu} CC + Charm Hadron"
-        elif is_numu:
-            topo_tag = "#nu_{#mu} CC Interaction"
-        elif truth.get("is_cc", False):
-            topo_tag = "#nu CC Interaction"
-        else:
-            topo_tag = "Neutral Current (NC) Interaction"
+            if has_cand:
+                topo_tag = "#nu_{#mu} CC Dimuon + Charm"
+            elif has_charm:
+                topo_tag = "#nu_{#mu} CC + Charm Hadron"
+            elif is_numu:
+                topo_tag = "#nu_{#mu} CC Interaction"
+            elif truth.get("is_cc", False):
+                topo_tag = "#nu CC Interaction"
+            else:
+                topo_tag = "Neutral Current (NC) Interaction"
 
-        pave_info.AddText(f"#bf{{SND@LHC Simulation}}  {topo_tag}")
-        pave_info.AddText(f"E_{{#nu}} = {truth['nu_e']:.1f} GeV  |  Vertex: ({vtx[0]:.1f}, {vtx[1]:.1f}, {vtx[2]:.1f}) cm")
+            vtx = tracks.get("vtx", (0.0, 0.0, -9999.0))
+            pave_info.AddText(f"#bf{{SND@LHC Simulation}}  {topo_tag}")
+            pave_info.AddText(f"E_{{#nu}} = {truth['nu_e']:.1f} GeV  |  Vertex: ({vtx[0]:.1f}, {vtx[1]:.1f}, {vtx[2]:.1f}) cm")
 
-        if truth["mu1_p"] > 0:
-            pave_info.AddText(f"#mu_{{1}} (Primary Lepton): p = {truth['mu1_p']:.1f} GeV/c")
-        else:
-            pave_info.AddText("Outgoing Lepton: None (NC / Hadron Shower)")
+            if truth["mu1_p"] > 0:
+                pave_info.AddText(f"#mu_{{1}} (Primary Lepton): p = {truth['mu1_p']:.1f} GeV/c")
+            else:
+                pave_info.AddText("Outgoing Lepton: None (NC / Hadron Shower)")
 
-        if truth["charm_pdg"] != 0:
-            charm_name = PDG_NAMES.get(truth["charm_pdg"], f"PDG {truth['charm_pdg']}")
-            pave_info.AddText(f"Charm Hadron: #bf{{{charm_name}}}  |  Flight L_{{3D}} = {truth['decay_length_3d']:.2f} cm")
+            if truth["charm_pdg"] != 0:
+                charm_name = PDG_NAMES.get(truth["charm_pdg"], f"PDG {truth['charm_pdg']}")
+                pave_info.AddText(f"Charm Hadron: #bf{{{charm_name}}}  |  Flight L_{{3D}} = {truth['decay_length_3d']:.2f} cm")
 
-        if truth["mu2_p"] > 0:
-            pave_info.AddText(f"#mu_{{2}} (Charm Decay): p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
+            if truth["mu2_p"] > 0:
+                pave_info.AddText(f"#mu_{{2}} (Charm Decay): p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
 
-        pave_info.Draw("same")
+            pave_info.Draw("same")
 
-        # Track & Topology Legend (XZ Upper Right Area)
-        leg = ROOT.TLegend(0.68, 0.66, 0.96, 0.92)
-        leg.SetBorderSize(1)
-        leg.SetFillColor(ROOT.kWhite)
-        leg.SetTextFont(42)
-        leg.SetTextSize(0.027)
+            # Track & Topology Legend (XZ Upper Right Area)
+            leg = ROOT.TLegend(0.68, 0.66, 0.96, 0.92)
+            leg.SetBorderSize(1)
+            leg.SetFillColor(ROOT.kWhite)
+            leg.SetTextFont(42)
+            leg.SetTextSize(0.027)
 
-        d_mu1 = ROOT.TLine()
-        d_mu1.SetLineColor(ROOT.kBlue)
-        d_mu1.SetLineWidth(2)
+            d_mu1 = ROOT.TLine()
+            d_mu1.SetLineColor(ROOT.kBlue)
+            d_mu1.SetLineWidth(2)
 
-        d_charm = ROOT.TLine()
-        d_charm.SetLineColor(ROOT.kGreen + 2)
-        d_charm.SetLineWidth(3)
-        d_charm.SetLineStyle(2)
+            d_charm = ROOT.TLine()
+            d_charm.SetLineColor(ROOT.kGreen + 2)
+            d_charm.SetLineWidth(3)
+            d_charm.SetLineStyle(2)
 
-        d_mu2 = ROOT.TLine()
-        d_mu2.SetLineColor(ROOT.kRed)
-        d_mu2.SetLineWidth(2)
+            d_mu2 = ROOT.TLine()
+            d_mu2.SetLineColor(ROOT.kRed)
+            d_mu2.SetLineWidth(2)
 
-        d_vtx = ROOT.TMarker(0, 0, 29)
-        d_vtx.SetMarkerColor(ROOT.kMagenta + 2)
-        d_vtx.SetMarkerSize(1.6)
+            d_vtx = ROOT.TMarker(0, 0, 29)
+            d_vtx.SetMarkerColor(ROOT.kMagenta + 2)
+            d_vtx.SetMarkerSize(1.6)
 
-        d_dec = ROOT.TMarker(0, 0, 34)
-        d_dec.SetMarkerColor(ROOT.kOrange + 2)
-        d_dec.SetMarkerSize(1.4)
+            d_dec = ROOT.TMarker(0, 0, 34)
+            d_dec.SetMarkerColor(ROOT.kOrange + 2)
+            d_dec.SetMarkerSize(1.4)
 
-        if tracks.get("mu1") is not None and len(tracks["mu1"]) > 1:
-            leg.AddEntry(d_mu1, "#mu_{1} (Prompt Muon)", "l")
-        if tracks.get("charm") is not None and len(tracks["charm"]) > 1:
-            leg.AddEntry(d_charm, "Charm Hadron Flight", "l")
-        if tracks.get("mu2") is not None and len(tracks["mu2"]) > 1:
-            leg.AddEntry(d_mu2, "#mu_{2} (Charm Decay Muon)", "l")
-        if vtx[2] > -9000.0:
-            leg.AddEntry(d_vtx, "Primary Interaction Vertex", "p")
-        if tracks.get("charm_decay") is not None:
-            leg.AddEntry(d_dec, "Charm Decay Vertex", "p")
-        leg.Draw("same")
+            if tracks.get("mu1") is not None and len(tracks["mu1"]) > 1:
+                leg.AddEntry(d_mu1, "#mu_{1} (Prompt Muon)", "l")
+            if tracks.get("charm") is not None and len(tracks["charm"]) > 1:
+                leg.AddEntry(d_charm, "Charm Hadron Flight", "l")
+            if tracks.get("mu2") is not None and len(tracks["mu2"]) > 1:
+                leg.AddEntry(d_mu2, "#mu_{2} (Charm Decay Muon)", "l")
+            if vtx[2] > -9000.0:
+                leg.AddEntry(d_vtx, "Primary Interaction Vertex", "p")
+            if tracks.get("charm_decay") is not None:
+                leg.AddEntry(d_dec, "Charm Decay Vertex", "p")
+            leg.Draw("same")
+            truth_leg_markers = [d_mu1, d_charm, d_mu2, d_vtx, d_dec]
 
         # Keep Python object references alive on canvas to prevent GC
-        canvas._keep_alive = [
-            hist_xz, hist_yz,
-            pave_info, leg,
-            d_mu1, d_charm, d_mu2, d_vtx, d_dec,
-        ]
+        canvas._keep_alive = [hist_xz, hist_yz]
+        if pave_info is not None:
+            canvas._keep_alive.append(pave_info)
+        if leg is not None:
+            canvas._keep_alive.append(leg)
+        canvas._keep_alive.extend(truth_leg_markers)
         canvas._keep_alive.extend(scifi_markers)
         canvas._keep_alive.extend(filled_bars)
         canvas._keep_alive.extend(track_objs)
@@ -910,6 +923,7 @@ class Snd2DEventDisplay:
         event_idx: int = 0,
         name: str = None,
         subdir: str = "eventdisplay",
+        show_mc_truth: bool = False,
     ):
         """
         Generates and saves the TCanvas into the given ROOT TFile under subdir.
@@ -922,7 +936,13 @@ class Snd2DEventDisplay:
             cur_dir = tfile.mkdir(subdir)
         cur_dir.cd()
 
-        canvas = self.draw_event(tree, event_idx, canvas_name=name, canvas_title=f"Event {event_idx}")
+        canvas = self.draw_event(
+            tree,
+            event_idx,
+            canvas_name=name,
+            canvas_title=f"Event {event_idx}",
+            show_mc_truth=show_mc_truth,
+        )
         canvas.Write(name)
         return canvas
 
@@ -931,11 +951,12 @@ class Snd2DEventDisplay:
         tree,
         event_idx: int = 0,
         output_path: str = "event_display.png",
+        show_mc_truth: bool = False,
     ):
         """
         Renders the event display and saves it to an image (PNG, PDF, SVG).
         """
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        canvas = self.draw_event(tree, event_idx)
+        canvas = self.draw_event(tree, event_idx, show_mc_truth=show_mc_truth)
         canvas.Print(output_path)
         return output_path

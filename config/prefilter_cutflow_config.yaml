@@ -7,21 +7,21 @@
 # Diagnostic histograms are booked and filled for each enabled cut stage.
 cuts:
   - id: "step0_raw"
-    name: "Raw / All Events"
+    name: "All Events"
     filter: ""
     enabled: true
     description: "Initial uncut event sample"
 
-  # Data-only Upfront Cuts (skipped automatically for Monte Carlo simulations)
+  # Data-only Upfront Cuts (evaluated as 100% pass on Monte Carlo to preserve 1-to-1 matching)
   - id: "step1_ip1"
-    name: "LHC IP1 Collision Bunch Crossing"
+    name: "LHC IP1"
     filter: "pass_ip1_cut"
     enabled: true
     data_only: true
     description: "Select collision bunch crossings from LHC IP1 (EventHeader.isIP1() == true)"
 
   - id: "step2_stable_beams"
-    name: "LHC Stable Beams Mode"
+    name: "Stable Beams"
     filter: "pass_stable_beams_cut"
     enabled: true
     data_only: true
@@ -29,7 +29,7 @@ cuts:
     description: "Select LHC physics run with Stable Beams (EventHeader.GetBeamMode() == 11)"
 
   - id: "step3_event_deltat"
-    name: "Inter-Event Delta Time (>100 clock cycles)"
+    name: "Event #Delta t"
     filter: "pass_event_deltat_cut"
     enabled: true
     data_only: true
@@ -38,7 +38,7 @@ cuts:
 
   # Physics & Detector Cuts (applied to both data and MC)
   - id: "step4_scifi_fiducial"
-    name: "SciFi Average Channel Fiducial"
+    name: "SciFi Fiducial"
     filter: "pass_scifi_fiducial"
     enabled: true
     description: "Average SciFi channel within horizontal and vertical fiducial boundaries"
@@ -49,7 +49,7 @@ cuts:
     reversed: false
 
   - id: "step5_ds_fiducial"
-    name: "Downstream MuFilter Average Bar Fiducial"
+    name: "DS Fiducial"
     filter: "pass_ds_fiducial"
     enabled: true
     description: "Average DS bar number within vertical [70, 105] and horizontal [10, 50] fiducial boundaries"
@@ -60,7 +60,7 @@ cuts:
     reversed: false
 
   - id: "step6_veto_hits"
-    name: "No Hits in Veto"
+    name: "Veto Cut"
     filter: "pass_veto_cut"
     enabled: true
     description: "Veto system (System 1) hit count selection"
@@ -69,7 +69,7 @@ cuts:
     require_valid: false
 
   - id: "step7_scifi_station"
-    name: "SciFi Station Cut (Exclude Station 1)"
+    name: "SciFi Station #neq 1"
     filter: "pass_scifi_station_cut"
     enabled: true
     description: "Exclude events starting in specified SciFi stations"
@@ -78,7 +78,7 @@ cuts:
     reversed: false
 
   - id: "step8_ds_dimuon"
-    name: "Downstream MuFilter Dimuon Activity Cut"
+    name: "DS Dimuon"
     filter: "pass_ds_dimuon_cut"
     enabled: true
     description: "Require >=2 hits per plane in 3 separate planes in one projection, and >=1 hit per plane in 3 separate planes in the other"
@@ -90,7 +90,7 @@ cuts:
     reversed: false
 
   - id: "step9_ds_activity"
-    name: "Upstream (HCAL) Activity on Downstream Hits"
+    name: "DS+US Activity"
     filter: "pass_ds_activity_cut"
     enabled: true
     description: "If there are DS hits, all 5 US planes must have valid hits"
@@ -100,7 +100,7 @@ cuts:
     reversed: false
 
   - id: "step10_scifi_ds_timing"
-    name: "SciFi to DS Hit Timing Sequence"
+    name: "SciFi-DS Timing"
     filter: "pass_scifi_ds_timing_cut"
     enabled: true
     description: "Require latest DS hit time > earliest SciFi hit time"

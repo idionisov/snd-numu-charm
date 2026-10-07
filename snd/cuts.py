@@ -490,6 +490,136 @@ def define_preselection_metrics(
     return df_metrics
 
 
+SHORT_CUT_LABEL_MAP = {
+    "step0_raw": "All Events",
+    "raw": "All Events",
+    "raw / all events": "All Events",
+    "all events (no cuts)": "All Events",
+    "all events": "All Events",
+
+    "step1_ip1": "LHC IP1",
+    "ip1": "LHC IP1",
+    "lhc ip1": "LHC IP1",
+    "lhc ip1 collision bunch crossing": "LHC IP1",
+    "lhc collisions (ip1)": "LHC IP1",
+
+    "step2_stable_beams": "Stable Beams",
+    "stable_beams": "Stable Beams",
+    "stable beams": "Stable Beams",
+    "lhc stable beams mode": "Stable Beams",
+    "lhc stable beams": "Stable Beams",
+
+    "step3_event_deltat": "Event #Delta t",
+    "event_deltat": "Event #Delta t",
+    "inter-event delta time (>100 clock cycles)": "Event #Delta t",
+    "inter-event delta time": "Event #Delta t",
+    "event time window (delta t > 0)": "Event #Delta t",
+    "event #delta t": "Event #Delta t",
+
+    "step4_scifi_fiducial": "SciFi Fiducial",
+    "scifi_fiducial": "SciFi Fiducial",
+    "scifi average channel fiducial": "SciFi Fiducial",
+    "scifi fiducial volume": "SciFi Fiducial",
+    "scifi fiducial": "SciFi Fiducial",
+
+    "step5_ds_fiducial": "DS Fiducial",
+    "ds_fiducial": "DS Fiducial",
+    "downstream mufilter average bar fiducial": "DS Fiducial",
+    "downstream (ds) fiducial volume": "DS Fiducial",
+    "ds fiducial volume": "DS Fiducial",
+
+    "step6_veto_hits": "Veto Cut",
+    "veto_hits": "Veto Cut",
+    "no hits in veto": "Veto Cut",
+    "veto station hits (veto <= 2)": "Veto Cut",
+    "veto hits <= 2": "Veto Cut",
+    "veto cut": "Veto Cut",
+
+    "step7_scifi_station": "SciFi Station #neq 1",
+    "scifi_station": "SciFi Station #neq 1",
+    "scifi station cut (exclude station 1)": "SciFi Station #neq 1",
+    "scifi interaction station != 1": "SciFi Station #neq 1",
+    "scifi station != 1": "SciFi Station #neq 1",
+    "scifi station #neq 1": "SciFi Station #neq 1",
+
+    "step8_ds_dimuon": "DS Dimuon",
+    "ds_dimuon": "DS Dimuon",
+    "downstream mufilter dimuon activity cut": "DS Dimuon",
+    "downstream dimuon candidates (ds >= 2 tracks)": "DS Dimuon",
+    "ds dimuon candidate": "DS Dimuon",
+
+    "step9_ds_activity": "DS+US Activity",
+    "ds_activity": "DS+US Activity",
+    "upstream (hcal) activity on downstream hits": "DS+US Activity",
+    "downstream and upstream activity": "DS+US Activity",
+    "ds+us activity": "DS+US Activity",
+
+    "step10_scifi_ds_timing": "SciFi-DS Timing",
+    "scifi_ds_timing": "SciFi-DS Timing",
+    "scifi to ds hit timing sequence": "SciFi-DS Timing",
+    "scifi-downstream timing coincidence": "SciFi-DS Timing",
+    "scifi-ds timing": "SciFi-DS Timing",
+}
+
+
+def shorten_cut_label(label: str) -> str:
+    """Return a concise label for cutflow histogram axes and comparison plots."""
+    if not label:
+        return ""
+    clean = label.strip()
+    key = clean.lower()
+    if key in SHORT_CUT_LABEL_MAP:
+        return SHORT_CUT_LABEL_MAP[key]
+    for k, v in SHORT_CUT_LABEL_MAP.items():
+        if k in key:
+            return v
+    return clean
+
+
+def draw_rotated_labels_on_canvas(
+    pad_or_canvas: Any,
+    hist: Any,
+    angle: float = 45.0,
+    text_size: float = 0.028,
+    y_offset: float = 0.018,
+) -> List[Any]:
+    """
+    Renders rotated TLatex labels at bin centers along the X axis.
+    Labels are attached to pad primitives to ensure persistence in saved ROOT canvases.
+    """
+    pad_or_canvas.Update()
+    x1 = pad_or_canvas.GetUxmin()
+    x2 = pad_or_canvas.GetUxmax()
+    left = pad_or_canvas.GetLeftMargin()
+    right = 1.0 - pad_or_canvas.GetRightMargin()
+    bottom = pad_or_canvas.GetBottomMargin()
+    width_ndc = right - left
+    x_range = x2 - x1 if x2 != x1 else 1.0
+
+    latex_objs = []
+    nbins = hist.GetNbinsX()
+    for b in range(1, nbins + 1):
+        lbl = hist.GetXaxis().GetBinLabel(b)
+        if not lbl:
+            continue
+        x_user = hist.GetXaxis().GetBinCenter(b)
+        x_ndc = left + ((x_user - x1) / x_range) * width_ndc
+        y_ndc = bottom - y_offset
+
+        lat = ROOT.TLatex()
+        lat.SetNDC(True)
+        lat.SetTextAngle(angle)
+        lat.SetTextAlign(33)  # Top-Right alignment
+        lat.SetTextSize(text_size)
+        lat.SetTextFont(42)
+        drawn = lat.DrawLatex(x_ndc, y_ndc, lbl)
+        latex_objs.append(drawn)
+
+    pad_or_canvas.Modified()
+    pad_or_canvas.Update()
+    return latex_objs
+
+
 def save_cutflow_root_file(
     output_filepath: str,
     cutflow_stats: List[Dict[str, Any]],
@@ -499,9 +629,10 @@ def save_cutflow_root_file(
     """
     Save cutflow summary counters and stage-by-stage diagnostic histograms into a ROOT file.
     Organizes histograms into subdirectories named after each cut stage.
-    If signal_cutflow_stats is provided, stores h_cutflow_signal and an overlaid TCanvas.
+    Uses shortened cut stage labels and renders canvases with 45-degree angled labels.
     """
     import os
+    ROOT.gROOT.SetBatch(True)
     out_dir = os.path.dirname(os.path.abspath(output_filepath))
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
@@ -511,16 +642,17 @@ def save_cutflow_root_file(
         raise IOError(f"Could not open cutflow output ROOT file: {output_filepath}")
 
     n_cuts = len(cutflow_stats)
-    h_cutflow = ROOT.TH1D("h_cutflow", "Event Cutflow Summary;Cut Stage;Events Passed", n_cuts, 0.5, n_cuts + 0.5)
-    h_cum_eff = ROOT.TH1D("h_cutflow_cumulative_efficiency", "Cumulative Selection Efficiency;Cut Stage;Cumulative Efficiency", n_cuts, 0.5, n_cuts + 0.5)
-    h_rel_eff = ROOT.TH1D("h_cutflow_relative_efficiency", "Relative Selection Efficiency;Cut Stage;Relative Efficiency", n_cuts, 0.5, n_cuts + 0.5)
+    h_cutflow = ROOT.TH1D("h_cutflow", "Event Cutflow Summary;;Events Passed", n_cuts, 0.5, n_cuts + 0.5)
+    h_cum_eff = ROOT.TH1D("h_cutflow_cumulative_efficiency", "Cumulative Selection Efficiency;;Cumulative Efficiency", n_cuts, 0.5, n_cuts + 0.5)
+    h_rel_eff = ROOT.TH1D("h_cutflow_relative_efficiency", "Relative Selection Efficiency;;Relative Efficiency", n_cuts, 0.5, n_cuts + 0.5)
 
     raw_count = float(cutflow_stats[0]["count"]) if cutflow_stats and cutflow_stats[0]["count"] > 0 else 1.0
     prev_count = raw_count
 
     for i, step in enumerate(cutflow_stats, start=1):
         c_val = float(step["count"])
-        label = step.get("name", step["id"])
+        raw_label = step.get("name", step["id"])
+        label = shorten_cut_label(raw_label)
         h_cutflow.GetXaxis().SetBinLabel(i, label)
         h_cutflow.SetBinContent(i, c_val)
 
@@ -539,15 +671,54 @@ def save_cutflow_root_file(
     h_cum_eff.Write()
     h_rel_eff.Write()
 
-    # If signal cutflow is present, book signal histograms and create overlay TCanvas
+    # Create primary cutflow TCanvas with 45-degree rotated labels
+    c_cutflow = ROOT.TCanvas("c_cutflow", "Event Cutflow Summary", 1100, 750)
+    c_cutflow.SetGridx(1)
+    c_cutflow.SetGridy(1)
+    c_cutflow.SetLogy(1)
+    c_cutflow.SetBottomMargin(0.22)
+    c_cutflow.SetLeftMargin(0.12)
+    c_cutflow.SetRightMargin(0.08)
+
+    h_draw_single = h_cutflow.Clone("h_cutflow_single_draw")
+    h_draw_single.SetDirectory(0)
+    h_draw_single.SetStats(0)
+    h_draw_single.SetTitle("Event Selection Cutflow;;Events Passed")
+    h_draw_single.GetXaxis().SetTitle("")
+    h_draw_single.GetXaxis().SetLabelSize(0.0)
+    h_draw_single.SetLineColor(ROOT.kAzure + 2)
+    h_draw_single.SetLineWidth(3)
+    h_draw_single.SetMarkerColor(ROOT.kAzure + 2)
+    h_draw_single.SetMarkerStyle(20)
+    h_draw_single.SetMarkerSize(1.2)
+    h_draw_single.SetMinimum(0.5)
+    h_draw_single.SetMaximum(max(h_draw_single.GetMaximum() * 5.0, 10.0))
+
+    h_draw_single.Draw("HIST")
+    h_draw_single.Draw("E SAME")
+
+    leg_single = ROOT.TLegend(0.55, 0.78, 0.89, 0.88)
+    leg_single.SetBorderSize(1)
+    leg_single.SetFillStyle(1001)
+    leg_single.SetFillColor(ROOT.kWhite)
+    leg_single.SetTextSize(0.03)
+    leg_single.AddEntry(h_draw_single, f"Cutflow (Initial: {int(raw_count)})", "lp")
+    leg_single.Draw()
+
+    draw_rotated_labels_on_canvas(c_cutflow, h_draw_single, angle=45.0, text_size=0.028)
+    fout.cd()
+    c_cutflow.Write()
+
+    # If signal cutflow is present, book signal histograms and create overlay comparison TCanvas
     if signal_cutflow_stats:
-        h_sig = ROOT.TH1D("h_cutflow_signal", "Signal Cutflow Summary;Cut Stage;Signal Events Passed", n_cuts, 0.5, n_cuts + 0.5)
-        h_sig_eff = ROOT.TH1D("h_cutflow_signal_efficiency", "Signal Selection Efficiency;Cut Stage;Signal Efficiency", n_cuts, 0.5, n_cuts + 0.5)
+        h_sig = ROOT.TH1D("h_cutflow_signal", "Signal Cutflow Summary;;Signal Events Passed", n_cuts, 0.5, n_cuts + 0.5)
+        h_sig_eff = ROOT.TH1D("h_cutflow_signal_efficiency", "Signal Selection Efficiency;;Signal Efficiency", n_cuts, 0.5, n_cuts + 0.5)
         sig_raw = float(signal_cutflow_stats[0]["count"]) if signal_cutflow_stats and signal_cutflow_stats[0]["count"] > 0 else 1.0
 
         for i, step in enumerate(signal_cutflow_stats, start=1):
             s_val = float(step["count"])
-            label = step.get("name", step["id"])
+            raw_label = step.get("name", step["id"])
+            label = shorten_cut_label(raw_label)
             h_sig.GetXaxis().SetBinLabel(i, label)
             h_sig.SetBinContent(i, s_val)
             s_eff = (s_val / sig_raw) if sig_raw > 0 else 0.0
@@ -563,23 +734,27 @@ def save_cutflow_root_file(
         c_comp.SetGridx(1)
         c_comp.SetGridy(1)
         c_comp.SetLogy(1)
-        c_comp.SetBottomMargin(0.20)
+        c_comp.SetBottomMargin(0.22)
         c_comp.SetLeftMargin(0.12)
         c_comp.SetRightMargin(0.08)
 
         h_all_draw = h_cutflow.Clone("h_cutflow_all_draw")
         h_all_draw.SetDirectory(0)
-        h_all_draw.SetTitle("Event Selection Cutflow: All Events vs Signal;Cut Stage;Events")
+        h_all_draw.SetStats(0)
+        h_all_draw.SetTitle("Event Selection Cutflow: All Events vs Signal;;Events")
+        h_all_draw.GetXaxis().SetTitle("")
+        h_all_draw.GetXaxis().SetLabelSize(0.0)
         h_all_draw.SetLineColor(ROOT.kAzure + 2)
         h_all_draw.SetLineWidth(3)
         h_all_draw.SetMarkerColor(ROOT.kAzure + 2)
         h_all_draw.SetMarkerStyle(20)
         h_all_draw.SetMarkerSize(1.2)
-        h_all_draw.GetXaxis().LabelsOption("v")
-        h_all_draw.GetXaxis().SetLabelSize(0.035)
 
         h_sig_draw = h_sig.Clone("h_cutflow_sig_draw")
         h_sig_draw.SetDirectory(0)
+        h_sig_draw.SetStats(0)
+        h_sig_draw.GetXaxis().SetTitle("")
+        h_sig_draw.GetXaxis().SetLabelSize(0.0)
         h_sig_draw.SetLineColor(ROOT.kRed + 1)
         h_sig_draw.SetLineWidth(3)
         h_sig_draw.SetMarkerColor(ROOT.kRed + 1)
@@ -604,12 +779,32 @@ def save_cutflow_root_file(
         leg.AddEntry(h_sig_draw, f"Signal in DS Acceptance (Initial: {int(sig_raw)})", "lp")
         leg.Draw()
 
+        draw_rotated_labels_on_canvas(c_comp, h_all_draw, angle=45.0, text_size=0.028)
+        fout.cd()
         c_comp.Write()
+
+        # Save companion images
+        try:
+            if output_filepath.endswith(".root"):
+                base_img = output_filepath[:-5]
+                c_comp.Print(f"{base_img}_comparison.png")
+                c_comp.Print(f"{base_img}_comparison.pdf")
+        except Exception:
+            pass
+    else:
+        # Save companion images for single cutflow
+        try:
+            if output_filepath.endswith(".root"):
+                base_img = output_filepath[:-5]
+                c_cutflow.Print(f"{base_img}_cutflow.png")
+                c_cutflow.Print(f"{base_img}_cutflow.pdf")
+        except Exception:
+            pass
 
     # Write subdirectories per cut stage
     for step in cutflow_stats:
         c_id = step["id"]
-        c_name = step.get("name", c_id)
+        c_name = shorten_cut_label(step.get("name", c_id))
         stage_dir = fout.mkdir(c_id, f"Cut Stage: {c_name}")
         if stage_dir:
             stage_dir.cd()

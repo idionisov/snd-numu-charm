@@ -2,39 +2,43 @@
 """
 scripts/generate_signal_event_displays.py
 -----------------------------------------
-Generates 2D interactive event displays (XZ top view, YZ side view) for signal
-events (numu CC charm dimuon events) from input ROOT files.
+Generates 2D interactive event displays (XZ top view, YZ side view) for SND@LHC events.
 
-Saves all generated TCanvas objects into a single output ROOT file within a
-hierarchical TDirectory structure:
-  neutrinoEvents/numu/CC/toCharm/charmToMuon/inAcceptance
-  neutrinoEvents/numu/CC/toCharm/charmToMuon/other
+Operating Modes:
+1. Real Data Mode (Default):
+   - Truth overlays and truth kinematics are disabled.
+   - Event displays are stored in top-level TDirectory named Run<####>
+     (e.g. Run0027, Run100522), extracted from event.EventHeader.GetRunId().
+   - Tree auto-detects 'rawConv' or 'cbmsim' (or --tree-name).
 
-where:
-  - inAcceptance: events where the outgoing muon from charm decay has >= 3 MCPoints in DS.
-  - other: events where the outgoing charm decay muon has < 3 MCPoints in DS.
+2. Monte Carlo Truth Mode (--mc-truth):
+   - Truth tracks, interaction vertices, and kinematics summary tables are rendered.
+   - Event displays are stored under top-level TDirectory 'MCTruth'
+     (e.g. MCTruth/numu/CC/toCharm/charmToMuon/inAcceptance or .../other).
 
-Canvas naming format:
-  c_run{run_num}_ev{event_num}
-  where run_num is derived from the parent directory (e.g. 0 to 399) and
-  event_num is extracted from tree.EventHeader.GetEventNumber() / GetMCEntryNumber().
+Event Selection:
+- By default (no --events), runs on ALL events in the input ROOT files.
+- If --events <ev1> <ev2> ... is supplied, only those event numbers or entry indices
+  are processed.
 
 Usage examples:
-  # Using defaults from config/filter_numu_charm_config.yaml:
-  python3 scripts/generate_signal_event_displays.py
-
-  # Processing specific partition or directory:
+  # Real data default (all events, stored under Run<####>):
   python3 scripts/generate_signal_event_displays.py \
-      -i /eos/user/i/idioniso/snd-numu-charm/data/7 \
-      -o ./event_displays/signal_event_displays.root \
-      -j 4
+      -i /eos/experiment/sndlhc/convertedData/physics/2022/run_00100522/sndLHC.raw.root \
+      -o ./event_displays/data_event_displays.root
 
-  # Processing all 400 EOS partitions with PNG image export:
+  # Specific events only:
+  python3 scripts/generate_signal_event_displays.py \
+      -i /eos/user/i/idioniso/snd-numu-charm/data/27/sndLHC.Genie-TGeant4_digCPP_truth_numuCC_charm_dimuon.root \
+      -o ./event_displays/selected_displays.root \
+      --events 0 5 12
+
+  # Monte Carlo truth mode with DS acceptance splitting:
   python3 scripts/generate_signal_event_displays.py \
       -i /eos/user/i/idioniso/snd-numu-charm/data \
-      -o /eos/user/i/idioniso/snd-numu-charm/signal/signal_event_displays.root \
-      -j 8 \
-      --save-images
+      -o ./event_displays/signal_event_displays.root \
+      --mc-truth \
+      -j 8
 """
 
 import os
@@ -44,6 +48,7 @@ import time
 import shutil
 import tempfile
 import argparse
+from typing import List, Optional, Set
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Add project root to sys.path so 'snd' package can be imported
@@ -57,10 +62,35 @@ from snd import (
     resolve_tdirectory_hierarchy,
     get_or_create_tdirectory,
     get_event_header_number,
+    get_event_header_run_id,
+    get_geofile_for_run,
     count_mu2_ds_mcpoints,
 )
 
 DEFAULT_GEOFILE = "/eos/experiment/sndlhc/convertedData/physics/2022/geofile_sndlhc_TI18_V4_2022.root"
+
+
+def copy_tcanvases_recursive(src_dir, dest_dir) -> None:
+    """
+    Recursively copies all TCanvases and directory structures from src_dir to dest_dir.
+    """
+    import ROOT
+
+    for key in src_dir.GetListOfKeys():
+        cls_name = key.GetClassName()
+        if cls_name == "TCanvas":
+            obj = key.ReadObj()
+            if obj and not (hasattr(obj, "IsZombie") and obj.IsZombie()):
+                dest_dir.cd()
+                obj.Write(key.GetName(), ROOT.TObject.kOverwrite)
+        elif "TDirectory" in cls_name:
+            sub_src = key.ReadObj()
+            if sub_src:
+                sub_name = key.GetName()
+                sub_dest = dest_dir.GetDirectory(sub_name)
+                if not sub_dest:
+                    sub_dest = dest_dir.mkdir(sub_name)
+                copy_tcanvases_recursive(sub_src, sub_dest)
 
 
 def process_single_file_worker(args_tuple):
@@ -75,7 +105,11 @@ def process_single_file_worker(args_tuple):
         geofile_to_use,
         temp_dir,
         canvas_name_format,
+        mc_truth,
+        events_filter,
         candidates_only,
+        base_tdirectory_parts,
+        tree_name,
         color_by_qdc_and_density,
         max_density,
         max_qdc,
@@ -91,7 +125,7 @@ def process_single_file_worker(args_tuple):
 
     import ROOT
     ROOT.gROOT.SetBatch(True)
-    from snd import Snd2DEventDisplay, get_event_header_number, is_dimuon_in_ds_acceptance
+    from snd import Snd2DEventDisplay, get_event_header_number, get_event_header_run_id, is_dimuon_in_ds_acceptance
 
     fname = os.path.basename(input_path)
 
@@ -115,10 +149,24 @@ def process_single_file_worker(args_tuple):
             result["error"] = f"Could not open input file {input_path}"
             return result
 
-        tree = fin.Get("cbmsim")
+        # Discover TTree
+        tree = None
+        if tree_name:
+            tree = fin.Get(tree_name)
+        else:
+            for candidate in ["rawConv", "cbmsim"]:
+                tree = fin.Get(candidate)
+                if tree:
+                    break
+            if not tree:
+                for k in fin.GetListOfKeys():
+                    if k.GetClassName() == "TTree":
+                        tree = fin.Get(k.GetName())
+                        break
+
         if not tree:
             result["status"] = "ERROR"
-            result["error"] = f"'cbmsim' tree not found in {input_path}"
+            result["error"] = f"No suitable TTree found in {input_path}"
             fin.Close()
             return result
 
@@ -126,20 +174,82 @@ def process_single_file_worker(args_tuple):
         result["total_entries"] = total_entries
 
         # Determine events to process
+        target_events_set: Optional[Set[int]] = set(events_filter) if events_filter is not None else None
         selected_entries = []
-        for iev in range(total_entries):
-            if max_events is not None and len(selected_entries) >= max_events:
-                break
-            tree.GetEntry(iev)
-            if candidates_only:
-                # Check has_candidate branch
-                if hasattr(tree, "has_candidate"):
-                    if not bool(tree.has_candidate):
+
+        if target_events_set is not None:
+            if total_entries == 0:
+                fin.Close()
+                return result
+
+            # Quick boundary check on first and last event
+            tree.GetEntry(0)
+            first_ev = get_event_header_number(tree, default_idx=0)
+            tree.GetEntry(total_entries - 1)
+            last_ev = get_event_header_number(tree, default_idx=total_entries - 1)
+
+            min_ev = min(first_ev, last_ev)
+            max_ev = max(first_ev, last_ev)
+
+            has_index_match = any(0 <= t < total_entries for t in target_events_set)
+            has_ev_match = any(min_ev <= t <= max_ev for t in target_events_set)
+
+            if not has_index_match and not has_ev_match:
+                fin.Close()
+                return result
+
+            # Probe candidate entries first (direct estimated index jump)
+            candidate_entries = set()
+            for target in target_events_set:
+                if 0 <= target < total_entries:
+                    candidate_entries.add(target)
+                if min_ev <= target <= max_ev:
+                    est_entry = int(target - first_ev)
+                    if 0 <= est_entry < total_entries:
+                        candidate_entries.add(est_entry)
+
+            matched_targets = set()
+            for cand in sorted(candidate_entries):
+                tree.GetEntry(cand)
+                ev_num = get_event_header_number(tree, default_idx=cand)
+                if cand in target_events_set or ev_num in target_events_set:
+                    if candidates_only and mc_truth:
+                        if hasattr(tree, "has_candidate") and not bool(tree.has_candidate):
+                            continue
+                        elif hasattr(tree, "charm_pdg") and tree.charm_pdg == 0:
+                            continue
+                    selected_entries.append((cand, ev_num))
+                    matched_targets.add(cand)
+                    matched_targets.add(ev_num)
+
+            remaining_targets = target_events_set - matched_targets
+            if remaining_targets:
+                for iev in range(total_entries):
+                    if max_events is not None and len(selected_entries) >= max_events:
+                        break
+                    if iev in candidate_entries:
                         continue
-                # Fallback to charm_pdg if has_candidate not present
-                elif hasattr(tree, "charm_pdg") and tree.charm_pdg == 0:
-                    continue
-            selected_entries.append(iev)
+                    tree.GetEntry(iev)
+                    ev_num = get_event_header_number(tree, default_idx=iev)
+                    if iev in remaining_targets or ev_num in remaining_targets:
+                        if candidates_only and mc_truth:
+                            if hasattr(tree, "has_candidate") and not bool(tree.has_candidate):
+                                continue
+                            elif hasattr(tree, "charm_pdg") and tree.charm_pdg == 0:
+                                continue
+                        selected_entries.append((iev, ev_num))
+        else:
+            for iev in range(total_entries):
+                if max_events is not None and len(selected_entries) >= max_events:
+                    break
+                tree.GetEntry(iev)
+                ev_num = get_event_header_number(tree, default_idx=iev)
+                if candidates_only and mc_truth:
+                    if hasattr(tree, "has_candidate") and not bool(tree.has_candidate):
+                        continue
+                    elif hasattr(tree, "charm_pdg") and tree.charm_pdg == 0:
+                        continue
+                selected_entries.append((iev, ev_num))
 
         if not selected_entries:
             fin.Close()
@@ -150,13 +260,6 @@ def process_single_file_worker(args_tuple):
         os.close(temp_fd)
         ftemp = ROOT.TFile.Open(temp_path, "RECREATE")
 
-        if split_acceptance:
-            tdir_in_acc = ftemp.mkdir(in_acc_name)
-            tdir_other = ftemp.mkdir(other_name)
-        else:
-            tdir_in_acc = ftemp
-            tdir_other = ftemp
-
         # Initialize display engine
         display = Snd2DEventDisplay(
             geo_file=geofile_to_use,
@@ -165,47 +268,65 @@ def process_single_file_worker(args_tuple):
             max_qdc=max_qdc,
         )
 
-        for iev in selected_entries:
+        for iev, event_num in selected_entries:
             tree.GetEntry(iev)
-            event_num = get_event_header_number(tree, default_idx=iev)
+            ev_run_id = get_event_header_run_id(tree, default_run=run_num)
 
-            # Check DS acceptance for BOTH muons (prompt mu1 and charm decay mu2)
-            is_in_acceptance = is_dimuon_in_ds_acceptance(
-                tree,
-                min_hor_points=min_ds_hor_points,
-                min_ver_points=min_ds_ver_points,
-            )
+            # Determine base TDirectory hierarchy
+            if base_tdirectory_parts is not None:
+                base_parts = list(base_tdirectory_parts)
+            else:
+                # Real data mode default: Run<####>
+                if isinstance(ev_run_id, int) and 0 <= ev_run_id < 10000:
+                    run_dir_name = f"Run{ev_run_id:04d}"
+                else:
+                    run_dir_name = f"Run{ev_run_id}"
+                base_parts = [run_dir_name]
 
-            canvas_name = canvas_name_format.format(run_num=run_num, event_num=event_num)
-            canvas_title = f"SND@LHC Run {run_num} Event {event_num} ({'inAcceptance' if is_in_acceptance else 'other'})"
+            # Determine acceptance partition (MC mode only)
+            if mc_truth and split_acceptance:
+                is_in_acceptance = is_dimuon_in_ds_acceptance(
+                    tree,
+                    min_hor_points=min_ds_hor_points,
+                    min_ver_points=min_ds_ver_points,
+                )
+                category = in_acc_name if is_in_acceptance else other_name
+                target_parts = base_parts + [category]
+            else:
+                is_in_acceptance = False
+                category = base_parts[-1]
+                target_parts = base_parts
+
+            canvas_name = canvas_name_format.format(run_num=ev_run_id, event_num=event_num)
+            if mc_truth and split_acceptance:
+                canvas_title = f"SND@LHC Run {ev_run_id} Event {event_num} ({'inAcceptance' if is_in_acceptance else 'other'})"
+            else:
+                canvas_title = f"SND@LHC Run {ev_run_id} Event {event_num}"
 
             canvas = display.draw_event(
                 tree,
                 event_idx=iev,
                 canvas_name=canvas_name,
                 canvas_title=canvas_title,
-                run_number=run_num,
+                run_number=ev_run_id,
                 event_number=event_num,
+                show_mc_truth=mc_truth,
             )
 
-            if split_acceptance:
-                target_tdir = tdir_in_acc if is_in_acceptance else tdir_other
-                category = in_acc_name if is_in_acceptance else other_name
-            else:
-                target_tdir = ftemp
-                category = "default"
-
+            target_tdir = get_or_create_tdirectory(ftemp, target_parts)
             target_tdir.cd()
             canvas.Write(canvas_name)
+
             result["saved_displays"] += 1
-            if is_in_acceptance:
-                result["saved_in_acceptance"] += 1
-            else:
-                result["saved_other"] += 1
+            if mc_truth and split_acceptance:
+                if is_in_acceptance:
+                    result["saved_in_acceptance"] += 1
+                else:
+                    result["saved_other"] += 1
             result["canvas_names"].append((canvas_name, category))
 
             if save_images:
-                sub_img_dir = os.path.join(images_dir, category) if split_acceptance else images_dir
+                sub_img_dir = os.path.join(images_dir, *target_parts)
                 os.makedirs(sub_img_dir, exist_ok=True)
                 img_path = os.path.join(sub_img_dir, f"{canvas_name}.png")
                 canvas.Print(img_path)
@@ -226,7 +347,7 @@ def main():
     default_config_path = os.path.join(PROJECT_ROOT, "config", "filter_numu_charm_config.yaml")
 
     parser = argparse.ArgumentParser(
-        description="Generate 2D interactive event displays for SND@LHC signal events partitioned by DS acceptance.",
+        description="Generate 2D interactive event displays for SND@LHC events (real data or MC truth).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -250,8 +371,8 @@ def main():
     parser.add_argument(
         "-g", "--geofile",
         type=str,
-        default=DEFAULT_GEOFILE,
-        help="Fallback path to detector geometry ROOT file (local geofile in input dir is used if present)",
+        default=None,
+        help="Custom detector geometry ROOT file (default: auto-detected from SNDSW geo_paths.csv by run/year or local simulation geofile)",
     )
     parser.add_argument(
         "-j", "--jobs",
@@ -260,27 +381,41 @@ def main():
         help="Number of parallel worker processes",
     )
     parser.add_argument(
+        "--mc-truth",
+        action="store_true",
+        default=False,
+        help="Enable Monte Carlo truth overlay (tracks, vertices, kinematics table) and default top TDirectory 'MCTruth'",
+    )
+    parser.add_argument(
+        "--events",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Specific event numbers or entry indices to display (default: all events)",
+    )
+    parser.add_argument(
+        "--tree-name",
+        type=str,
+        default=None,
+        help="Explicit name of the TTree to read (auto-detects 'rawConv' or 'cbmsim' if omitted)",
+    )
+    parser.add_argument(
         "--tdirectory",
         type=str,
         default=None,
-        help="Custom base TDirectory hierarchy (e.g. neutrinoEvents/numu/CC/toCharm/charmToMuon)",
+        help="Custom base TDirectory hierarchy (overrides default Run<####> or MCTruth/...)",
     )
     parser.add_argument(
         "--candidates-only",
         action="store_true",
-        default=None,
-        help="Only display candidate events (has_candidate=1)",
-    )
-    parser.add_argument(
-        "--all-events",
-        action="store_true",
-        help="Display all events in input files (overrides candidates_only)",
+        default=False,
+        help="Only display candidate events (has_candidate=1 in MC)",
     )
     parser.add_argument(
         "--min-ds-points",
         type=int,
         default=None,
-        help="Minimum number of DS MCPoints (both hor and ver) for muons to be inAcceptance (default: 3)",
+        help="Minimum number of DS MCPoints for muons to be inAcceptance (default: 3)",
     )
     parser.add_argument(
         "--min-ds-hor-points",
@@ -361,21 +496,16 @@ def main():
         cfg = load_config(args.config)
     disp_cfg = cfg.get("event_displays", {})
 
-    # Determine parameter values (CLI arguments override config defaults)
+    # Determine parameter values
     input_path = args.input if args.input is not None else disp_cfg.get("input_dir", "/eos/user/i/idioniso/snd-numu-charm/data")
     output_file = args.output_file if args.output_file is not None else disp_cfg.get("output_file", "event_displays/signal_event_displays.root")
     canvas_name_format = disp_cfg.get("canvas_name_format", "c_run{run_num}_ev{event_num}")
 
-    if args.all_events:
-        candidates_only = False
-    elif args.candidates_only is not None:
-        candidates_only = args.candidates_only
-    else:
-        candidates_only = bool(disp_cfg.get("candidates_only", True))
+    candidates_only = args.candidates_only
 
-    # Acceptance subdirectories config
+    # Acceptance subdirectories config (only relevant in MC mode)
     acc_cfg = disp_cfg.get("acceptance_subdirs", {})
-    if args.no_acceptance_split:
+    if not args.mc_truth or args.no_acceptance_split:
         split_acceptance = False
     else:
         split_acceptance = bool(acc_cfg.get("enabled", True))
@@ -397,30 +527,40 @@ def main():
 
     # Resolve base TDirectory hierarchy
     if args.tdirectory:
-        hierarchy = [p.strip() for p in args.tdirectory.replace("->", "/").split("/") if p.strip()]
+        base_tdirectory_parts = [p.strip() for p in args.tdirectory.replace("->", "/").split("/") if p.strip()]
+        hierarchy_display_str = "/".join(base_tdirectory_parts)
+    elif args.mc_truth:
+        base_tdirectory_parts = resolve_tdirectory_hierarchy(cfg, top_name="MCTruth")
+        hierarchy_display_str = "/".join(base_tdirectory_parts)
     else:
-        hierarchy = resolve_tdirectory_hierarchy(cfg)
-    hierarchy_str = "/".join(hierarchy)
+        # Real data default: dynamically determined per-event as Run<####>
+        base_tdirectory_parts = None
+        hierarchy_display_str = "Run<####> (per event run number)"
 
     # Locate input files
     input_files = resolve_input_files(input_path, max_files=args.max_files or -1)
 
     print("=" * 78)
-    print(" SND@LHC 2D Event Display Generator -> Single ROOT File")
+    print(" SND@LHC 2D Event Display Generator")
     print("=" * 78)
+    print(f" Mode:                 {'Monte Carlo Simulation (--mc-truth)' if args.mc_truth else 'Real Data (Default)'}")
     print(f" Config File:          {args.config}")
     print(f" Input Target:         {input_path}")
     print(f" Files Matched:        {len(input_files)}")
     print(f" Single Output ROOT:   {os.path.abspath(output_file)}")
-    print(f" Base TDirectory:      {hierarchy_str}")
+    print(f" Base TDirectory:      {hierarchy_display_str}")
+    if args.events:
+        print(f" Events Filter:        {args.events}")
+    else:
+        print(f" Events Filter:        All events")
     if split_acceptance:
-        print(f" Acceptance Splitting: Enabled (Min DS points: hor>={min_ds_hor_points}, ver>={min_ds_ver_points} for both mu1 & mu2)")
-        print(f"   In-Acceptance Dir:  {hierarchy_str}/{in_acc_name}")
-        print(f"   Other Dir:          {hierarchy_str}/{other_name}")
+        print(f" Acceptance Splitting: Enabled (Min DS points: hor>={min_ds_hor_points}, ver>={min_ds_ver_points})")
+        print(f"   In-Acceptance Dir:  {hierarchy_display_str}/{in_acc_name}")
+        print(f"   Other Dir:          {hierarchy_display_str}/{other_name}")
     else:
         print(f" Acceptance Splitting: Disabled")
     print(f" Canvas Name Format:   {canvas_name_format}")
-    print(f" Filter Mode:          {'Candidates only (has_candidate=1)' if candidates_only else 'All events'}")
+    print(f" Filter Candidates:    {'Candidates only (has_candidate=1)' if candidates_only else 'All events'}")
     print(f" QDC / Density Colors: {color_by_qdc_and_density} (Max Dens: {max_density}, Max QDC: {max_qdc})")
     print(f" Parallel Workers:     {args.jobs}")
     print(f" Save PNG Images:      {save_images}" + (f" -> {images_dir}" if save_images else ""))
@@ -432,17 +572,22 @@ def main():
     # Build tasks for workers
     tasks = []
     for fpath in input_files:
-        # Determine run number from parent directory (e.g. partition folder '0'..'399')
+        # Determine fallback run number from parent directory (e.g. partition folder '0'..'399' or 'run_006596')
         parent_name = os.path.basename(os.path.dirname(os.path.abspath(fpath)))
         if parent_name.isdigit():
             run_num = parent_name
         else:
             m = re.search(r'(?:run|signal)?[_-]?(\d+)', os.path.basename(fpath))
+            if not m:
+                m = re.search(r'run_0*(\d+)', fpath)
             run_num = m.group(1) if m else parent_name
 
-        # Detect partition-local geofile
-        local_geofile = os.path.join(os.path.dirname(os.path.abspath(fpath)), "geofile_full.Genie-TGeant4.root")
-        geofile_to_use = local_geofile if os.path.exists(local_geofile) else args.geofile
+        # Resolve detector geometry using SNDSW geo_paths.csv mapping or local simulation geofile
+        geofile_to_use = get_geofile_for_run(
+            run_number=run_num,
+            input_path=fpath,
+            default_geofile=args.geofile,
+        )
 
         tasks.append((
             fpath,
@@ -450,7 +595,11 @@ def main():
             geofile_to_use,
             temp_dir,
             canvas_name_format,
+            args.mc_truth,
+            args.events,
             candidates_only,
+            base_tdirectory_parts,
+            args.tree_name,
             color_by_qdc_and_density,
             max_density,
             max_qdc,
@@ -490,7 +639,7 @@ def main():
                             print(f" [{total_processed}/{len(input_files)}] {res['file']} (run {res['run_num']}): "
                                   f"+{saved_in_file} displays")
                     else:
-                        print(f" [{total_processed}/{len(input_files)}] {res['file']} (run {res['run_num']}): 0 candidates found.")
+                        print(f" [{total_processed}/{len(input_files)}] {res['file']} (run {res['run_num']}): 0 events selected.")
                 else:
                     print(f" [{total_processed}/{len(input_files)}] {res['file']}: ERROR: {res['error']}")
 
@@ -502,14 +651,6 @@ def main():
         os.makedirs(os.path.dirname(out_root_abs), exist_ok=True)
         fout = ROOT.TFile.Open(out_root_abs, "RECREATE")
 
-        base_tdir = get_or_create_tdirectory(fout, hierarchy)
-        if split_acceptance:
-            dest_in_acc = get_or_create_tdirectory(fout, hierarchy + [in_acc_name])
-            dest_other = get_or_create_tdirectory(fout, hierarchy + [other_name])
-        else:
-            dest_in_acc = base_tdir
-            dest_other = base_tdir
-
         for res in worker_results:
             if res["status"] != "OK":
                 continue
@@ -518,36 +659,7 @@ def main():
             if saved_in_file > 0 and temp_root and os.path.exists(temp_root):
                 ftemp = ROOT.TFile.Open(temp_root, "READ")
                 if ftemp and not ftemp.IsZombie():
-                    if split_acceptance:
-                        src_in_acc = ftemp.GetDirectory(in_acc_name)
-                        if src_in_acc:
-                            for key in src_in_acc.GetListOfKeys():
-                                if key.GetClassName() != "TCanvas":
-                                    continue
-                                obj = key.ReadObj()
-                                if not obj or (hasattr(obj, "IsZombie") and obj.IsZombie()):
-                                    continue
-                                dest_in_acc.cd()
-                                obj.Write(key.GetName(), ROOT.TObject.kOverwrite)
-                        src_other = ftemp.GetDirectory(other_name)
-                        if src_other:
-                            for key in src_other.GetListOfKeys():
-                                if key.GetClassName() != "TCanvas":
-                                    continue
-                                obj = key.ReadObj()
-                                if not obj or (hasattr(obj, "IsZombie") and obj.IsZombie()):
-                                    continue
-                                dest_other.cd()
-                                obj.Write(key.GetName(), ROOT.TObject.kOverwrite)
-                    else:
-                        for key in ftemp.GetListOfKeys():
-                            if key.GetClassName() != "TCanvas":
-                                continue
-                            obj = key.ReadObj()
-                            if not obj or (hasattr(obj, "IsZombie") and obj.IsZombie()):
-                                continue
-                            base_tdir.cd()
-                            obj.Write(key.GetName(), ROOT.TObject.kOverwrite)
+                    copy_tcanvases_recursive(ftemp, fout)
                     ftemp.Close()
 
                 try:
@@ -571,10 +683,10 @@ def main():
     print("=" * 78)
     print(f" Completed! Saved {total_saved} event displays in {elapsed:.1f} seconds.")
     print(f" Single Output ROOT File: {out_root_abs}")
-    print(f" Base TDirectory:         {hierarchy_str}")
+    print(f" Hierarchy:               {hierarchy_display_str}")
     if split_acceptance:
-        print(f"   -> {hierarchy_str}/{in_acc_name}: {total_in_acc} displays (DS hor >= {min_ds_hor_points} & ver >= {min_ds_ver_points} for both muons)")
-        print(f"   -> {hierarchy_str}/{other_name}:        {total_other} displays (outside acceptance)")
+        print(f"   -> {hierarchy_display_str}/{in_acc_name}: {total_in_acc} displays")
+        print(f"   -> {hierarchy_display_str}/{other_name}:        {total_other} displays")
     if save_images:
         print(f" Exported PNG Images:     {images_dir}")
     print("=" * 78)

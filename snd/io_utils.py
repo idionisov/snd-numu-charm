@@ -297,17 +297,19 @@ def symlink_input_root_files(
     return created_links
 
 
-def resolve_tdirectory_hierarchy(cfg: dict) -> List[str]:
+def resolve_tdirectory_hierarchy(cfg: dict, top_name: str = "MCTruth") -> List[str]:
     """
     Determine the TDirectory hierarchy for storing event display canvases.
     If explicitly defined in config under event_displays.tdirectory_path, use it.
     Otherwise, derive it dynamically from selection settings:
-      neutrinoEvents -> numu -> CC -> toCharm -> charmToMuon
+      MCTruth -> numu -> CC -> toCharm -> charmToMuon
     """
     disp_cfg = cfg.get("event_displays", {})
     if "tdirectory_path" in disp_cfg and disp_cfg["tdirectory_path"]:
         parts = [p.strip() for p in disp_cfg["tdirectory_path"].replace("->", "/").split("/") if p.strip()]
         if parts:
+            if parts[0] in ["neutrinoEvents", "MCTruth"]:
+                parts[0] = top_name
             return parts
 
     sel_cfg = cfg.get("selection", {})
@@ -318,7 +320,7 @@ def resolve_tdirectory_hierarchy(cfg: dict) -> List[str]:
     charm_species = str(charm_cfg.get("species", "any")).strip()
     charm_decay = str(charm_cfg.get("decay", "to_muon")).lower().replace("-", "").replace("_", "")
 
-    hierarchy = ["neutrinoEvents"]
+    hierarchy = [top_name]
 
     # Flavor tier
     if flavor in ["numu", "muon"]:
@@ -384,6 +386,25 @@ def get_event_header_number(tree: Any, default_idx: int = 0) -> int:
     return default_idx
 
 
+def get_event_header_run_id(tree: Any, default_run: Optional[Any] = None) -> int:
+    """Extract run ID from tree.EventHeader.GetRunId() if available, otherwise default_run or 0."""
+    if hasattr(tree, "EventHeader"):
+        h = tree.EventHeader
+        if hasattr(h, "GetRunId"):
+            try:
+                rid = int(h.GetRunId())
+                if rid > 0 or default_run is None:
+                    return rid
+            except Exception:
+                pass
+    if default_run is not None:
+        try:
+            return int(default_run)
+        except (ValueError, TypeError):
+            pass
+    return 0
+
+
 def copy_auxiliary_metadata(input_path: str, output_path: str) -> None:
     """
     Copy FairRoot metadata keys (BranchList, TimeBasedBranchList, FileHeader, FileHeaderHeader)
@@ -416,5 +437,111 @@ def copy_auxiliary_metadata(input_path: str, output_path: str) -> None:
             fout.Close()
     except Exception as err:
         print(f"  [Warning] Could not copy auxiliary metadata: {err}")
+
+
+def load_geo_paths(csv_path: Optional[str] = None) -> List[Tuple[int, int, str]]:
+    """
+    Loads run-range to geofile path mappings from geo_paths.csv.
+    Checks explicit csv_path, SNDSW_ROOT/analysis/tools/geo_paths.csv, config/geo_paths.csv, or fallback.
+    """
+    candidates = []
+    if csv_path:
+        candidates.append(csv_path)
+
+    sndsw_root = os.environ.get("SNDSW_ROOT")
+    if sndsw_root:
+        candidates.append(os.path.join(sndsw_root, "analysis/tools/geo_paths.csv"))
+
+    candidates.append(os.path.join(get_repo_root(), "config/geo_paths.csv"))
+
+    records: List[Tuple[int, int, str]] = []
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            try:
+                with open(candidate, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or line.startswith("min_run"):
+                            continue
+                        parts = line.split(",")
+                        if len(parts) >= 3:
+                            min_run = int(parts[0].strip())
+                            max_run = int(parts[1].strip())
+                            raw_path = parts[2].strip()
+                            records.append((min_run, max_run, raw_path))
+                if records:
+                    return records
+            except Exception as e:
+                print(f"[Warning] Error parsing {candidate}: {e}")
+
+    # Built-in fallback
+    return [
+        (4361, 5422, "root://eospublic.cern.ch//eos/experiment/sndlhc/convertedData/physics/2022/geofile_sndlhc_TI18_V4_2022.root"),
+        (5482, 7356, "root://eospublic.cern.ch//eos/experiment/sndlhc/convertedData/physics/2023/geofile_sndlhc_TI18_V3_2023.root"),
+        (7357, 10422, "root://eospublic.cern.ch//eos/experiment/sndlhc/convertedData/physics/2024/geofile_sndlhc_TI18_V12_2024.root"),
+        (10919, 12792, "root://eospublic.cern.ch//eos/experiment/sndlhc/convertedData/physics/2025/geofile_sndlhc_TI18_V8_2025.root"),
+        (100238, 100679, "root://eospublic.cern.ch//eos/experiment/sndlhc/convertedData/commissioning/testbeam_June2023_H8/geofile_sndlhc_H8_2023_3walls.root"),
+        (100841, 100953, "root://eospublic.cern.ch//eos/experiment/sndlhc/convertedData/commissioning/testbeam_24/geofile_sndlhc_H4_2024_W_2walls.root"),
+        (100954, 100985, "root://eospublic.cern.ch//eos/experiment/sndlhc/convertedData/commissioning/testbeam_24/geofile_sndlhc_H4_2024_Fe_1wall.root"),
+    ]
+
+
+def get_geofile_for_run(
+    run_number: Optional[Any] = None,
+    input_path: Optional[str] = None,
+    default_geofile: Optional[str] = None,
+    geo_paths_csv: Optional[str] = None,
+) -> str:
+    """
+    Resolves the appropriate geofile for a given run number or input file path.
+    1. Checks partition-local geofile (geofile_full.Genie-TGeant4.root) if input_path provided.
+    2. Matches run_number against SNDSW geo_paths.csv mapping.
+    3. Checks year hint in input_path (/2022/, /2023/, /2024/, /2025/).
+    4. Falls back to default_geofile if specified, or standard 2022 V4 geofile.
+    Prefers local /eos/ filesystem paths when available over root:// URLs.
+    """
+    # 1. Local partition geofile (simulation)
+    if input_path:
+        local_geo = os.path.join(os.path.dirname(os.path.abspath(input_path)), "geofile_full.Genie-TGeant4.root")
+        if os.path.exists(local_geo):
+            return local_geo
+
+    geo_table = load_geo_paths(geo_paths_csv)
+
+    # 2. Match by run number
+    int_run = None
+    if run_number is not None:
+        try:
+            int_run = int(run_number)
+        except (ValueError, TypeError):
+            pass
+
+    if int_run is not None and int_run > 0:
+        for min_r, max_r, p in geo_table:
+            if min_r <= int_run <= max_r:
+                if p.startswith("root://eospublic.cern.ch//eos/"):
+                    local_p = p.replace("root://eospublic.cern.ch//eos/", "/eos/")
+                    if os.path.exists(local_p):
+                        return local_p
+                return p
+
+    # 3. Match by year in path if run number did not match
+    if input_path:
+        for year in ["2022", "2023", "2024", "2025"]:
+            if f"/{year}/" in input_path:
+                for min_r, max_r, p in geo_table:
+                    if f"/{year}/" in p:
+                        if p.startswith("root://eospublic.cern.ch//eos/"):
+                            local_p = p.replace("root://eospublic.cern.ch//eos/", "/eos/")
+                            if os.path.exists(local_p):
+                                return local_p
+                        return p
+
+    # 4. Fallback
+    if default_geofile:
+        return default_geofile
+
+    fallback = "/eos/experiment/sndlhc/convertedData/physics/2022/geofile_sndlhc_TI18_V4_2022.root"
+    return fallback
 
 

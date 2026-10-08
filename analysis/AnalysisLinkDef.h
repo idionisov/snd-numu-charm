@@ -24,6 +24,10 @@
 #pragma link C++ struct snd::MuonNeutrinoTruthInfo+;
 #pragma link C++ class snd::MuonNeutrinoTruthProcessor+;
 #pragma link C++ class snd::MuonNeutrinoTruthWithDSProcessor+;
+#pragma link C++ struct snd::ElectronNeutrinoTruthInfo+;
+#pragma link C++ class snd::ElectronNeutrinoTruthProcessor+;
+#pragma link C++ struct snd::TauNeutrinoTruthInfo+;
+#pragma link C++ class snd::TauNeutrinoTruthProcessor+;
 #pragma link C++ class snd::DataManager+;
 #pragma link C++ class snd::AvgScifiFiducialCut+;
 #pragma link C++ class snd::AvgDSFiducialCut+;

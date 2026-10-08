@@ -31,6 +31,7 @@ processor:
   max_charm_flight_distance: 100.0 # Max physical flight path for prompt charm [cm]
   weight_scale: 1.0                # Global scale factor for event weights
   min_ds_points: 3                 # Minimum DS points for muon acceptance
+  require_direct_charm_decay: true # Require second muon to be an immediate direct decay daughter of charm hadron
 
 # Histogram definitions (names, titles, filter stages, bins, edges, and ranges)
 histograms:

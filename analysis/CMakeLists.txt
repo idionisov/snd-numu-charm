@@ -4,6 +4,8 @@ include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR})
 set(ANALYSIS_HEADERS
   NeutrinoTruthProcessor.h
   MuonNeutrinoTruthProcessor.h
+  ElectronNeutrinoTruthProcessor.h
+  TauNeutrinoTruthProcessor.h
   PreselectionProcessor.h
   DataManager.h
   ProgressPrinter.h
@@ -20,6 +22,8 @@ set(ANALYSIS_HEADERS
 set(ANALYSIS_SRCS
   NeutrinoTruthProcessor.cxx
   MuonNeutrinoTruthProcessor.cxx
+  ElectronNeutrinoTruthProcessor.cxx
+  TauNeutrinoTruthProcessor.cxx
   PreselectionProcessor.cxx
   DataManager.cxx
   ProgressPrinter.cxx

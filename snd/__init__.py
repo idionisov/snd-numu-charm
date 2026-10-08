@@ -21,6 +21,12 @@ from .io_utils import (
     load_geo_paths,
     get_geofile_for_run,
 )
+from .channels import (
+    ChannelLookupManager,
+    pdg_to_name,
+    format_channel_formula,
+    is_charmed_hadron,
+)
 from .filter import (
     build_processor,
     resolve_hierarchical_selection,
@@ -28,6 +34,7 @@ from .filter import (
     fill_truth_buffers,
     process_single_file,
     process_simulation_file_dual_truth,
+    process_categorized_neutrino_file,
     find_primary_muon_track_id,
     find_charm_muon_track_id,
     count_ds_mcpoints,

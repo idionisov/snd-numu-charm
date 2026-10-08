@@ -164,6 +164,33 @@ struct NeutrinoTruthInfo {
     double hadronicRecoilPt{0.0};        // Transverse momentum of hadronic system [GeV/c]
     double missingPt{0.0};               // Transverse missing momentum relative to neutrino beam [GeV/c]
 
+    // -------------------------------------------------------------
+    // 7. Flavour, Topology & Channel Classification
+    // -------------------------------------------------------------
+    int nuFlavor{0};                     // Neutrino flavor: 12 (nu_e), 14 (nu_mu), 16 (nu_tau)
+    bool isNeutrino{true};               // true for nu (> 0), false for anti-nu (< 0)
+
+    int channelId{0};                    // Unique topology channel ID from lookup table
+    std::string channelName{""};         // Formatted formula, e.g. "mu- + D+ + n"
+    std::string primaryPdgsStr{""};      // Sorted comma-separated PDGs, e.g. "13,411,2112"
+    int nPrimaryCharged{0};              // Count of primary charged particles
+    int nPrimaryNeutral{0};              // Count of primary neutral particles
+    int nPrimaryLeptons{0};              // Count of primary leptons
+    int nPrimaryMesons{0};               // Count of primary mesons
+    int nPrimaryBaryons{0};              // Count of primary baryons
+
+    // -------------------------------------------------------------
+    // 8. Charmed Hadron Direct Decay Classification
+    // -------------------------------------------------------------
+    int charmDecayChannelId{0};          // Unique charm direct decay channel ID from lookup table
+    std::string charmDecayChannelName{""}; // Formatted decay formula, e.g. "D+ -> K- + pi+ + pi+"
+    std::string charmDaughterPdgsStr{""};  // Sorted comma-separated daughter PDGs
+    std::string charmDirectDecayMode{""};  // "to_muon", "to_electron", "hadronic", "other"
+    bool charmHasDirectMuon{false};      // Charmed hadron directly decayed to a muon
+    bool charmHasDirectElectron{false};  // Charmed hadron directly decayed to an electron
+    bool charmHasDirectPion{false};      // Charmed hadron directly decayed to a pion
+    bool charmHasDirectKaon{false};      // Charmed hadron directly decayed to a kaon
+
     const char* getInteractionName() const {
         return interactionName.c_str();
     }

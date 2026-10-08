@@ -12,9 +12,14 @@ import array
 from typing import Set, Dict, Any, Tuple, Callable, Optional, List
 import ROOT
 
+from .channels import ChannelLookupManager
 
-def build_processor(proc_cfg: dict) -> ROOT.snd.MuonNeutrinoTruthProcessor:
-    """Build and configure the MuonNeutrinoTruthProcessor from config dictionary."""
+
+def build_processor(
+    proc_cfg: dict,
+    flavor: str = "numu"
+) -> ROOT.snd.NeutrinoTruthProcessor:
+    """Build and configure a NeutrinoTruthProcessor for specified flavor (numu, nue, nutau, universal)."""
     config = ROOT.snd.NeutrinoTruthConfig()
     config.targetZMin = float(proc_cfg.get("target_z_min", 260.0))
     config.targetZMax = float(proc_cfg.get("target_z_max", 360.0))
@@ -28,7 +33,16 @@ def build_processor(proc_cfg: dict) -> ROOT.snd.MuonNeutrinoTruthProcessor:
     config.weightScale = float(proc_cfg.get("weight_scale", 1.0))
     config.minDSPoints = int(proc_cfg.get("min_ds_points", 3))
     config.requireDirectCharmDecay = bool(proc_cfg.get("require_direct_charm_decay", True))
-    return ROOT.snd.MuonNeutrinoTruthProcessor(config)
+
+    flv = str(flavor).lower().replace("_", "").replace("-", "")
+    if flv in ["nue", "electron"]:
+        return ROOT.snd.ElectronNeutrinoTruthProcessor(config)
+    elif flv in ["nutau", "tau"]:
+        return ROOT.snd.TauNeutrinoTruthProcessor(config)
+    elif flv in ["universal", "any", "inclusive"]:
+        return ROOT.snd.NeutrinoTruthProcessor(config)
+    else:
+        return ROOT.snd.MuonNeutrinoTruthProcessor(config)
 
 
 def resolve_hierarchical_selection(
@@ -211,10 +225,16 @@ def setup_truth_branches(trees: List[ROOT.TTree], active_tiers: Set[str]) -> Dic
     # 1. Universal Tier
     if "universal" in active_tiers:
         int_vars.extend([
-            "entry", "nu_pdg",
+            "entry", "nu_pdg", "nu_flavor", "is_neutrino",
             "is_cc", "is_nc", "is_numu_cc", "is_anti_numu_cc",
             "interaction_type", "region_type", "is_fiducial",
-            "n_primary_tracks", "n_primary_hadrons"
+            "channel_id", "n_primary_tracks", "n_primary_particles",
+            "n_primary_charged", "n_primary_neutral",
+            "n_primary_leptons", "n_primary_mesons", "n_primary_baryons",
+            "n_primary_hadrons",
+            "charm_decay_channel_id",
+            "charm_has_direct_muon", "charm_has_direct_electron",
+            "charm_has_direct_pion", "charm_has_direct_kaon"
         ])
         double_vars.extend([
             "mc_weight", "raw_weight",
@@ -296,10 +316,45 @@ def fill_truth_buffers(buffers: dict, info: Any, entry_idx: int, active_tiers: S
     if "universal" in active_tiers:
         buffers["entry"][0] = int(entry_idx)
         buffers["nu_pdg"][0] = int(info.nuPdg)
+
+        # Topology and channel lookup
+        channel_id = 0
+        decay_id = 0
+        if hasattr(info, "primaryPdgsStr") and info.primaryPdgsStr:
+            try:
+                prim_pdgs = [int(p) for p in str(info.primaryPdgsStr).split(",") if p]
+                ch_mgr = ChannelLookupManager.get_instance()
+                channel_id, _, _ = ch_mgr.get_or_register_channel(prim_pdgs, int(info.nuPdg))
+            except Exception:
+                pass
+
+        if getattr(info, "hasCharm", False) and hasattr(info, "charmDaughterPdgsStr") and info.charmDaughterPdgsStr:
+            try:
+                d_pdgs = [int(p) for p in str(info.charmDaughterPdgsStr).split(",") if p]
+                ch_mgr = ChannelLookupManager.get_instance()
+                decay_id, _, _, _ = ch_mgr.get_or_register_charm_decay(int(info.charmPdg), d_pdgs)
+            except Exception:
+                pass
+
+        buffers["nu_flavor"][0] = int(getattr(info, "nuFlavor", abs(info.nuPdg)))
+        buffers["is_neutrino"][0] = int(getattr(info, "isNeutrino", 1 if info.nuPdg > 0 else 0))
+        buffers["channel_id"][0] = int(channel_id)
+        buffers["n_primary_particles"][0] = int(getattr(info, "nPrimaryTracks", 0))
+        buffers["n_primary_charged"][0] = int(getattr(info, "nPrimaryCharged", 0))
+        buffers["n_primary_neutral"][0] = int(getattr(info, "nPrimaryNeutral", 0))
+        buffers["n_primary_leptons"][0] = int(getattr(info, "nPrimaryLeptons", 0))
+        buffers["n_primary_mesons"][0] = int(getattr(info, "nPrimaryMesons", 0))
+        buffers["n_primary_baryons"][0] = int(getattr(info, "nPrimaryBaryons", 0))
+        buffers["charm_decay_channel_id"][0] = int(decay_id)
+        buffers["charm_has_direct_muon"][0] = int(getattr(info, "charmHasDirectMuon", False))
+        buffers["charm_has_direct_electron"][0] = int(getattr(info, "charmHasDirectElectron", False))
+        buffers["charm_has_direct_pion"][0] = int(getattr(info, "charmHasDirectPion", False))
+        buffers["charm_has_direct_kaon"][0] = int(getattr(info, "charmHasDirectKaon", False))
+
         buffers["is_cc"][0] = int(info.isCC)
         buffers["is_nc"][0] = int(info.isNC)
-        buffers["is_numu_cc"][0] = int(info.isNuMuCC)
-        buffers["is_anti_numu_cc"][0] = int(info.isAntiNuMuCC)
+        buffers["is_numu_cc"][0] = int(getattr(info, "isNuMuCC", False))
+        buffers["is_anti_numu_cc"][0] = int(getattr(info, "isAntiNuMuCC", False))
         buffers["interaction_type"][0] = int(info.interactionType)
         buffers["region_type"][0] = int(info.regionType)
         buffers["is_fiducial"][0] = int(info.isFiducial)
@@ -1045,6 +1100,147 @@ def process_simulation_file_dual_truth(
         "signal": n_sig_filled,
         "truth_file": truth_output_file,
         "signal_file": signal_output_file if (write_signal and n_sig_filled > 0) else None,
+        "symlinks_created": symlinks_created,
+        "status": "success",
+    }
+
+
+def process_categorized_neutrino_file(
+    input_file: str,
+    output_file: str,
+    processor: Optional[ROOT.snd.NeutrinoTruthProcessor] = None,
+    cfg: Optional[dict] = None,
+    max_entries: int = -1,
+    create_symlinks: bool = True,
+) -> Dict[str, Any]:
+    """
+    Process an SND@LHC neutrino simulation file and categorize all events:
+    - Neutrino flavor (nu_mu, nu_e, nu_tau and neutrino vs antineutrino)
+    - Interaction current (CC vs NC)
+    - Immediate interaction products (assigned unique channel_id from lookup table)
+    - Charmed hadron production and direct decay channels (charm_decay_channel_id, direct to muon, etc.)
+    - Kinematics and DIS variables
+    Stores all categorized events into output_file with cloned detector tree (cbmsim)
+    and flat truth tree without dropping non-signal events.
+    """
+    from .io_utils import copy_auxiliary_metadata, symlink_input_root_files, load_config
+    from collections import Counter
+
+    if cfg is None:
+        cfg = load_config()
+    if processor is None:
+        processor = build_processor(cfg.get("processor", {}))
+
+    f_test = ROOT.TFile.Open(input_file, "READ")
+    if not f_test or f_test.IsZombie():
+        return {"input_file": input_file, "total": 0, "processed": 0, "status": "error_open_in"}
+
+    actual_tree_name = "cbmsim"
+    if not f_test.Get(actual_tree_name):
+        for alt in ["rawConv", "events"]:
+            if f_test.Get(alt):
+                actual_tree_name = alt
+                break
+
+    t_check = f_test.Get(actual_tree_name)
+    if not t_check:
+        f_test.Close()
+        return {"input_file": input_file, "total": 0, "processed": 0, "status": "no_tree"}
+
+    n_tot = t_check.GetEntries()
+    f_test.Close()
+
+    n_process = min(n_tot, max_entries) if max_entries > 0 else n_tot
+
+    out_dir = os.path.dirname(os.path.abspath(output_file))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    f_in = ROOT.TFile.Open(input_file, "READ")
+    t_in = f_in.Get(actual_tree_name)
+
+    f_out = ROOT.TFile.Open(output_file, "RECREATE")
+    if not f_out or f_out.IsZombie():
+        f_in.Close()
+        return {"input_file": input_file, "total": n_tot, "processed": 0, "status": "error_create_out"}
+
+    out_tree = t_in.CloneTree(0)
+    out_tree.SetName(actual_tree_name)
+    truth_tree = ROOT.TTree("truth", "Categorized Neutrino Truth Observables")
+
+    all_tiers = {"universal", "lepton", "charm", "decay_muon", "dimuon"}
+    truth_buffers = setup_truth_branches([out_tree, truth_tree], all_tiers)
+
+    # Statistics tracking
+    flavor_counts = Counter()
+    current_counts = Counter()
+    n_charm = 0
+    n_charm_to_muon = 0
+    n_charm_to_electron = 0
+    n_charm_hadronic = 0
+    channel_ids = set()
+
+    for iev in range(n_process):
+        t_in.GetEntry(iev)
+        mufilter_pts = getattr(t_in, "MuFilterPoint", None)
+        if hasattr(processor, "processMuonNeutrino"):
+            info = processor.processMuonNeutrino(t_in.MCTrack, mufilter_pts)
+        else:
+            info = processor.process(t_in.MCTrack)
+
+        fill_truth_buffers(truth_buffers, info, iev, all_tiers)
+        out_tree.Fill()
+        truth_tree.Fill()
+
+        # Update stats
+        flavor_counts[str(info.interactionName)] += 1
+        if info.isCC:
+            current_counts["CC"] += 1
+        elif info.isNC:
+            current_counts["NC"] += 1
+        if info.hasCharm:
+            n_charm += 1
+            if getattr(info, "charmHasDirectMuon", False):
+                n_charm_to_muon += 1
+            elif getattr(info, "charmHasDirectElectron", False):
+                n_charm_to_electron += 1
+            elif getattr(info, "charmDirectDecayMode", "") == "hadronic":
+                n_charm_hadronic += 1
+        channel_ids.add(truth_buffers["channel_id"][0])
+
+    f_out.cd()
+    out_tree.Write()
+    truth_tree.Write()
+    f_out.Close()
+    f_in.Close()
+
+    # Save lookup table
+    ChannelLookupManager.get_instance().save()
+
+    copy_auxiliary_metadata(input_file, output_file)
+
+    symlinks_created = 0
+    if create_symlinks:
+        in_dir = os.path.dirname(os.path.abspath(input_file))
+        exclude = {
+            os.path.basename(output_file),
+            os.path.basename(input_file),
+        }
+        links = symlink_input_root_files(input_dir=in_dir, output_dir=out_dir, exclude_filenames=exclude)
+        symlinks_created = len(links)
+
+    return {
+        "input_file": input_file,
+        "output_file": output_file,
+        "total": n_tot,
+        "processed": n_process,
+        "flavor_counts": dict(flavor_counts),
+        "current_counts": dict(current_counts),
+        "n_charm": n_charm,
+        "n_charm_to_muon": n_charm_to_muon,
+        "n_charm_to_electron": n_charm_to_electron,
+        "n_charm_hadronic": n_charm_hadronic,
+        "n_unique_channels": len(channel_ids),
         "symlinks_created": symlinks_created,
         "status": "success",
     }

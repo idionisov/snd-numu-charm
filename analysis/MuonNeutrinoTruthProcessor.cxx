@@ -451,6 +451,93 @@ MuonNeutrinoTruthInfo MuonNeutrinoTruthProcessor::processMuonNeutrino(
         info.dimuonInDSAcceptance = (info.mu1InDS && info.mu2InDS);
     }
 
+    info.nuFlavor = std::abs(nuPdg);
+    info.isNeutrino = (nuPdg > 0);
+
+    // 9. Extract Immediate Interaction Products (motherId == 0, excluding Track 0)
+    std::vector<int> primPdgs;
+    int nChg = 0, nNeu = 0, nLep = 0, nMes = 0, nBar = 0;
+    TDatabasePDG* pdgDb = TDatabasePDG::Instance();
+
+    for (int i = 1; i < nTracks; ++i) {
+        auto* trk = static_cast<ShipMCTrack*>(mcTracks->At(i));
+        if (!trk || trk->GetMotherId() != 0) continue;
+
+        int p = trk->GetPdgCode();
+        primPdgs.push_back(p);
+        int absP = std::abs(p);
+
+        if (absP >= 11 && absP <= 16) {
+            nLep++;
+        } else if (isCharmedMeson(p) || absP == 111 || absP == 211 || absP == 311 || absP == 321 ||
+                   absP == 130 || absP == 310 || absP == 221 || absP == 331 || absP == 113 || absP == 213) {
+            nMes++;
+        } else if (isCharmedBaryon(p) || absP == 2112 || absP == 2212 || absP == 3122 || absP == 3222 ||
+                   absP == 3212 || absP == 3112 || absP == 3322 || absP == 3312) {
+            nBar++;
+        }
+
+        if (pdgDb) {
+            TParticlePDG* part = pdgDb->GetParticle(p);
+            if (part) {
+                if (std::abs(part->Charge()) > 1e-3) nChg++;
+                else nNeu++;
+            } else {
+                if (absP == 11 || absP == 13 || absP == 15 || absP == 211 || absP == 321 || absP == 2212 || absP == 411 || absP == 431) nChg++;
+                else nNeu++;
+            }
+        }
+    }
+
+    std::sort(primPdgs.begin(), primPdgs.end());
+    info.nPrimaryCharged = nChg;
+    info.nPrimaryNeutral = nNeu;
+    info.nPrimaryLeptons = nLep;
+    info.nPrimaryMesons  = nMes;
+    info.nPrimaryBaryons = nBar;
+
+    std::string primStr = "";
+    for (size_t i = 0; i < primPdgs.size(); ++i) {
+        if (i > 0) primStr += ",";
+        primStr += std::to_string(primPdgs[i]);
+    }
+    info.primaryPdgsStr = primStr;
+
+    // 10. Direct Charm Decay Classification
+    if (info.hasCharm && info.charmTrackId >= 0) {
+        std::vector<int> charmDaughters;
+        bool hasMu = false, hasE = false, hasPi = false, hasK = false;
+        for (int i = 1; i < nTracks; ++i) {
+            auto* trk = static_cast<ShipMCTrack*>(mcTracks->At(i));
+            if (!trk || trk->GetMotherId() != info.charmTrackId) continue;
+
+            int p = trk->GetPdgCode();
+            charmDaughters.push_back(p);
+            int absP = std::abs(p);
+            if (absP == 13) hasMu = true;
+            if (absP == 11) hasE = true;
+            if (absP == 211 || absP == 111) hasPi = true;
+            if (absP == 321 || absP == 311 || absP == 310 || absP == 130) hasK = true;
+        }
+
+        std::sort(charmDaughters.begin(), charmDaughters.end());
+        std::string dStr = "";
+        for (size_t i = 0; i < charmDaughters.size(); ++i) {
+            if (i > 0) dStr += ",";
+            dStr += std::to_string(charmDaughters[i]);
+        }
+        info.charmDaughterPdgsStr = dStr;
+        info.charmHasDirectMuon     = hasMu;
+        info.charmHasDirectElectron = hasE;
+        info.charmHasDirectPion     = hasPi;
+        info.charmHasDirectKaon     = hasK;
+
+        if (hasMu) info.charmDirectDecayMode = "to_muon";
+        else if (hasE) info.charmDirectDecayMode = "to_electron";
+        else if (!charmDaughters.empty()) info.charmDirectDecayMode = "hadronic";
+        else info.charmDirectDecayMode = "none";
+    }
+
     return info;
 }
 

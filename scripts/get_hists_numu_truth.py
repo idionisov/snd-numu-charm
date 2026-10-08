@@ -28,6 +28,8 @@ CLI Arguments:
   -j, --threads   : Number of worker threads (>1 enables ROOT ImplicitMT)
   -c, --config    : Path to YAML configuration file
   --fiducial      : Require interaction vertex in Target fiducial volume
+  --require-direct-charm-decay : Require second muon to be an immediate direct decay daughter of charm
+  --no-direct-charm-decay      : Allow second muon to come from charm decay chain via intermediate hadrons
 """
 
 from __future__ import annotations
@@ -101,6 +103,20 @@ def parse_arguments():
         default=False,
         help="Require primary interaction vertex within the Target fiducial volume",
     )
+    parser.add_argument(
+        "--require-direct-charm-decay",
+        dest="require_direct_charm_decay",
+        action="store_true",
+        default=None,
+        help="Require secondary muon to be an immediate direct decay daughter of a charmed hadron (default: True)",
+    )
+    parser.add_argument(
+        "--no-direct-charm-decay",
+        dest="require_direct_charm_decay",
+        action="store_false",
+        default=None,
+        help="Allow secondary muon to come from charm decay chain via intermediate pions/kaons",
+    )
     return parser.parse_args()
 
 
@@ -142,6 +158,8 @@ def main():
     print(f"Output file        : {output_file}")
     print(f"Threads            : {n_threads}")
     print(f"Require fiducial   : {args.fiducial}")
+    direct_decay_flag = args.require_direct_charm_decay if args.require_direct_charm_decay is not None else cfg.get("processor", {}).get("require_direct_charm_decay", True)
+    print(f"Direct charm decay : {direct_decay_flag}")
 
     # Configure ROOT Implicit Multi-Threading (IMT)
     effective_threads = n_threads
@@ -178,6 +196,8 @@ def main():
 
     # 3. Configure MuonNeutrinoTruthProcessor identically to filter_signal_numu_charm.py
     proc_cfg = cfg.get("processor", {})
+    if args.require_direct_charm_decay is not None:
+        proc_cfg["require_direct_charm_decay"] = args.require_direct_charm_decay
     processor = build_processor(proc_cfg)
 
     # 4. Initialize DataManager for dataset loading

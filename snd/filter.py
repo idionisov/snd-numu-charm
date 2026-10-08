@@ -1215,9 +1215,15 @@ def process_categorized_neutrino_file(
     f_in.Close()
 
     # Save lookup table
-    ChannelLookupManager.get_instance().save()
+    try:
+        ChannelLookupManager.get_instance().save()
+    except Exception as e:
+        print(f"[Warning] Failed to save channel lookup table: {e}")
 
-    copy_auxiliary_metadata(input_file, output_file)
+    try:
+        copy_auxiliary_metadata(input_file, output_file)
+    except Exception as e:
+        print(f"[Warning] Failed to copy auxiliary metadata: {e}")
 
     symlinks_created = 0
     if create_symlinks:

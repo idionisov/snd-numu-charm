@@ -142,6 +142,8 @@ def _run_worker_task(task_args: tuple) -> dict:
         res["partition"] = part_str
         return res
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {
             "partition": part_str,
             "input_file": in_file,
@@ -209,6 +211,13 @@ def parse_arguments():
         help="Disable creating symlinks in output partition directory",
     )
     parser.add_argument(
+        "--skip-existing",
+        dest="skip_existing",
+        action="store_true",
+        default=False,
+        help="Skip partitions where the categorized ROOT file already exists and is non-empty",
+    )
+    parser.add_argument(
         "--symlink-only",
         action="store_true",
         default=False,
@@ -268,6 +277,20 @@ def main():
     if not tasks:
         print(f"[Error] No input files found matching pattern: {file_pattern}")
         sys.exit(1)
+
+    if args.skip_existing:
+        filtered_tasks = []
+        skipped_count = 0
+        for p, in_f, out_f in tasks:
+            if os.path.exists(out_f) and os.path.getsize(out_f) > 1024:
+                skipped_count += 1
+            else:
+                filtered_tasks.append((p, in_f, out_f))
+        print(f"[Info] --skip-existing: skipped {skipped_count} existing partition(s), {len(filtered_tasks)} remaining.")
+        tasks = filtered_tasks
+        if not tasks:
+            print("[Info] All requested partitions already processed. Exiting.")
+            return
 
     total_tasks = len(tasks)
 

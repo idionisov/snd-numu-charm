@@ -10,9 +10,16 @@ from __future__ import annotations
 
 import os
 import json
+import time
 import threading
 from typing import List, Dict, Tuple, Any, Optional
 from collections import Counter
+from contextlib import contextmanager
+
+try:
+    from filelock import FileLock
+except ImportError:
+    FileLock = None
 
 
 # Particle PDG to standard notation mapping
@@ -171,6 +178,7 @@ class ChannelLookupManager:
     Persistent lookup table manager for neutrino interaction channels and charm decay channels.
     Maintains a JSON lookup table in config/interaction_channels.json.
     Assigns consistent unique integer IDs to every unique combination of products.
+    Thread-safe and process-safe against concurrent reads and writes across worker processes.
     """
 
     _instance: Optional[ChannelLookupManager] = None
@@ -183,6 +191,7 @@ class ChannelLookupManager:
             table_path = os.path.join(repo_root, "config", "interaction_channels.json")
 
         self.table_path = table_path
+        self.lock_path = table_path + ".lock"
         self._lock = threading.Lock()
         self.primary_channels: Dict[str, dict] = {} # key "pdg1,pdg2,..." -> channel info
         self.primary_by_id: Dict[int, dict] = {}
@@ -199,44 +208,139 @@ class ChannelLookupManager:
                 cls._instance = cls(table_path)
             return cls._instance
 
-    def load(self):
-        with self._lock:
-            if os.path.exists(self.table_path):
-                try:
-                    with open(self.table_path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    self.primary_channels = data.get("primary_channels", {})
-                    self.charm_decay_channels = data.get("charm_decay_channels", {})
-                    self.primary_by_id = {v["channel_id"]: v for v in self.primary_channels.values()}
-                    self.charm_by_id = {v["decay_id"]: v for v in self.charm_decay_channels.values()}
-                    return
-                except Exception as e:
-                    print(f"[Warning] Could not load channel lookup table from {self.table_path}: {e}")
+    @contextmanager
+    def _file_lock(self, timeout: float = 60.0):
+        """Cross-process file lock context manager."""
+        if FileLock is not None:
+            lock = FileLock(self.lock_path, timeout=timeout)
+            with lock:
+                yield
+        else:
+            import fcntl
+            os.makedirs(os.path.dirname(os.path.abspath(self.lock_path)), exist_ok=True)
+            fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR)
+            start_t = time.time()
+            locked = False
+            try:
+                while True:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        locked = True
+                        break
+                    except (BlockingIOError, OSError):
+                        if time.time() - start_t > timeout:
+                            raise TimeoutError(f"Timeout waiting for channel table lock {self.lock_path}")
+                        time.sleep(0.05)
+                yield
+            finally:
+                if locked:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+                os.close(fd)
 
-            self.primary_channels = {}
-            self.charm_decay_channels = {}
-            self.primary_by_id = {}
-            self.charm_by_id = {}
+    def _load_unlocked(self):
+        """Read latest data from disk without locking (assumes caller holds locks)."""
+        if os.path.exists(self.table_path):
+            try:
+                with open(self.table_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                self.primary_channels = data.get("primary_channels", {})
+                self.charm_decay_channels = data.get("charm_decay_channels", {})
+                self.primary_by_id = {
+                    v["channel_id"]: v
+                    for v in self.primary_channels.values()
+                    if isinstance(v, dict) and "channel_id" in v
+                }
+                self.charm_by_id = {
+                    v["decay_id"]: v
+                    for v in self.charm_decay_channels.values()
+                    if isinstance(v, dict) and "decay_id" in v
+                }
+                return
+            except Exception as e:
+                print(f"[Warning] Could not load channel lookup table from {self.table_path}: {e}")
+
+        self.primary_channels = {}
+        self.charm_decay_channels = {}
+        self.primary_by_id = {}
+        self.charm_by_id = {}
+
+    def _save_unlocked(self):
+        """Write current data atomically to disk with a process-unique temp file (assumes caller holds locks)."""
+        os.makedirs(os.path.dirname(os.path.abspath(self.table_path)), exist_ok=True)
+        data = {
+            "metadata": {
+                "description": "Lookup table of unique SND@LHC neutrino interaction channels and charm decays",
+                "total_primary_channels": len(self.primary_channels),
+                "total_charm_decay_channels": len(self.charm_decay_channels),
+            },
+            "primary_channels": self.primary_channels,
+            "charm_decay_channels": self.charm_decay_channels,
+        }
+        tmp_path = f"{self.table_path}.tmp.{os.getpid()}_{time.time_ns()}"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
+            os.replace(tmp_path, self.table_path)
+            self._dirty = False
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+    def load(self):
+        """Thread-safe and process-safe load from disk."""
+        with self._lock:
+            with self._file_lock():
+                self._load_unlocked()
 
     def save(self):
+        """Thread-safe and process-safe save to disk, merging any memory updates."""
         with self._lock:
             if not self._dirty:
                 return
-            os.makedirs(os.path.dirname(os.path.abspath(self.table_path)), exist_ok=True)
-            data = {
-                "metadata": {
-                    "description": "Lookup table of unique SND@LHC neutrino interaction channels and charm decays",
-                    "total_primary_channels": len(self.primary_channels),
-                    "total_charm_decay_channels": len(self.charm_decay_channels),
-                },
-                "primary_channels": self.primary_channels,
-                "charm_decay_channels": self.charm_decay_channels,
-            }
-            tmp_path = self.table_path + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-            os.replace(tmp_path, self.table_path)
-            self._dirty = False
+            with self._file_lock():
+                # Read latest from disk to avoid overwriting channels registered by other workers
+                current_local_primary = dict(self.primary_channels)
+                current_local_charm = dict(self.charm_decay_channels)
+                self._load_unlocked()
+
+                # Merge any missing primary channels
+                for k, v in current_local_primary.items():
+                    if k not in self.primary_channels:
+                        existing_ids = [
+                            entry["channel_id"]
+                            for entry in self.primary_channels.values()
+                            if isinstance(entry, dict) and "channel_id" in entry
+                        ]
+                        next_id = max(existing_ids, default=0) + 1
+                        v["channel_id"] = next_id
+                        self.primary_channels[k] = v
+                        self.primary_by_id[next_id] = v
+
+                # Merge any missing charm decay channels
+                for k, v in current_local_charm.items():
+                    if k not in self.charm_decay_channels:
+                        existing_ids = [
+                            entry["decay_id"]
+                            for entry in self.charm_decay_channels.values()
+                            if isinstance(entry, dict) and "decay_id" in entry
+                        ]
+                        next_id = max(existing_ids, default=0) + 1
+                        v["decay_id"] = next_id
+                        self.charm_decay_channels[k] = v
+                        self.charm_by_id[next_id] = v
+
+                self._save_unlocked()
 
     def get_or_register_channel(
         self,
@@ -251,40 +355,53 @@ class ChannelLookupManager:
         sorted_pdgs = sorted([int(p) for p in primary_pdgs])
         key = ",".join(str(p) for p in sorted_pdgs)
 
+        # Fast path: check in-memory cache
         with self._lock:
             if key in self.primary_channels:
                 entry = self.primary_channels[key]
                 return entry["channel_id"], entry["formula"], entry
 
-            # Allocate new channel ID
-            next_id = len(self.primary_channels) + 1
-            formula = format_channel_formula(sorted_pdgs)
+        # Slow path: new channel needs registration under cross-process lock
+        with self._lock:
+            with self._file_lock():
+                # Re-check disk in case another worker just registered this channel
+                self._load_unlocked()
+                if key in self.primary_channels:
+                    entry = self.primary_channels[key]
+                    return entry["channel_id"], entry["formula"], entry
 
-            # Determine physics properties
-            has_charm = any(is_charmed_hadron(p) for p in sorted_pdgs)
-            charm_pdgs = [p for p in sorted_pdgs if is_charmed_hadron(p)]
-            leptons = [p for p in sorted_pdgs if abs(p) in [11, 12, 13, 14, 15, 16]]
-            is_cc = any(abs(p) in [11, 13, 15] for p in sorted_pdgs)
-            is_nc = not is_cc
+                existing_ids = [
+                    v["channel_id"]
+                    for v in self.primary_channels.values()
+                    if isinstance(v, dict) and "channel_id" in v
+                ]
+                next_id = max(existing_ids, default=0) + 1
+                formula = format_channel_formula(sorted_pdgs)
 
-            entry = {
-                "channel_id": next_id,
-                "key": key,
-                "formula": formula,
-                "primary_pdgs": sorted_pdgs,
-                "multiplicity": len(sorted_pdgs),
-                "is_cc": is_cc,
-                "is_nc": is_nc,
-                "has_charm": has_charm,
-                "charm_pdgs": charm_pdgs,
-                "primary_leptons": leptons,
-                "incoming_nu_pdg": nu_pdg,
-            }
+                has_charm = any(is_charmed_hadron(p) for p in sorted_pdgs)
+                charm_pdgs = [p for p in sorted_pdgs if is_charmed_hadron(p)]
+                leptons = [p for p in sorted_pdgs if abs(p) in [11, 12, 13, 14, 15, 16]]
+                is_cc = any(abs(p) in [11, 13, 15] for p in sorted_pdgs)
+                is_nc = not is_cc
 
-            self.primary_channels[key] = entry
-            self.primary_by_id[next_id] = entry
-            self._dirty = True
-            return next_id, formula, entry
+                entry = {
+                    "channel_id": next_id,
+                    "key": key,
+                    "formula": formula,
+                    "primary_pdgs": sorted_pdgs,
+                    "multiplicity": len(sorted_pdgs),
+                    "is_cc": is_cc,
+                    "is_nc": is_nc,
+                    "has_charm": has_charm,
+                    "charm_pdgs": charm_pdgs,
+                    "primary_leptons": leptons,
+                    "incoming_nu_pdg": nu_pdg,
+                }
+
+                self.primary_channels[key] = entry
+                self.primary_by_id[next_id] = entry
+                self._save_unlocked()
+                return next_id, formula, entry
 
     def get_or_register_charm_decay(
         self,
@@ -301,48 +418,61 @@ class ChannelLookupManager:
         sorted_daughters = sorted([int(p) for p in daughter_pdgs])
         key = f"{parent_p}:" + ",".join(str(p) for p in sorted_daughters)
 
+        # Fast path: check in-memory cache
         with self._lock:
             if key in self.charm_decay_channels:
                 entry = self.charm_decay_channels[key]
                 return entry["decay_id"], entry["formula"], entry["mode"], entry
 
-            next_id = len(self.charm_decay_channels) + 1
-            parent_name = pdg_to_name(parent_p)
-            daughter_formula = format_channel_formula(sorted_daughters)
-            full_formula = f"{parent_name} -> {daughter_formula}"
+        # Slow path: new charm decay needs registration under cross-process lock
+        with self._lock:
+            with self._file_lock():
+                self._load_unlocked()
+                if key in self.charm_decay_channels:
+                    entry = self.charm_decay_channels[key]
+                    return entry["decay_id"], entry["formula"], entry["mode"], entry
 
-            # Classify decay mode
-            has_muon = any(abs(p) == 13 for p in sorted_daughters)
-            has_electron = any(abs(p) == 11 for p in sorted_daughters)
-            has_pion = any(abs(p) in [211, 111] for p in sorted_daughters)
-            has_kaon = any(abs(p) in [321, 311, 310, 130] for p in sorted_daughters)
+                existing_ids = [
+                    v["decay_id"]
+                    for v in self.charm_decay_channels.values()
+                    if isinstance(v, dict) and "decay_id" in v
+                ]
+                next_id = max(existing_ids, default=0) + 1
+                parent_name = pdg_to_name(parent_p)
+                daughter_formula = format_channel_formula(sorted_daughters)
+                full_formula = f"{parent_name} -> {daughter_formula}"
 
-            if has_muon:
-                mode = "to_muon"
-            elif has_electron:
-                mode = "to_electron"
-            elif all(abs(p) > 100 for p in sorted_daughters if p != 22):
-                mode = "hadronic"
-            else:
-                mode = "other"
+                has_muon = any(abs(p) == 13 for p in sorted_daughters)
+                has_electron = any(abs(p) == 11 for p in sorted_daughters)
+                has_pion = any(abs(p) in [211, 111] for p in sorted_daughters)
+                has_kaon = any(abs(p) in [321, 311, 310, 130] for p in sorted_daughters)
 
-            entry = {
-                "decay_id": next_id,
-                "key": key,
-                "parent_pdg": parent_p,
-                "parent_name": parent_name,
-                "daughter_pdgs": sorted_daughters,
-                "formula": full_formula,
-                "daughter_formula": daughter_formula,
-                "mode": mode,
-                "has_direct_muon": has_muon,
-                "has_direct_electron": has_electron,
-                "has_direct_pion": has_pion,
-                "has_direct_kaon": has_kaon,
-                "n_daughters": len(sorted_daughters),
-            }
+                if has_muon:
+                    mode = "to_muon"
+                elif has_electron:
+                    mode = "to_electron"
+                elif all(abs(p) > 100 for p in sorted_daughters if p != 22):
+                    mode = "hadronic"
+                else:
+                    mode = "other"
 
-            self.charm_decay_channels[key] = entry
-            self.charm_by_id[next_id] = entry
-            self._dirty = True
-            return next_id, full_formula, mode, entry
+                entry = {
+                    "decay_id": next_id,
+                    "key": key,
+                    "parent_pdg": parent_p,
+                    "parent_name": parent_name,
+                    "daughter_pdgs": sorted_daughters,
+                    "formula": full_formula,
+                    "daughter_formula": daughter_formula,
+                    "mode": mode,
+                    "has_direct_muon": has_muon,
+                    "has_direct_electron": has_electron,
+                    "has_direct_pion": has_pion,
+                    "has_direct_kaon": has_kaon,
+                    "n_daughters": len(sorted_daughters),
+                }
+
+                self.charm_decay_channels[key] = entry
+                self.charm_by_id[next_id] = entry
+                self._save_unlocked()
+                return next_id, full_formula, mode, entry

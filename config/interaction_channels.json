@@ -1,7 +1,7 @@
 {
   "metadata": {
     "description": "Lookup table of unique SND@LHC neutrino interaction channels and charm decays",
-    "total_primary_channels": 886,
+    "total_primary_channels": 889,
     "total_charm_decay_channels": 8
   },
   "primary_channels": {
@@ -24534,6 +24534,105 @@
         11
       ],
       "incoming_nu_pdg": 12
+    },
+    "-421,-211,-211,-13,111,111,111,130,211,211,211,3122": {
+      "channel_id": 887,
+      "key": "-421,-211,-211,-13,111,111,111,130,211,211,211,3122",
+      "formula": "mu+ + anti_D0 + 2pi- + 3pi+ + K_L0 + 3pi0 + Lambda0",
+      "primary_pdgs": [
+        -421,
+        -211,
+        -211,
+        -13,
+        111,
+        111,
+        111,
+        130,
+        211,
+        211,
+        211,
+        3122
+      ],
+      "multiplicity": 12,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": true,
+      "charm_pdgs": [
+        -421
+      ],
+      "primary_leptons": [
+        -13
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-3222,-211,-211,-211,13,111,111,111,111,111,111,211,211,2212,2212,2212,3222": {
+      "channel_id": 888,
+      "key": "-3222,-211,-211,-211,13,111,111,111,111,111,111,211,211,2212,2212,2212,3222",
+      "formula": "mu- + 3pi- + 2pi+ + 6pi0 + anti_Sigma- + Sigma+ + 3p",
+      "primary_pdgs": [
+        -3222,
+        -211,
+        -211,
+        -211,
+        13,
+        111,
+        111,
+        111,
+        111,
+        111,
+        111,
+        211,
+        211,
+        2212,
+        2212,
+        2212,
+        3222
+      ],
+      "multiplicity": 17,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-421,-211,-211,-211,-13,111,111,111,111,211,211,211,2112,2112,2212,2212,2212,2212": {
+      "channel_id": 889,
+      "key": "-421,-211,-211,-211,-13,111,111,111,111,211,211,211,2112,2112,2212,2212,2212,2212",
+      "formula": "mu+ + anti_D0 + 3pi- + 3pi+ + 4pi0 + 4p + 2n",
+      "primary_pdgs": [
+        -421,
+        -211,
+        -211,
+        -211,
+        -13,
+        111,
+        111,
+        111,
+        111,
+        211,
+        211,
+        211,
+        2112,
+        2112,
+        2212,
+        2212,
+        2212,
+        2212
+      ],
+      "multiplicity": 18,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": true,
+      "charm_pdgs": [
+        -421
+      ],
+      "primary_leptons": [
+        -13
+      ],
+      "incoming_nu_pdg": -14
     }
   },
   "charm_decay_channels": {

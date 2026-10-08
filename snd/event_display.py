@@ -1028,15 +1028,19 @@ class Snd2DEventDisplay:
                 if tr_type == 0 and hasattr(aTrack, "GetUniqueID"):
                     tr_type = aTrack.GetUniqueID()
 
-                # Reconstructed tracks are colored Red to match the legend and contrast with detector geometry
+                # Reconstructed tracks: DS tracks are colored Gray (ROOT.kGray + 2)
                 if tr_type == 1:
                     track_color = ROOT.kBlue + 2     # SciFi track
+                elif tr_type == 3:
+                    track_color = ROOT.kBlack        # Kalman DS track
                 elif tr_type == 11:
                     track_color = ROOT.kAzure - 2    # HT SciFi track
+                elif tr_type == 13:
+                    track_color = ROOT.kGray + 2     # HT DS track
                 elif tr_type == 15:
                     track_color = ROOT.kOrange + 7   # HT cross-system track
                 else:
-                    track_color = ROOT.kRed          # DS tracks and generic reco tracks match legend (Red)
+                    track_color = ROOT.kGray + 2     # Default to gray for DS tracks
 
                 # Extract track points
                 pts = []
@@ -1265,7 +1269,7 @@ class Snd2DEventDisplay:
                 leg.AddEntry(d_idec, "Intermediate Decay Vertex", "p")
             if reco_track_objs:
                 d_reco = ROOT.TLine()
-                d_reco.SetLineColor(ROOT.kRed)
+                d_reco.SetLineColor(ROOT.kGray + 2)
                 d_reco.SetLineWidth(2)
                 leg.AddEntry(d_reco, "Reconstructed Track", "l")
                 truth_leg_markers.append(d_reco)
@@ -1281,7 +1285,7 @@ class Snd2DEventDisplay:
             reco_leg.SetTextFont(42)
             reco_leg.SetTextSize(0.027)
             d_reco_leg = ROOT.TLine()
-            d_reco_leg.SetLineColor(ROOT.kRed)
+            d_reco_leg.SetLineColor(ROOT.kGray + 2)
             d_reco_leg.SetLineWidth(2)
             reco_leg.AddEntry(d_reco_leg, f"Reco Tracks ({len(reco_track_objs)//2})", "l")
             reco_leg.Draw("same")

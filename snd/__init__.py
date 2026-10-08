@@ -22,6 +22,7 @@ from .io_utils import (
     copy_auxiliary_metadata,
     load_geo_paths,
     get_geofile_for_run,
+    copy_tcanvases_recursive,
 )
 from .channels import (
     ChannelLookupManager,
@@ -118,6 +119,7 @@ __all__ = [
     "symlink_input_root_files",
     "resolve_tdirectory_hierarchy",
     "resolve_mctruth_directory_hierarchy",
+    "copy_tcanvases_recursive",
     "CHARM_SPECIES_NAMES",
     "get_or_create_tdirectory",
     "get_event_header_number",

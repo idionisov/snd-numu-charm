@@ -436,7 +436,7 @@ def main():
         help="Enable Monte Carlo truth overlay and dynamic multi-tiered TDirectory hierarchy: MCTruth/<flavor>/<current>/<process>/<category>_<N>mu/<acceptance>",
     )
     parser.add_argument(
-        "--recoMuons", "--reco-muons",
+        "--recoMuons", "--reco-muons", "--muonReco", "--muon-reco",
         dest="reco_muons",
         action="store_true",
         default=False,

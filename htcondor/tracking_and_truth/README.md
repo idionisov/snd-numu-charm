@@ -1,78 +1,102 @@
-# HTCondor Batch Submission for Chained Tracking + MCTruth Pipeline
+# HTCondor Batch Submission: Chained Tracking -> MCTruth -> Event Displays
 
-This directory contains the HTCondor configuration and execution scripts to run the two-stage chained pipeline per partition concurrently across CERN HTCondor:
+This directory runs the complete end-to-end 3-step chained pipeline per partition on CERN HTCondor:
 
 ```
-[Raw Genie-TGeant4 MC]
-         │
-         ▼ (Step 1: run_dimuon_reco.py, ~1-2 min)
+[Raw Genie-TGeant4 MC Partition]
+               │
+               ▼ Step 1: run_dimuon_reco.py (~1–2 min)
 [sndLHC.Genie-TGeant4_digCPP_2MuTrks.root]
-         │
-         ▼ (Step 2: mctruth_neutrinos.py, ~10-30 sec)
+               │
+               ▼ Step 2: mctruth_neutrinos.py (~10–30 sec)
 [sndLHC.Genie-TGeant4_digCPP_2MuTrks_truth.root]
+               │
+               ▼ Step 3: generate_2DEventDisplays.py (--mc-truth --muonReco) (~5–15 sec)
+[event_displays/partitions/displays_part<p>.root]
+               │
+               ▼ Merge: merge_displays.sh (or scripts/merge_event_displays.py)
+[event_displays/numu_dimuon_signal_event_displays.root]  <-- Single Master ROOT File
 ```
 
 ---
 
 ## Directory Overview
 
-- **`pipeline.sub`**: HTCondor job submit file configured for AlmaLinux9, `group_u_SNDLHC.users`, and `longlunch` (up to 2h per partition).
-- **`run_pipeline_partition.sh`**: Job worker wrapper executed on each HTCondor compute node. Executes Step 1 (dimuon tracking), verifies the tracking output ROOT file, and then immediately runs Step 2 (MCTruth extraction) on that file with `--skip-existing`.
-- **`sndswEnv.sh`**: Frozen static environment variables (`LD_LIBRARY_PATH`, `PYTHONPATH`, `ROOTSYS`, `ROOT_INCLUDE_PATH`, etc.) exported from the verified working setup.
-- **`args_partitions.txt`**: The exact list of 400 valid partitions (numeric directories 0 through 400 found in the GENIE MC dataset).
-- **`submit.sh`**: Helper wrapper to submit all 400 jobs from `lxplus`.
-- **`status.sh`**: Helper script to monitor job queue state and live counts of both `*_2MuTrks.root` and `*_2MuTrks_truth.root` files on EOS.
-- **`out/`**, **`err/`**, **`log/`**: Standard log directories for HTCondor job output, error, and cluster execution logs.
+- **`pipeline.sub`**: HTCondor job submit file configured for `AlmaLinux9`, `group_u_SNDLHC.users`, and `longlunch` (up to 2h per job).
+- **`run_pipeline_partition.sh`**: Chained worker script that executes all three steps sequentially within the same worker slot:
+  1. Dimuon tracking (`run_dimuon_reco.py -t dimuon_DS --nTracks 2 -ht`)
+  2. Truth extraction (`mctruth_neutrinos.py`)
+  3. 2D Event Display generation (`generate_2DEventDisplays.py --mc-truth --muonReco`)
+- **`args_partitions.txt`**: All 400 valid MC partition numbers.
+- **`sndswEnv.sh`**: Frozen static environment variables (`LD_LIBRARY_PATH`, `PYTHONPATH`, `ROOTSYS`, etc.).
+- **`submit.sh`**: Helper submission script to submit all 400 jobs from `lxplus`.
+- **`status.sh`**: Monitor reporting completed files for all three stages and `condor_q`.
+- **`merge_displays.sh`**: Helper script to merge all per-partition event display ROOT files into the single master ROOT file.
+- **`out/`**, **`err/`**, **`log/`**: HTCondor log directories.
 
 ---
 
 ## Quick Start (from `lxplus`)
 
-### 1. Submit All 400 Partitions
+### 1. Submit All 400 Jobs
 
-From the repository root on `lxplus`:
 ```bash
 ./htcondor/tracking_and_truth/submit.sh
 ```
-Or directly using `condor_submit`:
-```bash
-cd htcondor/tracking_and_truth
-condor_submit pipeline.sub
-```
+*(Or directly: `condor_submit htcondor/tracking_and_truth/pipeline.sub`)*
 
 ### 2. Check Live Status
 
-At any time, run:
 ```bash
 ./htcondor/tracking_and_truth/status.sh
 ```
-This shows:
-- The total count and percentage of completed Step 1 tracked files (`_2MuTrks.root`).
-- The total count and percentage of completed Step 2 final truth files (`_2MuTrks_truth.root`).
-- The live HTCondor queue summary (`condor_q`).
+This shows the progress percentage for:
+- Step 1: `_2MuTrks.root`
+- Step 2: `_2MuTrks_truth.root`
+- Step 3: `displays_part*.root`
+- Master single ROOT file status
 
-### 3. Custom Options & Overrides
+### 3. Merge All Event Displays into One Single ROOT File
 
-- **Custom Input/Output Patterns**:
-  ```bash
-  condor_submit htcondor/tracking_and_truth/pipeline.sub \
-    input_pattern="/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP.root" \
-    track_pattern="/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks.root" \
-    truth_pattern="/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks_truth.root"
-  ```
-- **Change Job Flavour**:
-  ```bash
-  condor_submit htcondor/tracking_and_truth/pipeline.sub flavour=workday
-  ```
-- **Submit a Subset of Partitions**:
-  ```bash
-  condor_submit htcondor/tracking_and_truth/pipeline.sub args_file=args_custom.txt
-  ```
+Once the batch jobs finish (or at any intermediate point):
+```bash
+./htcondor/tracking_and_truth/merge_displays.sh
+```
 
 ---
 
-## Key Benefits
+## 2022 $\nu_\mu$ Production (`sndlhc_15000fb-1_2022_down/nu14/volume_volTarget`, 1000 Partitions)
 
-- **No Double-Queuing**: The batch slot executes both steps back-to-back without sending the second step to wait in the queue.
-- **Fast Execution**: Step 2 runs only on the events surviving the 2-track requirement, completing in seconds per partition.
-- **Idempotence**: Both steps run with `--skip-existing`. If interrupted or re-submitted, finished stages are skipped automatically.
+To run the full pipeline on the 1000-partition $15000\text{ fb}^{-1}$ production:
+
+### 1. Submit all 1000 partitions:
+```bash
+./htcondor/tracking_and_truth/submit_nu14_2022.sh
+```
+
+### 2. Monitor status:
+```bash
+./htcondor/tracking_and_truth/status_nu14_2022.sh
+```
+
+### 3. Merge displays into single file:
+```bash
+./htcondor/tracking_and_truth/merge_displays_nu14_2022.sh
+```
+Outputs:
+- Tracked files: `/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/<partition>/sndLHC.Genie-TGeant4_dig_2MuTrks.root`
+- Truth files: `/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/<partition>/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root`
+- Master Displays: `/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_displays.root`
+
+---
+
+## Custom Parameter Overrides
+
+You can override any path pattern directly when submitting:
+```bash
+condor_submit htcondor/tracking_and_truth/pipeline.sub \
+  input_pattern="/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP.root" \
+  track_pattern="/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks.root" \
+  truth_pattern="/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks_truth.root" \
+  disp_pattern="/eos/user/i/idioniso/snd-numu-charm/event_displays/partitions/displays_part%s.root"
+```

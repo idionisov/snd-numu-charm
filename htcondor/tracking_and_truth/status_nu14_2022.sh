@@ -1,22 +1,22 @@
 #!/bin/bash
 
 # ==============================================================================
-# Helper script to monitor chained tracking + truth + event display jobs
+# Helper script to monitor 2022 nu14 (1000 Partitions) pipeline jobs on EOS
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-DATA_DIR="/eos/user/i/idioniso/snd-numu-charm/data"
-DISP_DIR="/eos/user/i/idioniso/snd-numu-charm/event_displays/partitions"
-MASTER_DISP="/eos/user/i/idioniso/snd-numu-charm/event_displays/numu_dimuon_signal_event_displays.root"
-TOTAL_COUNT=$(wc -l < args_partitions.txt 2>/dev/null || echo 400)
+DATA_DIR="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget"
+DISP_DIR="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions"
+MASTER_DISP="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_displays.root"
+TOTAL_COUNT=$(wc -l < args_nu14_volTarget_1000.txt 2>/dev/null || echo 1000)
 
 echo "=========================================================="
-echo " SND@LHC Full Pipeline Status ($(date '+%Y-%m-%d %H:%M:%S'))"
+echo " SND@LHC nu14 2022 Pipeline Status ($(date '+%Y-%m-%d %H:%M:%S'))"
+echo " Dataset: sndlhc_15000fb-1_2022_down_nu14_volume_volTarget"
 echo "=========================================================="
 
-# 1. Output files on EOS
 if [ -d "$DATA_DIR" ]; then
     TRACK_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*_2MuTrks.root" -type f -size +500c 2>/dev/null | wc -l)
     TRUTH_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*_2MuTrks_truth.root" -type f -size +500c 2>/dev/null | wc -l)
@@ -27,7 +27,7 @@ if [ -d "$DATA_DIR" ]; then
     echo " Step 1 (Tracked 2MuTrks)   : ${TRACK_DONE} / ${TOTAL_COUNT} (${TRACK_PCT}%)"
     echo " Step 2 (Truth Extraction)  : ${TRUTH_DONE} / ${TOTAL_COUNT} (${TRUTH_PCT}%)"
 else
-    echo " EOS data directory not found or unreachable: ${DATA_DIR}"
+    echo " Output directory not yet created: ${DATA_DIR}"
 fi
 
 if [ -d "$DISP_DIR" ]; then
@@ -42,12 +42,11 @@ if [ -f "$MASTER_DISP" ]; then
     SIZE=$(ls -lh "$MASTER_DISP" | awk '{print $5}')
     echo " Master Displays File       : ${MASTER_DISP} (${SIZE})"
 else
-    echo " Master Displays File       : Not yet merged (run: ./htcondor/tracking_and_truth/merge_displays.sh)"
+    echo " Master Displays File       : Not yet merged (run: ./htcondor/tracking_and_truth/merge_displays_nu14_2022.sh)"
 fi
 
 echo "----------------------------------------------------------"
 
-# 2. HTCondor queue status (if on lxplus)
 if command -v condor_q >/dev/null 2>&1; then
     echo " HTCondor Queue Summary:"
     condor_q

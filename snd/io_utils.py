@@ -773,3 +773,29 @@ def get_geofile_for_run(
     return fallback
 
 
+def copy_tcanvases_recursive(src_dir, dest_dir) -> int:
+    """
+    Recursively copies all TCanvases and directory structures from src_dir to dest_dir.
+    Returns the total number of TCanvases copied.
+    """
+    import ROOT
+    count = 0
+    for key in src_dir.GetListOfKeys():
+        cls_name = key.GetClassName()
+        if cls_name == "TCanvas":
+            obj = key.ReadObj()
+            if obj and not (hasattr(obj, "IsZombie") and obj.IsZombie()):
+                dest_dir.cd()
+                obj.Write(key.GetName(), ROOT.TObject.kOverwrite)
+                count += 1
+        elif "TDirectory" in cls_name:
+            sub_src = key.ReadObj()
+            if sub_src:
+                sub_name = key.GetName()
+                sub_dest = dest_dir.GetDirectory(sub_name)
+                if not sub_dest:
+                    sub_dest = dest_dir.mkdir(sub_name)
+                count += copy_tcanvases_recursive(sub_src, sub_dest)
+    return count
+
+

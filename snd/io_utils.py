@@ -358,6 +358,234 @@ def resolve_tdirectory_hierarchy(cfg: dict, top_name: str = "MCTruth") -> List[s
     return hierarchy
 
 
+CHARM_SPECIES_NAMES: Dict[int, str] = {
+    421: "D0",
+    -421: "anti_D0",
+    411: "DPlus",
+    -411: "DMinus",
+    431: "DsPlus",
+    -431: "DsMinus",
+    4122: "LambdaCPlus",
+    -4122: "anti_LambdaCMinus",
+    4222: "SigmaCPlusPlus",
+    -4222: "anti_SigmaCMinusMinus",
+    4212: "SigmaCPlus",
+    -4212: "anti_SigmaCMinus",
+    4112: "SigmaC0",
+    -4112: "anti_SigmaC0",
+    4232: "XiCPlus",
+    -4232: "anti_XiCMinus",
+    4132: "XiC0",
+    -4132: "anti_XiC0",
+    4332: "OmegaC0",
+    -4332: "anti_OmegaC0",
+    413: "DStarPlus",
+    -413: "DStarMinus",
+    423: "DStar0",
+    -423: "anti_DStar0",
+    433: "DsStarPlus",
+    -433: "DsStarMinus",
+}
+
+
+def resolve_mctruth_directory_hierarchy(
+    tree: Any,
+    processor: Optional[Any] = None,
+    min_ds_hor_points: int = 3,
+    min_ds_ver_points: int = 3,
+    top_name: str = "MCTruth",
+    in_acceptance_name: str = "inDSAcceptance",
+    not_in_acceptance_name: str = "notInDSAcceptance",
+) -> List[str]:
+    """
+    Dynamically determine the multi-tiered TDirectory hierarchy for an event based on MC truth:
+      MCTruth / <flavor> / <current> / <neutrino_process_id_or_label> / <subsequent_process_category>_<N>mu / <acceptance_dir>
+
+    Examples:
+      - MCTruth/numu/CC/ch15_mu-_D0_p/D0_directToMu_2mu/inDSAcceptance
+      - MCTruth/numu/CC/ch27_mu-_D+_n/DPlus_hadronic_downstreamMu_2mu/inDSAcceptance
+      - MCTruth/numu/CC/ch1_mu-_p/noCharm_1mu/inDSAcceptance
+      - MCTruth/numu/NC/ch42_pi+_pi-_p/noCharm_0mu/notInDSAcceptance
+    """
+    from .channels import ChannelLookupManager, pdg_to_name
+    from .filter import (
+        count_ds_mcpoints,
+        is_dimuon_in_ds_acceptance,
+        find_primary_muon_track_id,
+        find_charm_muon_track_id,
+    )
+
+    # 1. Inspect tree for truth information, or evaluate via processor if needed
+    nu_pdg = int(getattr(tree, "nu_pdg", 0))
+    is_cc = bool(getattr(tree, "is_cc", 0))
+    is_nc = bool(getattr(tree, "is_nc", 0))
+    channel_id = int(getattr(tree, "channel_id", 0))
+    has_charm = bool(getattr(tree, "has_charm", 0))
+    charm_pdg = int(getattr(tree, "charm_pdg", 0))
+    charm_has_direct_muon = bool(getattr(tree, "charm_has_direct_muon", 0))
+    charm_has_direct_electron = bool(getattr(tree, "charm_has_direct_electron", 0))
+    has_downstream_charm_muon = bool(
+        getattr(tree, "has_downstream_charm_muon", 0) or getattr(tree, "has_charm_hadronic_downstream_muon", 0)
+    )
+    n_muons_in_event = int(getattr(tree, "n_muons_in_event", 0))
+    primary_lepton_track_id = int(getattr(tree, "primary_lepton_track_id", -1))
+    mu2_track_id = int(getattr(tree, "mu2_track_id", -1))
+    downstream_muon_track_id = int(getattr(tree, "downstream_muon_track_id", -1))
+
+    # Evaluate on the fly if no truth branches on tree
+    if nu_pdg == 0 and hasattr(tree, "MCTrack") and processor is not None:
+        mufilter_pts = getattr(tree, "MuFilterPoint", None)
+        if hasattr(processor, "processMuonNeutrino"):
+            info = processor.processMuonNeutrino(tree.MCTrack, mufilter_pts)
+        else:
+            info = processor.process(tree.MCTrack)
+        nu_pdg = int(getattr(info, "nuPdg", 0))
+        is_cc = bool(getattr(info, "isCC", False))
+        is_nc = bool(getattr(info, "isNC", False))
+        has_charm = bool(getattr(info, "hasCharm", False))
+        charm_pdg = int(getattr(info, "charmPdg", 0))
+        charm_has_direct_muon = bool(getattr(info, "charmHasDirectMuon", False))
+        charm_has_direct_electron = bool(getattr(info, "charmHasDirectElectron", False))
+        has_downstream_charm_muon = bool(
+            getattr(info, "hasDownstreamCharmMuon", False) or getattr(info, "hasCharmHadronicDownstreamMuon", False)
+        )
+        n_muons_in_event = int(getattr(info, "nMuonsInEvent", 0))
+        primary_lepton_track_id = int(getattr(info, "primaryLeptonTrackId", -1))
+        mu2_track_id = int(getattr(info, "mu2TrackId", -1))
+        downstream_muon_track_id = int(getattr(info, "downstreamMuonTrackId", -1))
+
+        if hasattr(info, "primaryPdgsStr") and info.primaryPdgsStr:
+            try:
+                prim_pdgs = [int(p) for p in str(info.primaryPdgsStr).split(",") if p]
+                ch_mgr = ChannelLookupManager.get_instance()
+                channel_id, _, _ = ch_mgr.get_or_register_channel(prim_pdgs, nu_pdg)
+            except Exception:
+                pass
+
+    # Fallback to discover nu_pdg from MCTrack[0] if still 0
+    if nu_pdg == 0 and hasattr(tree, "MCTrack") and len(tree.MCTrack) > 0:
+        nu_pdg = tree.MCTrack[0].GetPdgCode()
+        for trk in tree.MCTrack:
+            if trk.GetMotherId() == 0 and abs(trk.GetPdgCode()) in [11, 13, 15]:
+                is_cc = True
+                break
+        if not is_cc:
+            is_nc = True
+
+    # 2. Flavor Tier
+    abs_nu = abs(nu_pdg)
+    if abs_nu == 14:
+        flavor_dir = "numu"
+    elif abs_nu == 12:
+        flavor_dir = "nue"
+    elif abs_nu == 16:
+        flavor_dir = "nutau"
+    else:
+        flavor_dir = f"nu_{abs_nu}" if abs_nu > 0 else "unknown"
+
+    # 3. Current Tier
+    if is_cc:
+        current_dir = "CC"
+    elif is_nc:
+        current_dir = "NC"
+    else:
+        current_dir = "inclusive"
+
+    # 4. Neutrino Interaction Process Label
+    ch_mgr = ChannelLookupManager.get_instance()
+    if channel_id > 0 and channel_id in ch_mgr.primary_by_id:
+        ch_info = ch_mgr.primary_by_id[channel_id]
+        formula = ch_info.get("formula", "")
+        slug = formula.replace(" + ", "_").replace(" ", "_")
+        process_label = f"ch{channel_id}_{slug}"
+    elif channel_id > 0:
+        process_label = f"ch{channel_id}"
+    else:
+        process_label = "ch0_unknown"
+
+    # 5. Subsequent Chain Category & Muon Multiplicity
+    extra_muon = 0
+    if has_charm and charm_pdg != 0:
+        species = CHARM_SPECIES_NAMES.get(charm_pdg)
+        if not species:
+            species = CHARM_SPECIES_NAMES.get(abs(charm_pdg))
+        if not species:
+            clean_name = pdg_to_name(charm_pdg).replace("+", "Plus").replace("-", "Minus").replace("*", "Star").replace("_", "")
+            species = clean_name or f"PDG{charm_pdg}"
+
+        if charm_has_direct_muon:
+            mode_label = "directToMu"
+            extra_muon = 1
+        elif has_downstream_charm_muon:
+            mode_label = "hadronic_downstreamMu"
+            extra_muon = 1
+        elif charm_has_direct_electron:
+            mode_label = "directToE"
+            extra_muon = 0
+        else:
+            mode_label = "hadronic"
+            extra_muon = 0
+        cat_base = f"{species}_{mode_label}"
+    else:
+        if has_downstream_charm_muon or (n_muons_in_event > (1 if (is_cc and flavor_dir == "numu") else 0)):
+            cat_base = "noCharm_downstreamMu"
+            extra_muon = 1
+        else:
+            cat_base = "noCharm"
+            extra_muon = 0
+
+    if is_cc and flavor_dir == "numu":
+        n_mu = 1 + extra_muon
+    elif is_nc:
+        n_mu = 0 + extra_muon
+    else:
+        n_mu = 0 + extra_muon
+
+    subsequent_cat = f"{cat_base}_{n_mu}mu"
+
+    # 6. DS Acceptance Tier
+    is_in_ds = False
+    if n_mu == 2:
+        if hasattr(tree, "dimuon_in_ds_acceptance") and tree.dimuon_in_ds_acceptance != 0:
+            is_in_ds = bool(tree.dimuon_in_ds_acceptance)
+        else:
+            mu1_id = primary_lepton_track_id if primary_lepton_track_id >= 0 else find_primary_muon_track_id(tree)
+            mu2_id = mu2_track_id if mu2_track_id >= 0 else (
+                downstream_muon_track_id if downstream_muon_track_id >= 0 else find_charm_muon_track_id(tree)
+            )
+            is_in_ds = is_dimuon_in_ds_acceptance(
+                tree,
+                min_hor_points=min_ds_hor_points,
+                min_ver_points=min_ds_ver_points,
+                mu1_id=mu1_id,
+                mu2_id=mu2_id,
+            )
+    elif n_mu == 1:
+        if is_cc and flavor_dir == "numu":
+            if hasattr(tree, "mu1_in_ds_acceptance") and tree.mu1_in_ds_acceptance != 0:
+                is_in_ds = bool(tree.mu1_in_ds_acceptance)
+            else:
+                mu1_id = primary_lepton_track_id if primary_lepton_track_id >= 0 else find_primary_muon_track_id(tree)
+                h, v, _ = count_ds_mcpoints(tree, mu1_id)
+                is_in_ds = (h >= min_ds_hor_points and v >= min_ds_ver_points)
+        else:
+            sec_id = mu2_track_id if mu2_track_id >= 0 else (
+                downstream_muon_track_id if downstream_muon_track_id >= 0 else find_charm_muon_track_id(tree)
+            )
+            h, v, _ = count_ds_mcpoints(tree, sec_id)
+            is_in_ds = (h >= min_ds_hor_points and v >= min_ds_ver_points)
+    elif n_mu >= 3:
+        is_in_ds = is_dimuon_in_ds_acceptance(
+            tree, min_hor_points=min_ds_hor_points, min_ver_points=min_ds_ver_points
+        )
+    else:
+        is_in_ds = False
+
+    acc_dir = in_acceptance_name if is_in_ds else not_in_acceptance_name
+
+    return [top_name, flavor_dir, current_dir, process_label, subsequent_cat, acc_dir]
+
+
 def get_or_create_tdirectory(tfile: Any, path_parts: List[str]) -> Any:
     """Recursively create or navigate to nested TDirectories in a TFile."""
     current = tfile

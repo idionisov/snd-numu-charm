@@ -47,6 +47,93 @@ PDG_NAMES = {
 }
 
 
+def get_particle_style(pdg: int) -> Tuple[str, str, int, int]:
+    """
+    Returns (species_key, display_name, line_style, line_color) for a given particle PDG code.
+    Assigns different linestyles and distinct colors to different particle species:
+      - Charged Pions (pi+/-): Linestyle 7 (long dash), kCyan+2
+      - Charged Kaons (K+/-): Linestyle 4 (dash-dot), kOrange+7
+      - Neutral Kaons (K0/KS/KL): Linestyle 5 (long dash-dot), kViolet+1
+      - Neutral Pions (pi0): Linestyle 3 (dotted), kGray+2
+      - Baryons (p, n, Lambda): Linestyle 9 (alternate dash), kMagenta-4
+      - Charmed resonances (D*): Linestyle 6 (dash double-dot), kPink-3
+      - Light mesons (rho, omega, eta): Linestyle 8 (medium dash), kSpring+4
+      - Fallback: Linestyle 10 (dense dotted), kGray+3
+    """
+    abs_pdg = abs(pdg)
+
+    # Charged Pions
+    if abs_pdg == 211:
+        name = "#pi^{+}" if pdg > 0 else "#pi^{-}"
+        return ("pion_charged", name, 7, ROOT.kCyan + 2)
+
+    # Neutral Pions
+    elif abs_pdg == 111:
+        return ("pion_neutral", "#pi^{0}", 3, ROOT.kGray + 2)
+
+    # Charged Kaons
+    elif abs_pdg == 321:
+        name = "K^{+}" if pdg > 0 else "K^{-}"
+        return ("kaon_charged", name, 4, ROOT.kOrange + 7)
+
+    # Neutral Kaons (K0, K_S, K_L)
+    elif abs_pdg in [311, 310, 130]:
+        if abs_pdg == 310:
+            name = "K_{S}^{0}"
+        elif abs_pdg == 130:
+            name = "K_{L}^{0}"
+        else:
+            name = "K^{0}"
+        return ("kaon_neutral", name, 5, ROOT.kViolet + 1)
+
+    # Photons / electrons
+    elif abs_pdg == 22:
+        return ("gamma", "#gamma", 6, ROOT.kYellow + 2)
+    elif abs_pdg == 11:
+        name = "e^{-}" if pdg > 0 else "e^{+}"
+        return ("electron", name, 8, ROOT.kPink + 7)
+
+    # Muons
+    elif abs_pdg == 13:
+        name = "#mu^{-}" if pdg > 0 else "#mu^{+}"
+        return ("muon", name, 1, ROOT.kRed)
+
+    # Charmed mesons / resonances (D*, etc.)
+    elif abs_pdg in [413, 423, 433]:
+        name = "D^{*}"
+        return ("d_star", name, 6, ROOT.kPink - 3)
+
+    # Light vector / pseudoscalar mesons (rho, omega, phi, eta)
+    elif abs_pdg in [213, 113, 221, 331, 223, 333]:
+        if abs_pdg == 213:
+            name = "#rho^{#pm}"
+        elif abs_pdg == 113:
+            name = "#rho^{0}"
+        elif abs_pdg == 221:
+            name = "#eta"
+        elif abs_pdg == 223:
+            name = "#omega"
+        else:
+            name = "Meson"
+        return ("meson_light", name, 8, ROOT.kSpring + 4)
+
+    # Nucleons / Baryons (p, n, Lambda, Sigma)
+    elif abs_pdg in [2212, 2112, 3122, 3222, 3212, 3112]:
+        if abs_pdg == 2212:
+            name = "p"
+        elif abs_pdg == 2112:
+            name = "n"
+        elif abs_pdg == 3122:
+            name = "#Lambda^{0}"
+        else:
+            name = "Baryon"
+        return (f"baryon_{abs_pdg}", name, 9, ROOT.kMagenta - 4)
+
+    # Fallback
+    else:
+        return (f"pdg_{abs_pdg}", f"PDG {pdg}", 10, ROOT.kGray + 3)
+
+
 def get_scifi_hit_density(points, x_range: float = 0.5):
     """
     Takes list of (z, coord) and returns array with number of hits within x_range cm.
@@ -377,13 +464,14 @@ class Snd2DEventDisplay:
         return (x1, y1, z1)
 
     def _find_truth_tracks(self, tree, truth_info):
-        """Finds trajectory coordinates for mu1, charm, and mu2."""
+        """Finds trajectory coordinates for mu1, charm, mu2, and intermediate decay particles."""
         tracks = {
             "mu1": None,
             "charm": None,
             "mu2": None,
             "vtx": truth_info["vtx"],
             "charm_decay": None,
+            "intermediate_chain": [],
         }
 
         vtx = truth_info["vtx"]
@@ -394,6 +482,7 @@ class Snd2DEventDisplay:
         mu1_trk = None
         charm_trk = None
         mu2_trk = None
+        intermediate_chain = []
 
         if hasattr(tree, "MCTrack") and tree.MCTrack.GetEntries() > 0:
             n_tracks = tree.MCTrack.GetEntries()
@@ -431,11 +520,16 @@ class Snd2DEventDisplay:
             if 0 <= charm_id < n_tracks:
                 charm_trk = (charm_id, tree.MCTrack[charm_id])
 
-            # 3. Charm decay muon (mu2): prefer mu2_track_id or maximum momentum descendant
+            # 3. Charm decay muon (mu2): check mu2_track_id, downstream_muon_track_id, or charm descendant
             mu2_id = -1
             if hasattr(tree, "mu2_track_id"):
                 try:
                     mu2_id = int(tree.mu2_track_id)
+                except Exception:
+                    mu2_id = -1
+            if (mu2_id < 0 or mu2_id >= n_tracks) and hasattr(tree, "downstream_muon_track_id"):
+                try:
+                    mu2_id = int(tree.downstream_muon_track_id)
                 except Exception:
                     mu2_id = -1
             if (mu2_id < 0 or mu2_id >= n_tracks) and charm_trk is not None:
@@ -456,6 +550,51 @@ class Snd2DEventDisplay:
                             mu2_id = i
             if 0 <= mu2_id < n_tracks:
                 mu2_trk = (mu2_id, tree.MCTrack[mu2_id])
+
+            # 4. Extract chain of in-between particles that produced the second muon
+            if charm_trk is not None and mu2_trk is not None:
+                c_id = charm_trk[0]
+                m_id = mu2_trk[0]
+                curr_mid = tree.MCTrack[m_id].GetMotherId()
+                chain_ids = []
+                visited = {m_id}
+                while 0 <= curr_mid < n_tracks and curr_mid not in visited:
+                    visited.add(curr_mid)
+                    if curr_mid == c_id:
+                        break
+                    chain_ids.append(curr_mid)
+                    curr_mid = tree.MCTrack[curr_mid].GetMotherId()
+                chain_ids.reverse()
+
+                for idx_c, trk_id in enumerate(chain_ids):
+                    itrk = tree.MCTrack[trk_id]
+                    p0 = (itrk.GetStartX(), itrk.GetStartY(), itrk.GetStartZ())
+                    pts = [p0]
+                    if hasattr(tree, "ScifiPoint"):
+                        for p in tree.ScifiPoint:
+                            if p.GetTrackID() == trk_id:
+                                pts.append((p.GetX(), p.GetY(), p.GetZ()))
+                    if hasattr(tree, "MuFilterPoint"):
+                        for p in tree.MuFilterPoint:
+                            if p.GetTrackID() == trk_id:
+                                pts.append((p.GetX(), p.GetY(), p.GetZ()))
+
+                    if idx_c + 1 < len(chain_ids):
+                        next_trk = tree.MCTrack[chain_ids[idx_c + 1]]
+                        p_end = (next_trk.GetStartX(), next_trk.GetStartY(), next_trk.GetStartZ())
+                    else:
+                        p_end = (mu2_trk[1].GetStartX(), mu2_trk[1].GetStartY(), mu2_trk[1].GetStartZ())
+                    pts.append(p_end)
+                    pts.sort(key=lambda p: p[2])
+
+                    intermediate_chain.append({
+                        "track_id": trk_id,
+                        "pdg": itrk.GetPdgCode(),
+                        "p": itrk.GetP(),
+                        "pts": pts,
+                    })
+
+        tracks["intermediate_chain"] = intermediate_chain
 
         # Trajectory for Primary Muon
         if mu1_trk is not None:
@@ -481,7 +620,10 @@ class Snd2DEventDisplay:
         if charm_trk is not None:
             c_start = (charm_trk[1].GetStartX(), charm_trk[1].GetStartY(), charm_trk[1].GetStartZ())
             c_decay = None
-            if mu2_trk is not None:
+            if intermediate_chain:
+                first_trk = tree.MCTrack[intermediate_chain[0]["track_id"]]
+                c_decay = (first_trk.GetStartX(), first_trk.GetStartY(), first_trk.GetStartZ())
+            elif mu2_trk is not None and mu2_trk[1].GetMotherId() == charm_trk[0]:
                 c_decay = (mu2_trk[1].GetStartX(), mu2_trk[1].GetStartY(), mu2_trk[1].GetStartZ())
             elif truth_info.get("decay_length_3d", 0) > 0 and charm_trk[1].GetP() > 0:
                 L = truth_info["decay_length_3d"]
@@ -728,6 +870,32 @@ class Snd2DEventDisplay:
                 charm_line_yz.Draw("same")
                 track_objs.extend([charm_line_xz, charm_line_yz])
 
+            # Intermediate particles in decay chain to mu2:
+            intermediate_decay_vertices = []
+            for item in tracks.get("intermediate_chain", []):
+                pts = item["pts"]
+                if len(pts) >= 2 and (pts[0] != pts[-1]):
+                    pdg = item["pdg"]
+                    _, _, line_style, line_color = get_particle_style(pdg)
+
+                    inter_line_xz = ROOT.TPolyLine()
+                    inter_line_yz = ROOT.TPolyLine()
+                    for idx_pt, pt in enumerate(pts):
+                        inter_line_xz.SetPoint(idx_pt, pt[2], pt[0])
+                        inter_line_yz.SetPoint(idx_pt, pt[2], pt[1])
+
+                    for line in [inter_line_xz, inter_line_yz]:
+                        line.SetLineColor(line_color)
+                        line.SetLineWidth(2)
+                        line.SetLineStyle(line_style)
+
+                    pad_xz.cd()
+                    inter_line_xz.Draw("same")
+                    pad_yz.cd()
+                    inter_line_yz.Draw("same")
+                    track_objs.extend([inter_line_xz, inter_line_yz])
+                    intermediate_decay_vertices.append(pts[-1])
+
             # Secondary Decay Muon 2: Solid Red (kRed), line width 2
             if tracks.get("mu2") is not None and len(tracks["mu2"]) > 1:
                 mu2_line_xz = ROOT.TPolyLine()
@@ -773,6 +941,21 @@ class Snd2DEventDisplay:
                 pad_yz.cd()
                 m_dec_yz.Draw("same")
                 track_objs.extend([m_dec_xz, m_dec_yz])
+
+            # Intermediate Decay Vertex Markers (where intermediate particle decayed)
+            cdec_pt = tracks.get("charm_decay")
+            for dec_pt in intermediate_decay_vertices:
+                if cdec_pt is None or ((dec_pt[0] - cdec_pt[0])**2 + (dec_pt[1] - cdec_pt[1])**2 + (dec_pt[2] - cdec_pt[2])**2) > 0.01:
+                    m_idec_xz = ROOT.TMarker(dec_pt[2], dec_pt[0], 34)
+                    m_idec_yz = ROOT.TMarker(dec_pt[2], dec_pt[1], 34)
+                    for m in [m_idec_xz, m_idec_yz]:
+                        m.SetMarkerColor(ROOT.kOrange + 7)
+                        m.SetMarkerSize(1.6)
+                    pad_xz.cd()
+                    m_idec_xz.Draw("same")
+                    pad_yz.cd()
+                    m_idec_yz.Draw("same")
+                    track_objs.extend([m_idec_xz, m_idec_yz])
 
             # Track endpoint markers
             if tracks.get("mu1") is not None and len(tracks["mu1"]) > 1:
@@ -973,16 +1156,59 @@ class Snd2DEventDisplay:
                 pave_info.AddText(f"Charm Hadron: #bf{{{charm_name}}}  |  Flight L_{{3D}} = {truth['decay_length_3d']:.2f} cm")
 
             if truth["mu2_p"] > 0:
-                pave_info.AddText(f"#mu_{{2}} (Charm Decay): p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
+                inter_chain = tracks.get("intermediate_chain", [])
+                if inter_chain:
+                    parent_pdg = inter_chain[-1]["pdg"]
+                    _, parent_name, _, _ = get_particle_style(parent_pdg)
+                    pave_info.AddText(f"#mu_{{2}} (via {parent_name}): p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
+                else:
+                    pave_info.AddText(f"#mu_{{2}} (Charm Decay): p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
 
             pave_info.Draw("same")
 
             # Track & Topology Legend (XZ Upper Right Area)
-            leg = ROOT.TLegend(0.68, 0.66, 0.96, 0.92)
+            seen_species_legend = set()
+            intermediate_leg_lines = []
+            for item in tracks.get("intermediate_chain", []):
+                pts = item["pts"]
+                if len(pts) >= 2 and (pts[0] != pts[-1]):
+                    pdg = item["pdg"]
+                    species_key, display_name, line_style, line_color = get_particle_style(pdg)
+                    if species_key not in seen_species_legend:
+                        d_inter = ROOT.TLine()
+                        d_inter.SetLineColor(line_color)
+                        d_inter.SetLineWidth(2)
+                        d_inter.SetLineStyle(line_style)
+                        intermediate_leg_lines.append((d_inter, f"{display_name} (Intermediate)"))
+                        seen_species_legend.add(species_key)
+                        truth_leg_markers.append(d_inter)
+
+            has_idec = False
+            cdec_pt = tracks.get("charm_decay")
+            for dec_pt in intermediate_decay_vertices:
+                if cdec_pt is None or ((dec_pt[0] - cdec_pt[0])**2 + (dec_pt[1] - cdec_pt[1])**2 + (dec_pt[2] - cdec_pt[2])**2) > 0.01:
+                    has_idec = True
+                    break
+
+            total_leg_entries = (
+                (1 if tracks.get("mu1") is not None and len(tracks["mu1"]) > 1 else 0)
+                + (1 if tracks.get("charm") is not None and len(tracks["charm"]) > 1 else 0)
+                + len(intermediate_leg_lines)
+                + (1 if tracks.get("mu2") is not None and len(tracks["mu2"]) > 1 else 0)
+                + (1 if vtx[2] > -9000.0 else 0)
+                + (1 if tracks.get("charm_decay") is not None else 0)
+                + (1 if has_idec else 0)
+                + (1 if reco_track_objs else 0)
+            )
+            entry_height = 0.029
+            y_top = 0.92
+            y_bottom = max(0.48, y_top - total_leg_entries * entry_height)
+
+            leg = ROOT.TLegend(0.66, y_bottom, 0.96, y_top)
             leg.SetBorderSize(1)
             leg.SetFillColor(ROOT.kWhite)
             leg.SetTextFont(42)
-            leg.SetTextSize(0.027)
+            leg.SetTextSize(0.026)
 
             d_mu1 = ROOT.TLine()
             d_mu1.SetLineColor(ROOT.kBlue)
@@ -1005,16 +1231,24 @@ class Snd2DEventDisplay:
             d_dec.SetMarkerColor(ROOT.kOrange + 2)
             d_dec.SetMarkerSize(1.4)
 
+            d_idec = ROOT.TMarker(0, 0, 34)
+            d_idec.SetMarkerColor(ROOT.kOrange + 7)
+            d_idec.SetMarkerSize(1.3)
+
             if tracks.get("mu1") is not None and len(tracks["mu1"]) > 1:
                 leg.AddEntry(d_mu1, "#mu_{1} (Prompt Muon)", "l")
             if tracks.get("charm") is not None and len(tracks["charm"]) > 1:
                 leg.AddEntry(d_charm, "Charm Hadron Flight", "l")
+            for d_inter, leg_label in intermediate_leg_lines:
+                leg.AddEntry(d_inter, leg_label, "l")
             if tracks.get("mu2") is not None and len(tracks["mu2"]) > 1:
-                leg.AddEntry(d_mu2, "#mu_{2} (Charm Decay Muon)", "l")
+                leg.AddEntry(d_mu2, "#mu_{2} (Secondary Muon)", "l")
             if vtx[2] > -9000.0:
                 leg.AddEntry(d_vtx, "Primary Interaction Vertex", "p")
             if tracks.get("charm_decay") is not None:
                 leg.AddEntry(d_dec, "Charm Decay Vertex", "p")
+            if has_idec:
+                leg.AddEntry(d_idec, "Intermediate Decay Vertex", "p")
             if reco_track_objs:
                 d_reco = ROOT.TLine()
                 d_reco.SetLineColor(ROOT.kRed)
@@ -1022,7 +1256,7 @@ class Snd2DEventDisplay:
                 leg.AddEntry(d_reco, "Reconstructed Track", "l")
                 truth_leg_markers.append(d_reco)
             leg.Draw("same")
-            truth_leg_markers.extend([d_mu1, d_charm, d_mu2, d_vtx, d_dec])
+            truth_leg_markers.extend([d_mu1, d_charm, d_mu2, d_vtx, d_dec, d_idec])
 
         # Standalone Reconstructed Tracks Legend in Real Data mode
         if draw_reco_tracks and reco_track_objs and not show_mc_truth:

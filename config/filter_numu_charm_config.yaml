@@ -328,8 +328,8 @@ event_displays:
   acceptance_subdirs:
     enabled: true
     min_ds_points: 3
-    in_acceptance: "inAcceptance"
-    other: "other"
+    in_acceptance: "inDSAcceptance"
+    other: "notInDSAcceptance"
   # Canvas name format. {run_num} = parent directory (0..399), {event_num} = EventHeader event number
   canvas_name_format: "c_run{run_num}_ev{event_num}"
   # Whether to only display candidate signal events (has_candidate == 1)

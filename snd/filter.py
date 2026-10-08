@@ -251,7 +251,8 @@ def setup_truth_branches(trees: List[ROOT.TTree], active_tiers: Set[str]) -> Dic
     # 2. Primary Lepton Tier
     if "lepton" in active_tiers:
         int_vars.extend([
-            "primary_lepton_track_id", "primary_lepton_pdg", "primary_lepton_charge"
+            "primary_lepton_track_id", "primary_lepton_pdg", "primary_lepton_charge",
+            "mu1_n_ds_points", "mu1_in_ds_acceptance"
         ])
         double_vars.extend([
             "mu1_p", "mu1_pt", "mu1_px", "mu1_py", "mu1_pz", "mu1_e", "mu1_eta", "mu1_phi", "mu1_theta",
@@ -288,7 +289,7 @@ def setup_truth_branches(trees: List[ROOT.TTree], active_tiers: Set[str]) -> Dic
     # 5. Composite Dimuon Tier
     if "dimuon" in active_tiers:
         int_vars.extend([
-            "is_opposite_sign", "has_candidate", "n_muons_in_event"
+            "is_opposite_sign", "has_candidate", "n_muons_in_event", "dimuon_in_ds_acceptance"
         ])
         double_vars.extend([
             "dimuon_mass", "dimuon_pt", "dimuon_p", "dimuon_opening_angle",
@@ -402,6 +403,8 @@ def fill_truth_buffers(buffers: dict, info: Any, entry_idx: int, active_tiers: S
         buffers["primary_lepton_track_id"][0] = int(info.primaryLeptonTrackId)
         buffers["primary_lepton_pdg"][0] = int(info.primaryLeptonPdg)
         buffers["primary_lepton_charge"][0] = int(info.primaryLeptonCharge)
+        buffers["mu1_n_ds_points"][0] = int(getattr(info, "mu1nDSPoints", 0))
+        buffers["mu1_in_ds_acceptance"][0] = int(getattr(info, "mu1InDS", 0))
 
         buffers["mu1_p"][0] = float(info.mu1P)
         buffers["mu1_pt"][0] = float(info.mu1Pt)
@@ -491,6 +494,7 @@ def fill_truth_buffers(buffers: dict, info: Any, entry_idx: int, active_tiers: S
         buffers["is_opposite_sign"][0] = int(info.isOppositeSignDimuon)
         buffers["has_candidate"][0] = int(info.hasCandidate)
         buffers["n_muons_in_event"][0] = int(info.nMuonsInEvent)
+        buffers["dimuon_in_ds_acceptance"][0] = int(getattr(info, "dimuonInDSAcceptance", False))
 
         buffers["dimuon_mass"][0] = float(info.dimuonInvMass)
         buffers["dimuon_pt"][0] = float(info.dimuonPt)

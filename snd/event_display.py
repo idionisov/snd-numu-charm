@@ -762,6 +762,8 @@ class Snd2DEventDisplay:
         scifi_pts_y = []
         if hasattr(tree, "Digi_ScifiHits"):
             for hit in tree.Digi_ScifiHits:
+                if hasattr(hit, "isValid") and not hit.isValid():
+                    continue
                 det_id = hit.GetDetectorID()
                 self.scifi_mod.GetSiPMPosition(det_id, self._vec_a, self._vec_b)
                 if hit.isVertical():
@@ -805,6 +807,8 @@ class Snd2DEventDisplay:
         filled_bars = []
         if hasattr(tree, "Digi_MuFilterHits"):
             for hit in tree.Digi_MuFilterHits:
+                if hasattr(hit, "isValid") and not hit.isValid():
+                    continue
                 det_id = hit.GetDetectorID()
                 sys_id = hit.GetSystem()
                 self.mufilter_mod.GetPosition(det_id, self._vec_a, self._vec_b)

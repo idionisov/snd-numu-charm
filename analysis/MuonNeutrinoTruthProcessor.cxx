@@ -98,19 +98,30 @@ int MuonNeutrinoTruthProcessor::findCharmDecayMuon(
         if (std::abs(trk->GetPdgCode()) != 13) continue; // Must be a muon
         if (trk->GetP() < fConfig.minLeptonMomentum) continue;
 
-        // Trace mother ancestry upwards to identify if it originates from charm
-        int currentMotherId = trk->GetMotherId();
+        int directMotherId = trk->GetMotherId();
         int matchedCharmId = -1;
 
-        while (currentMotherId > 0 && currentMotherId < nTracks) {
-            auto* parentTrk = static_cast<ShipMCTrack*>(mcTracks.At(currentMotherId));
-            if (!parentTrk) break;
-
-            if (isCharmedHadron(parentTrk->GetPdgCode())) {
-                matchedCharmId = currentMotherId;
-                break;
+        if (fConfig.requireDirectCharmDecay) {
+            // Muon must be an immediate direct decay daughter of a charmed hadron
+            if (directMotherId >= 0 && directMotherId < nTracks) {
+                auto* parentTrk = static_cast<ShipMCTrack*>(mcTracks.At(directMotherId));
+                if (parentTrk && isCharmedHadron(parentTrk->GetPdgCode())) {
+                    matchedCharmId = directMotherId;
+                }
             }
-            currentMotherId = parentTrk->GetMotherId();
+        } else {
+            // Loose mode: trace mother ancestry upwards across any intermediate particles
+            int currentMotherId = directMotherId;
+            while (currentMotherId > 0 && currentMotherId < nTracks) {
+                auto* parentTrk = static_cast<ShipMCTrack*>(mcTracks.At(currentMotherId));
+                if (!parentTrk) break;
+
+                if (isCharmedHadron(parentTrk->GetPdgCode())) {
+                    matchedCharmId = currentMotherId;
+                    break;
+                }
+                currentMotherId = parentTrk->GetMotherId();
+            }
         }
 
         if (matchedCharmId != -1) {

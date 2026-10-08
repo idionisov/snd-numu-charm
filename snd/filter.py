@@ -27,6 +27,7 @@ def build_processor(proc_cfg: dict) -> ROOT.snd.MuonNeutrinoTruthProcessor:
     config.maxCharmFlightDistance = float(proc_cfg.get("max_charm_flight_distance", 100.0))
     config.weightScale = float(proc_cfg.get("weight_scale", 1.0))
     config.minDSPoints = int(proc_cfg.get("min_ds_points", 3))
+    config.requireDirectCharmDecay = bool(proc_cfg.get("require_direct_charm_decay", True))
     return ROOT.snd.MuonNeutrinoTruthProcessor(config)
 
 
@@ -721,11 +722,12 @@ def find_primary_muon_track_id(tree: Any) -> int:
     return best_id
 
 
-def find_charm_muon_track_id(tree: Any) -> int:
+def find_charm_muon_track_id(tree: Any, direct_only: bool = True) -> int:
     """
     Returns the MCTrack index of the secondary muon originating from the charm hadron decay.
     First inspects tree.mu2_track_id if available.
     Otherwise searches MCTrack for the charm descendant muon with MAXIMUM momentum.
+    If direct_only is True (default), requires the muon to be an immediate direct daughter of the charmed hadron.
     """
     if hasattr(tree, "mu2_track_id"):
         try:
@@ -757,17 +759,31 @@ def find_charm_muon_track_id(tree: Any) -> int:
     n_tracks = tree.MCTrack.GetEntries()
     for i, trk in enumerate(tree.MCTrack):
         if abs(trk.GetPdgCode()) == 13 and i != mu1_trk_id:
-            curr = trk
-            curr_mid = curr.GetMotherId()
-            while 0 <= curr_mid < n_tracks:
-                if curr_mid == charm_trk_id:
-                    p = trk.GetP()
-                    if p > max_p:
-                        max_p = p
-                        best_mu2_id = i
-                    break
-                curr = tree.MCTrack[curr_mid]
-                curr_mid = curr.GetMotherId()
+            mid = trk.GetMotherId()
+            if direct_only:
+                if 0 <= mid < n_tracks:
+                    parent = tree.MCTrack[mid]
+                    parent_pdg = abs(parent.GetPdgCode())
+                    is_charm = (
+                        parent_pdg in [411, 421, 431, 4122, 4232, 4132, 4332]
+                        or ((parent_pdg // 10) % 10 == 4 or (parent_pdg // 100) % 10 == 4)
+                    )
+                    if is_charm:
+                        p = trk.GetP()
+                        if p > max_p:
+                            max_p = p
+                            best_mu2_id = i
+            else:
+                curr_mid = mid
+                while 0 <= curr_mid < n_tracks:
+                    if curr_mid == charm_trk_id:
+                        p = trk.GetP()
+                        if p > max_p:
+                            max_p = p
+                            best_mu2_id = i
+                        break
+                    curr = tree.MCTrack[curr_mid]
+                    curr_mid = curr.GetMotherId()
 
     return best_mu2_id
 

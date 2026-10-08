@@ -153,7 +153,7 @@ def main():
 
     DEFAULT_INPUT = (
         "/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/"
-        "sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/%s/sndLHC.Genie-TGeant4_20240126_digCPP.root"
+        "sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/%s/sndLHC.Genie-TGeant4_digCPP.root"
     )
     DEFAULT_OUT_TRUTH = (
         "/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_truth.root"

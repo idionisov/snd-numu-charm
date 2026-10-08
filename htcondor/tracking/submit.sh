@@ -2,8 +2,8 @@
 set -e
 
 # ==============================================================================
-# Helper submission script for HTCondor mctruth categorization jobs
-# Run on lxplus: ./htcondor/submit.sh [extra_condor_submit_args]
+# Helper submission script for HTCondor dimuon tracking jobs
+# Run on lxplus: ./htcondor/tracking/submit.sh [extra_condor_submit_args]
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,13 +19,13 @@ mkdir -p out err log
 
 TOTAL_PARTITIONS=$(wc -l < args_partitions.txt)
 echo "=========================================================="
-echo " Submitting SND@LHC MCTruth Jobs to HTCondor"
+echo " Submitting SND@LHC Dimuon Tracking Jobs to HTCondor"
 echo " Working directory : ${SCRIPT_DIR}"
 echo " Total partitions  : ${TOTAL_PARTITIONS}"
-echo " Flavour           : longlunch (max 2 hours per job)"
+echo " Flavour           : microcentury (max 1 hour per job)"
 echo " Extra arguments   : $*"
 echo "=========================================================="
 
-condor_submit mctruth_neutrinos.sub "$@"
+condor_submit tracking.sub "$@"
 
-echo "Jobs submitted! You can monitor them using: ./htcondor/status.sh"
+echo "Jobs submitted! You can monitor them using: ./htcondor/tracking/status.sh"

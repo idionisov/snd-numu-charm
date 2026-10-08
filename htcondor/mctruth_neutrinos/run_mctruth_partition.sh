@@ -28,16 +28,16 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="/afs/cern.ch/work/i/idioniso/snd-numu-charm"
 if [ ! -d "$REPO_DIR" ]; then
-    REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+    REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 fi
 
 # 1. Setup sndsw environment
 if [ -f "${SCRIPT_DIR}/sndswEnv.sh" ]; then
     echo " ~ [1/4] Sourcing local static environment: ${SCRIPT_DIR}/sndswEnv.sh"
     source "${SCRIPT_DIR}/sndswEnv.sh"
-elif [ -f "${REPO_DIR}/htcondor/sndswEnv.sh" ]; then
-    echo " ~ [1/4] Sourcing repo static environment: ${REPO_DIR}/htcondor/sndswEnv.sh"
-    source "${REPO_DIR}/htcondor/sndswEnv.sh"
+elif [ -f "${REPO_DIR}/htcondor/mctruth_neutrinos/sndswEnv.sh" ]; then
+    echo " ~ [1/4] Sourcing repo static environment: ${REPO_DIR}/htcondor/mctruth_neutrinos/sndswEnv.sh"
+    source "${REPO_DIR}/htcondor/mctruth_neutrinos/sndswEnv.sh"
 elif [ -f "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh" ]; then
     echo " ~ [1/4] Sourcing CVMFS stack fallback: /cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
     source "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"

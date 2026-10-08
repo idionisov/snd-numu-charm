@@ -4,22 +4,26 @@
 # Usage:
 #   condor_submit htcondor/tracking/tracking.sub
 #   condor_submit htcondor/tracking/tracking.sub flavour=workday
-#   condor_submit htcondor/tracking/tracking.sub args_file=htcondor/tracking/args_partitions.txt
 #   condor_submit htcondor/tracking/tracking.sub input_pattern="..." output_pattern="..."
+#   condor_submit htcondor/tracking/tracking.sub args_file=path/to/custom_partitions.txt
 # ==============================================================================
 
-executable              = run_tracking_partition.sh
+base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/tracking
+initialdir              = $(base_dir)
+
+executable              = $(base_dir)/run_tracking_partition.sh
 arguments               = $(partition) $(input_pattern) $(output_pattern)
 
 flavour                 = $(flavour:microcentury)
-args_file               = $(args_file:args_partitions.txt)
+default_args            = $(base_dir)/args_partitions.txt
+args_file               = $(args_file:$(default_args))
 
 input_pattern           = $(input_pattern:/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/%s/sndLHC.Genie-TGeant4_digCPP.root)
 output_pattern          = $(output_pattern:/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_dimuonReco.root)
 
-output                  = out/tracking_part$(partition)_$(ClusterId)_$(ProcId).out
-error                   = err/tracking_part$(partition)_$(ClusterId)_$(ProcId).err
-log                     = log/tracking_$(ClusterId).log
+output                  = $(base_dir)/out/tracking_part$(partition)_$(ClusterId)_$(ProcId).out
+error                   = $(base_dir)/err/tracking_part$(partition)_$(ClusterId)_$(ProcId).err
+log                     = $(base_dir)/log/tracking_$(ClusterId).log
 
 getenv                  = False
 notification            = Never
@@ -35,7 +39,7 @@ requirements            = (OpSysAndVer =?= "AlmaLinux9")
 
 should_transfer_files   = YES
 when_to_transfer_output = ON_EXIT
-transfer_input_files    = sndswEnv.sh
+transfer_input_files    = $(base_dir)/sndswEnv.sh
 
 request_cpus            = 1
 request_memory          = 4GB

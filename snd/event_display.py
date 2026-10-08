@@ -443,6 +443,19 @@ class Snd2DEventDisplay:
             truth["dimuon_opening_angle_mrad"] = float(tree.dimuon_opening_angle_mrad)
         if hasattr(tree, "has_candidate"):
             truth["has_candidate"] = bool(tree.has_candidate)
+        if hasattr(tree, "is_cc"):
+            truth["is_cc"] = bool(tree.is_cc)
+        if hasattr(tree, "is_nc"):
+            truth["is_nc"] = bool(tree.is_nc)
+        if hasattr(tree, "is_numu_cc"):
+            truth["is_numu_cc"] = bool(tree.is_numu_cc)
+        if hasattr(tree, "is_anti_numu_cc"):
+            truth["is_anti_numu_cc"] = bool(tree.is_anti_numu_cc)
+
+        # Physical consistency check: A primary prompt muon only exists in CC interactions
+        if truth.get("mu1_p", 0.0) > 0.0:
+            truth["is_cc"] = True
+            truth["is_nc"] = False
 
         return truth
 
@@ -1011,18 +1024,15 @@ class Snd2DEventDisplay:
                 if tr_type == 0 and hasattr(aTrack, "GetUniqueID"):
                     tr_type = aTrack.GetUniqueID()
 
+                # Reconstructed tracks are colored Red to match the legend and contrast with detector geometry
                 if tr_type == 1:
                     track_color = ROOT.kBlue + 2     # SciFi track
-                elif tr_type == 3:
-                    track_color = ROOT.kBlack        # DS track
                 elif tr_type == 11:
                     track_color = ROOT.kAzure - 2    # HT SciFi track
-                elif tr_type == 13:
-                    track_color = ROOT.kGray + 2     # HT DS track
                 elif tr_type == 15:
                     track_color = ROOT.kOrange + 7   # HT cross-system track
                 else:
-                    track_color = ROOT.kRed          # Generic reco track
+                    track_color = ROOT.kRed          # DS tracks and generic reco tracks match legend (Red)
 
                 # Extract track points
                 pts = []

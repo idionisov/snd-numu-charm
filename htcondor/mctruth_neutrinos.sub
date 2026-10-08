@@ -1,0 +1,40 @@
+# ==============================================================================
+# HTCondor Submit File: SND@LHC MCTruth Neutrino Event Categorization
+#
+# Usage:
+#   condor_submit htcondor/mctruth_neutrinos.sub
+#   condor_submit htcondor/mctruth_neutrinos.sub flavour=workday
+#   condor_submit htcondor/mctruth_neutrinos.sub args_file=htcondor/args_partitions.txt
+# ==============================================================================
+
+executable              = run_mctruth_partition.sh
+arguments               = $(partition)
+
+flavour                 = $(flavour:longlunch)
+args_file               = $(args_file:args_partitions.txt)
+
+output                  = out/mctruth_part$(partition)_$(ClusterId)_$(ProcId).out
+error                   = err/mctruth_part$(partition)_$(ClusterId)_$(ProcId).err
+log                     = log/mctruth_$(ClusterId).log
+
+getenv                  = False
+notification            = Never
+requirements            = (OpSysAndVer =?= "AlmaLinux9")
+
+# CERN Job Flavours:
+#   espresso     : 20 min
+#   microcentury : 1 hour
+#   longlunch    : 2 hours (default - recommended for ~20-25m partition runs)
+#   workday      : 8 hours
++JobFlavour             = "$(flavour)"
++AccountingGroup        = "group_u_SNDLHC.users"
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = sndswEnv.sh
+
+request_cpus            = 1
+request_memory          = 4GB
+max_retries             = 2
+
+queue partition from $(args_file)

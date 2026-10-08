@@ -1,7 +1,7 @@
 {
   "metadata": {
     "description": "Lookup table of unique SND@LHC neutrino interaction channels and charm decays",
-    "total_primary_channels": 885,
+    "total_primary_channels": 886,
     "total_charm_decay_channels": 8
   },
   "primary_channels": {
@@ -24499,6 +24499,41 @@
         13
       ],
       "incoming_nu_pdg": 14
+    },
+    "-211,-211,-211,11,22,111,111,111,111,111,130,211,211,321,421,2212,2212": {
+      "channel_id": 886,
+      "key": "-211,-211,-211,11,22,111,111,111,111,111,130,211,211,321,421,2212,2212",
+      "formula": "e- + D0 + K+ + 3pi- + 2pi+ + K_L0 + 5pi0 + 2p + gamma",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -211,
+        11,
+        22,
+        111,
+        111,
+        111,
+        111,
+        111,
+        130,
+        211,
+        211,
+        321,
+        421,
+        2212,
+        2212
+      ],
+      "multiplicity": 17,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": true,
+      "charm_pdgs": [
+        421
+      ],
+      "primary_leptons": [
+        11
+      ],
+      "incoming_nu_pdg": 12
     }
   },
   "charm_decay_channels": {

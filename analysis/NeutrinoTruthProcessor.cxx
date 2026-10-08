@@ -558,6 +558,51 @@ NeutrinoTruthInfo NeutrinoTruthProcessor::process(const TClonesArray* mcTracks) 
         else if (hasE) info.charmDirectDecayMode = "to_electron";
         else if (!charmDaughters.empty()) info.charmDirectDecayMode = "hadronic";
         else info.charmDirectDecayMode = "none";
+
+        // Search for downstream decay muons from charm decay products
+        int downstreamMuId = -1;
+        double maxDownstreamP = -1.0;
+        for (int i = 1; i < nTracks; ++i) {
+            if (i == lepId) continue;
+            auto* trk = static_cast<ShipMCTrack*>(mcTracks->At(i));
+            if (!trk || std::abs(trk->GetPdgCode()) != 13) continue;
+
+            int directMother = trk->GetMotherId();
+            if (directMother == info.charmTrackId) continue; // Skip direct charm daughter
+
+            int currMother = directMother;
+            bool isCharmDescendant = false;
+            while (currMother > 0 && currMother < nTracks) {
+                if (currMother == info.charmTrackId) {
+                    isCharmDescendant = true;
+                    break;
+                }
+                auto* parent = static_cast<ShipMCTrack*>(mcTracks->At(currMother));
+                if (!parent) break;
+                currMother = parent->GetMotherId();
+            }
+
+            if (isCharmDescendant && trk->GetP() > maxDownstreamP) {
+                maxDownstreamP = trk->GetP();
+                downstreamMuId = i;
+            }
+        }
+
+        if (downstreamMuId >= 0) {
+            auto* dsTrk = static_cast<ShipMCTrack*>(mcTracks->At(downstreamMuId));
+            info.hasDownstreamCharmMuon = true;
+            info.downstreamMuonTrackId = downstreamMuId;
+            info.downstreamMuonPdg = dsTrk->GetPdgCode();
+            info.downstreamMuonP = dsTrk->GetP();
+            info.downstreamMuonPt = dsTrk->GetPt();
+            info.downstreamMuonMotherTrackId = dsTrk->GetMotherId();
+            if (info.downstreamMuonMotherTrackId >= 0 && info.downstreamMuonMotherTrackId < nTracks) {
+                auto* mother = static_cast<ShipMCTrack*>(mcTracks->At(info.downstreamMuonMotherTrackId));
+                if (mother) info.downstreamMuonMotherPdg = mother->GetPdgCode();
+            }
+        }
+
+        info.hasCharmHadronicDownstreamMuon = (info.isCC && info.hasCharm && !info.charmHasDirectMuon && info.hasDownstreamCharmMuon);
     }
 
     return info;

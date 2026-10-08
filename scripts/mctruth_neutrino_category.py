@@ -154,7 +154,7 @@ def parse_arguments():
     parser.add_argument(
         "-c", "--config",
         type=str,
-        default=os.path.join(_repo_root, "config", "select_category_config.yaml"),
+        default=os.path.join(_repo_root, "config", "mctruth_neutrino_categories.yaml"),
         help="Path to YAML configuration file",
     )
     parser.add_argument(
@@ -197,20 +197,13 @@ def main():
     input_cfg = cfg.get("input", {})
     file_pattern = args.input if args.input is not None else input_cfg.get(
         "file_pattern",
-        "/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_categorized.root"
+        "/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_truth.root"
     )
     truth_tree_name = input_cfg.get("truth_tree_name", "truth")
     event_tree_name = input_cfg.get("event_tree_name", "cbmsim")
     max_files = input_cfg.get("max_files", -1)
 
-    output_cfg = cfg.get("output", {})
-    output_suffix = output_cfg.get("output_suffix", "_truth_numuCC_charmToMu.root")
-    output_dir_override = output_cfg.get("output_dir", None)
-    write_empty_files = args.write_empty_files and output_cfg.get("write_empty_files", True)
-    copy_metadata = output_cfg.get("copy_metadata", True)
-    create_symlinks = args.create_symlinks and output_cfg.get("create_symlinks", True)
-
-    # 2. Resolve Category Criteria
+    # 2. Resolve Category Criteria & Category-Specific Suffix
     selection_cfg = cfg.get("selection", {})
     category_name = args.category if args.category is not None else selection_cfg.get("active_category", "numuCC_charmToMu")
     categories_dict = selection_cfg.get("categories", {})
@@ -222,6 +215,13 @@ def main():
 
     cat_cfg = categories_dict[category_name]
     cat_desc = cat_cfg.get("description", "No description provided")
+
+    output_cfg = cfg.get("output", {})
+    output_suffix = cat_cfg.get("output_suffix", output_cfg.get("output_suffix", f"_truth_{category_name}.root"))
+    output_dir_override = output_cfg.get("output_dir", None)
+    write_empty_files = args.write_empty_files and output_cfg.get("write_empty_files", True)
+    copy_metadata = output_cfg.get("copy_metadata", True)
+    create_symlinks = args.create_symlinks and output_cfg.get("create_symlinks", True)
 
     # 3. Resolve Tasks
     selected_partitions = parse_partitions(args.partitions)

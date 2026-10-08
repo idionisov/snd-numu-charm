@@ -234,14 +234,18 @@ def setup_truth_branches(trees: List[ROOT.TTree], active_tiers: Set[str]) -> Dic
             "n_primary_hadrons",
             "charm_decay_channel_id",
             "charm_has_direct_muon", "charm_has_direct_electron",
-            "charm_has_direct_pion", "charm_has_direct_kaon"
+            "charm_has_direct_pion", "charm_has_direct_kaon",
+            "has_downstream_charm_muon", "downstream_muon_track_id",
+            "downstream_muon_pdg", "downstream_muon_mother_pdg",
+            "has_charm_hadronic_downstream_muon"
         ])
         double_vars.extend([
             "mc_weight", "raw_weight",
             "nu_e", "nu_p", "nu_px", "nu_py", "nu_pz", "nu_pt", "nu_eta", "nu_phi", "nu_theta",
             "vtx_x", "vtx_y", "vtx_z", "vtx_t",
             "q2", "bjorken_x", "inelasticity_y", "hadronic_w",
-            "hadronic_e_total", "hadronic_pt", "missing_pt"
+            "hadronic_e_total", "hadronic_pt", "missing_pt",
+            "downstream_muon_p", "downstream_muon_pt"
         ])
 
     # 2. Primary Lepton Tier
@@ -350,6 +354,13 @@ def fill_truth_buffers(buffers: dict, info: Any, entry_idx: int, active_tiers: S
         buffers["charm_has_direct_electron"][0] = int(getattr(info, "charmHasDirectElectron", False))
         buffers["charm_has_direct_pion"][0] = int(getattr(info, "charmHasDirectPion", False))
         buffers["charm_has_direct_kaon"][0] = int(getattr(info, "charmHasDirectKaon", False))
+        buffers["has_downstream_charm_muon"][0] = int(getattr(info, "hasDownstreamCharmMuon", False))
+        buffers["downstream_muon_track_id"][0] = int(getattr(info, "downstreamMuonTrackId", -1))
+        buffers["downstream_muon_pdg"][0] = int(getattr(info, "downstreamMuonPdg", 0))
+        buffers["downstream_muon_mother_pdg"][0] = int(getattr(info, "downstreamMuonMotherPdg", 0))
+        buffers["has_charm_hadronic_downstream_muon"][0] = int(getattr(info, "hasCharmHadronicDownstreamMuon", False))
+        buffers["downstream_muon_p"][0] = float(getattr(info, "downstreamMuonP", 0.0))
+        buffers["downstream_muon_pt"][0] = float(getattr(info, "downstreamMuonPt", 0.0))
 
         buffers["is_cc"][0] = int(info.isCC)
         buffers["is_nc"][0] = int(info.isNC)
@@ -1178,6 +1189,7 @@ def process_categorized_neutrino_file(
     n_charm_to_muon = 0
     n_charm_to_electron = 0
     n_charm_hadronic = 0
+    n_charm_hadronic_downstream_mu = 0
     channel_ids = set()
 
     for iev in range(n_process):
@@ -1206,6 +1218,8 @@ def process_categorized_neutrino_file(
                 n_charm_to_electron += 1
             elif getattr(info, "charmDirectDecayMode", "") == "hadronic":
                 n_charm_hadronic += 1
+            if getattr(info, "hasCharmHadronicDownstreamMuon", False):
+                n_charm_hadronic_downstream_mu += 1
         channel_ids.add(truth_buffers["channel_id"][0])
 
     f_out.cd()
@@ -1246,6 +1260,7 @@ def process_categorized_neutrino_file(
         "n_charm_to_muon": n_charm_to_muon,
         "n_charm_to_electron": n_charm_to_electron,
         "n_charm_hadronic": n_charm_hadronic,
+        "n_charm_hadronic_downstream_mu": n_charm_hadronic_downstream_mu,
         "n_unique_channels": len(channel_ids),
         "symlinks_created": symlinks_created,
         "status": "success",

@@ -191,6 +191,18 @@ struct NeutrinoTruthInfo {
     bool charmHasDirectPion{false};      // Charmed hadron directly decayed to a pion
     bool charmHasDirectKaon{false};      // Charmed hadron directly decayed to a kaon
 
+    // -------------------------------------------------------------
+    // 9. Downstream Decay Muon from Charm Hadronic Decay Products
+    // -------------------------------------------------------------
+    bool hasDownstreamCharmMuon{false};          // Muon produced downstream from charm decay products
+    int downstreamMuonTrackId{-1};               // MCTrack ID of the downstream muon
+    int downstreamMuonPdg{0};                    // PDG of downstream muon (+13 or -13)
+    int downstreamMuonMotherTrackId{-1};         // Direct mother track ID (e.g. pi or K)
+    int downstreamMuonMotherPdg{0};              // Direct mother PDG (e.g. 211, 321)
+    double downstreamMuonP{0.0};                 // Momentum of downstream muon [GeV/c]
+    double downstreamMuonPt{0.0};                // Transverse momentum [GeV/c]
+    bool hasCharmHadronicDownstreamMuon{false};   // nu_mu CC + charm + hadronic decay + downstream muon
+
     const char* getInteractionName() const {
         return interactionName.c_str();
     }

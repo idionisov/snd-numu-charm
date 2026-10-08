@@ -11,9 +11,9 @@ input:
 
 # Output directory and naming convention (overridden by -o flag from CLI)
 output:
-  output_pattern: "/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_categorized.root"
+  output_pattern: "/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_truth.root"
   output_dir: "/eos/user/i/idioniso/snd-numu-charm/data"
-  file_suffix: "_categorized"
+  file_suffix: "_truth"
   preserve_subdirs: true
   symlink_input_root_files: true
 

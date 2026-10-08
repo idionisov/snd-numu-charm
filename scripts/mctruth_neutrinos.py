@@ -193,7 +193,7 @@ def parse_arguments():
     parser.add_argument(
         "-c", "--config",
         type=str,
-        default=os.path.join(_repo_root, "config", "filter_neutrinos_config.yaml"),
+        default=os.path.join(_repo_root, "config", "mctruth_neutrinos_config.yaml"),
         help="Path to YAML configuration file",
     )
     parser.add_argument(
@@ -401,6 +401,7 @@ def main():
     tot_charm_mu = 0
     tot_charm_e = 0
     tot_charm_had = 0
+    tot_charm_ds_mu = 0
 
     for r in results:
         for flv, cnt in r.get("flavor_counts", {}).items():
@@ -411,6 +412,7 @@ def main():
         tot_charm_mu += r.get("n_charm_to_muon", 0)
         tot_charm_e += r.get("n_charm_to_electron", 0)
         tot_charm_had += r.get("n_charm_hadronic", 0)
+        tot_charm_ds_mu += r.get("n_charm_hadronic_downstream_mu", 0)
 
     print("\n" + "=" * 80)
     print(" OVERALL NEUTRINO CATEGORIZATION SUMMARY")
@@ -431,11 +433,12 @@ def main():
         flv_str = str(flv)
         print(f"  {flv_str:<24} : {count:8d} ({pct:6.2f}%)")
     print("-" * 80)
-    print(" CHARMED HADRON PRODUCTION & DIRECT DECAY BREAKDOWN:")
-    print(f"  Total Charmed Hadron Events : {tot_charm:8d} ({100.0 * tot_charm / max(tot_events_all, 1):6.2f}% of all events)")
-    print(f"  Direct Decay to Muon (mu2)  : {tot_charm_mu:8d} ({100.0 * tot_charm_mu / max(tot_charm, 1):6.2f}% of charm)")
-    print(f"  Direct Decay to Electron    : {tot_charm_e:8d} ({100.0 * tot_charm_e / max(tot_charm, 1):6.2f}% of charm)")
-    print(f"  Direct Hadronic Decay       : {tot_charm_had:8d} ({100.0 * tot_charm_had / max(tot_charm, 1):6.2f}% of charm)")
+    print(" CHARMED HADRON PRODUCTION & DECAY BREAKDOWN:")
+    print(f"  Total Charmed Hadron Events         : {tot_charm:8d} ({100.0 * tot_charm / max(tot_events_all, 1):6.2f}% of all events)")
+    print(f"  Direct Decay to Muon (Prompt mu2)   : {tot_charm_mu:8d} ({100.0 * tot_charm_mu / max(tot_charm, 1):6.2f}% of charm)")
+    print(f"  Direct Decay to Electron            : {tot_charm_e:8d} ({100.0 * tot_charm_e / max(tot_charm, 1):6.2f}% of charm)")
+    print(f"  Direct Hadronic Decay               : {tot_charm_had:8d} ({100.0 * tot_charm_had / max(tot_charm, 1):6.2f}% of charm)")
+    print(f"  Hadronic Decay with Downstream Muon : {tot_charm_ds_mu:8d} ({100.0 * tot_charm_ds_mu / max(tot_charm, 1):6.2f}% of charm)")
     print("-" * 80)
     print(f"Unique Primary Channels in Lookup Table : {len(ch_mgr.primary_channels)}")
     print(f"Unique Charm Decays in Lookup Table    : {len(ch_mgr.charm_decay_channels)}")

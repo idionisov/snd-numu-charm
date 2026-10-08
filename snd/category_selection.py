@@ -52,6 +52,9 @@ def build_category_predicate(cat_cfg: Dict[str, Any]) -> Callable[[Any], bool]:
     require_direct_charm_muon = bool(cat_cfg.get("require_direct_charm_muon", False))
     require_charm_parent = bool(cat_cfg.get("require_charm_parent", False))
     require_direct_charm_electron = bool(cat_cfg.get("require_direct_charm_electron", False))
+    require_hadronic_charm_decay = bool(cat_cfg.get("require_hadronic_charm_decay", False))
+    require_downstream_charm_muon = bool(cat_cfg.get("require_downstream_charm_muon", False))
+    require_not_direct_charm_muon = bool(cat_cfg.get("require_not_direct_charm_muon", False))
     require_opposite_sign = bool(cat_cfg.get("require_opposite_sign", False))
     require_ds_acceptance = bool(cat_cfg.get("require_ds_acceptance", False))
     require_fiducial = bool(cat_cfg.get("require_fiducial", False))
@@ -104,7 +107,26 @@ def build_category_predicate(cat_cfg: Dict[str, Any]) -> Callable[[Any], bool]:
             if has_direct_e != 1:
                 return False
 
-        # 7. Optional downstream requirements
+        # 7. Hadronic charm decay requirement
+        if require_hadronic_charm_decay:
+            has_direct_mu = int(getattr(truth_entry, "charm_has_direct_muon", 0))
+            has_direct_e = int(getattr(truth_entry, "charm_has_direct_electron", 0))
+            if has_direct_mu == 1 or has_direct_e == 1:
+                return False
+
+        if require_not_direct_charm_muon:
+            has_direct_mu = int(getattr(truth_entry, "charm_has_direct_muon", 0))
+            if has_direct_mu == 1:
+                return False
+
+        # 8. Downstream muon from charm decay products
+        if require_downstream_charm_muon:
+            has_ds_mu = int(getattr(truth_entry, "has_downstream_charm_muon", 0))
+            has_ds_full = int(getattr(truth_entry, "has_charm_hadronic_downstream_muon", 0))
+            if has_ds_mu != 1 and has_ds_full != 1:
+                return False
+
+        # 9. Optional downstream requirements
         if require_opposite_sign:
             if int(getattr(truth_entry, "is_opposite_sign", 0)) != 1:
                 return False

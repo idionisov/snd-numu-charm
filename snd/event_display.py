@@ -823,6 +823,10 @@ class Snd2DEventDisplay:
                         if q > 0:
                             this_qdc += q
 
+                # Only draw bars that actually registered positive signal (QDC > 0)
+                if this_qdc <= 0.0:
+                    continue
+
                 if self.color_by_qdc_and_density:
                     qdc_capped = min(this_qdc, self.max_qdc)
                     qdc_col_idx = int(qdc_capped / self.max_qdc * (n_pal - 1))

@@ -1,0 +1,49 @@
+# ==============================================================================
+# SND@LHC: Neutrino Event Category Selection Configuration
+# ==============================================================================
+
+# Input dataset specification
+input:
+  # Accepts categorized files from scripts/filter_neutrinos.py
+  # Supports wildcard '*' and '%s' partition placeholder
+  file_pattern: "/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_categorized.root"
+  truth_tree_name: "truth"
+  event_tree_name: "cbmsim"
+  max_files: -1
+
+# Output specification
+output:
+  # Base suffix for the output ROOT file
+  # Automatically replaces "_truth.root" or "_categorized.root" with this suffix
+  output_suffix: "_truth_numuCC_charmToMu.root"
+  # Target directory pattern (null preserves the input partition directory)
+  output_dir: null
+  # Whether to create valid empty ROOT trees if 0 events match in a partition
+  write_empty_files: true
+  # Copy FairRoot metadata (BranchList, FileHeader) to output ROOT files
+  copy_metadata: true
+  # Create symlinks to auxiliary geofile and geometry in output partition
+  create_symlinks: true
+
+# Category selection definition
+selection:
+  # Active category to filter on (must match one key under 'categories')
+  active_category: "numuCC_charmToMu"
+
+  # Category definitions: easily extensible for future topology selections
+  categories:
+    numuCC_charmToMu:
+      name: "numuCC_charmToMu"
+      description: "muon neutrino CC interaction that creates a charm hadron that directly decays semileptonically with an outgoing muon, whose parent particle is that charm hadron"
+      # Neutrino interaction criteria
+      flavor: "numu"                      # nu_mu or anti_nu_mu (|nu_pdg| == 14)
+      interaction: "CC"                   # Charged current (is_cc == 1)
+      # Charmed hadron production criteria
+      require_charm: true                 # Event produces at least one charmed hadron (has_charm == 1)
+      # Direct charm decay criteria
+      require_direct_charm_muon: true     # Direct outgoing muon from charm (charm_has_direct_muon == 1)
+      require_charm_parent: true          # Muon parent is the charm hadron (mu2_mother_track_id == charm_track_id)
+      # Optional downstream kinematic filters (default disabled)
+      require_opposite_sign: false        # Opposite-sign dimuon requirement (is_opposite_sign == 1)
+      require_ds_acceptance: false        # Second muon within Downstream MuFilter acceptance
+      require_fiducial: false             # Primary vertex within target fiducial volume

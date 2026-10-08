@@ -41,6 +41,11 @@ from .filter import (
     count_mu2_ds_mcpoints,
     is_dimuon_in_ds_acceptance,
 )
+from .category_selection import (
+    derive_category_output_path,
+    build_category_predicate,
+    select_categorized_events_single_file,
+)
 from .cuts import (
     AvgScifiFiducialCut,
     get_avg_scifi_fiducial_cut,
@@ -127,4 +132,7 @@ __all__ = [
     "count_ds_mcpoints",
     "count_mu2_ds_mcpoints",
     "is_dimuon_in_ds_acceptance",
+    "derive_category_output_path",
+    "build_category_predicate",
+    "select_categorized_events_single_file",
 ]

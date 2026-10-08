@@ -114,8 +114,18 @@ def run_single_partition(p, script_path, in_pat, trk_pat, tru_pat, dsp_pat, log_
         retcode = proc.returncode
 
     duration = time.time() - t0
-    status = "success" if retcode == 0 else f"failed (exit {retcode})"
-    return p, status, duration
+    err_tail = ""
+    if retcode == 0:
+        status = "success"
+    else:
+        status = f"failed (exit {retcode})"
+        try:
+            with open(log_file, "r") as lf:
+                lines = [line.strip() for line in lf if line.strip()]
+                err_tail = " | ".join(lines[-3:]) if lines else "No log output recorded"
+        except Exception as e:
+            err_tail = str(e)
+    return p, status, duration, err_tail
 
 
 def main():
@@ -256,9 +266,9 @@ def main():
         for fut in as_completed(active_futures):
             p = active_futures[fut]
             try:
-                part, status, duration = fut.result()
+                part, status, duration, err_tail = fut.result()
             except Exception as e:
-                part, status, duration = p, f"exception ({e})", 0.0
+                part, status, duration, err_tail = p, f"exception ({e})", 0.0, str(e)
 
             if status == "success":
                 succeeded += 1
@@ -284,6 +294,8 @@ def main():
                 f"Total: {completed_count}/{total_count} ({pct:>5.1f}%) | "
                 f"Rate: {rate:>4.1f}/min | ETA: {eta_str}"
             )
+            if err_tail and status != "success" and status != "cancelled":
+                print(f"         \033[33mError log tail:\033[0m {err_tail}")
 
             if stop_requested:
                 break

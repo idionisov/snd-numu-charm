@@ -27,19 +27,23 @@ if [ ! -d "$REPO_DIR" ]; then
     REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 fi
 
-# 1. Setup sndsw environment
-if [ -f "${SCRIPT_DIR}/sndswEnv.sh" ]; then
-    echo " ~ [1/6] Sourcing local static environment: ${SCRIPT_DIR}/sndswEnv.sh"
-    source "${SCRIPT_DIR}/sndswEnv.sh"
-elif [ -f "${REPO_DIR}/htcondor/tracking_and_truth/sndswEnv.sh" ]; then
-    echo " ~ [1/6] Sourcing tracking_and_truth environment: ${REPO_DIR}/htcondor/tracking_and_truth/sndswEnv.sh"
-    source "${REPO_DIR}/htcondor/tracking_and_truth/sndswEnv.sh"
-elif [ -f "${REPO_DIR}/htcondor/tracking/sndswEnv.sh" ]; then
-    echo " ~ [1/6] Sourcing tracking static environment: ${REPO_DIR}/htcondor/tracking/sndswEnv.sh"
-    source "${REPO_DIR}/htcondor/tracking/sndswEnv.sh"
-elif [ -f "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh" ]; then
-    echo " ~ [1/6] Sourcing CVMFS stack fallback: /cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
-    source "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
+# 1. Setup sndsw environment (only if not already loaded in current shell)
+if [ -z "${SNDSW_ROOT}" ]; then
+    if [ -f "${SCRIPT_DIR}/sndswEnv.sh" ]; then
+        echo " ~ [1/6] Sourcing local static environment: ${SCRIPT_DIR}/sndswEnv.sh"
+        source "${SCRIPT_DIR}/sndswEnv.sh"
+    elif [ -f "${REPO_DIR}/htcondor/tracking_and_truth/sndswEnv.sh" ]; then
+        echo " ~ [1/6] Sourcing tracking_and_truth environment: ${REPO_DIR}/htcondor/tracking_and_truth/sndswEnv.sh"
+        source "${REPO_DIR}/htcondor/tracking_and_truth/sndswEnv.sh"
+    elif [ -f "${REPO_DIR}/htcondor/tracking/sndswEnv.sh" ]; then
+        echo " ~ [1/6] Sourcing tracking static environment: ${REPO_DIR}/htcondor/tracking/sndswEnv.sh"
+        source "${REPO_DIR}/htcondor/tracking/sndswEnv.sh"
+    elif [ -f "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh" ]; then
+        echo " ~ [1/6] Sourcing CVMFS stack fallback: /cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
+        source "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
+    fi
+else
+    echo " ~ [1/6] Using existing environment (SNDSW_ROOT=${SNDSW_ROOT})"
 fi
 
 # 2. Configure repository environment paths

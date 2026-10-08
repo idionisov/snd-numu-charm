@@ -1,0 +1,48 @@
+# ==============================================================================
+# HTCondor Submit File: SND@LHC Chained Dimuon Tracking -> MCTruth Pipeline
+#
+# Usage:
+#   condor_submit htcondor/tracking_and_truth/pipeline.sub
+#   condor_submit htcondor/tracking_and_truth/pipeline.sub flavour=workday
+#   condor_submit htcondor/tracking_and_truth/pipeline.sub args_file=path/to/custom_partitions.txt
+#   condor_submit htcondor/tracking_and_truth/pipeline.sub input_pattern="..." track_pattern="..." truth_pattern="..."
+# ==============================================================================
+
+base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/tracking_and_truth
+initialdir              = $(base_dir)
+
+executable              = $(base_dir)/run_pipeline_partition.sh
+arguments               = $(partition) $(input_pattern) $(track_pattern) $(truth_pattern)
+
+flavour                 = $(flavour:longlunch)
+default_args            = $(base_dir)/args_partitions.txt
+args_file               = $(args_file:$(default_args))
+
+input_pattern           = $(input_pattern:/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/%s/sndLHC.Genie-TGeant4_digCPP.root)
+track_pattern           = $(track_pattern:/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks.root)
+truth_pattern           = $(truth_pattern:/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks_truth.root)
+
+output                  = $(base_dir)/out/pipeline_part$(partition)_$(ClusterId)_$(ProcId).out
+error                   = $(base_dir)/err/pipeline_part$(partition)_$(ClusterId)_$(ProcId).err
+log                     = $(base_dir)/log/pipeline_$(ClusterId).log
+
+getenv                  = False
+notification            = Never
+requirements            = (OpSysAndVer =?= "AlmaLinux9")
+
+# CERN Job Flavours:
+#   microcentury : 1 hour
+#   longlunch    : 2 hours (default - recommended for combined tracking + truth)
+#   workday      : 8 hours
++JobFlavour             = "$(flavour)"
++AccountingGroup        = "group_u_SNDLHC.users"
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = $(base_dir)/sndswEnv.sh
+
+request_cpus            = 1
+request_memory          = 4GB
+max_retries             = 2
+
+queue partition from $(args_file)

@@ -75,10 +75,12 @@ def parse_partition_spec(spec_str):
     return sorted(list(set(parts)))
 
 
-def is_partition_complete(p, truth_pat, disp_pat):
-    """Checks if a partition already has valid truth and display outputs."""
-    truth_file = truth_pat % p
+def is_partition_complete(p, truth_pat, disp_pat, displays_only=False):
+    """Checks if a partition already has valid outputs."""
     disp_file = disp_pat % p
+    if displays_only:
+        return os.path.isfile(disp_file) and os.path.getsize(disp_file) > 500
+    truth_file = truth_pat % p
     if os.path.isfile(truth_file) and os.path.getsize(truth_file) > 1000:
         if os.path.isfile(disp_file) and os.path.getsize(disp_file) > 500:
             return True
@@ -115,12 +117,15 @@ def create_partition_symlinks(p, in_pat, trk_pat):
         pass
 
 
-def run_single_partition(p, script_path, in_pat, trk_pat, tru_pat, dsp_pat, log_dir, create_symlinks=True):
+def run_single_partition(
+    p, script_path, in_pat, trk_pat, tru_pat, dsp_pat, log_dir,
+    create_symlinks=True, displays_only=False, force=False
+):
     """Executes run_pipeline_partition.sh for a single partition and logs to a file."""
     if stop_requested:
         return p, "cancelled", 0.0, ""
 
-    if create_symlinks:
+    if create_symlinks and not displays_only:
         create_partition_symlinks(p, in_pat, trk_pat)
 
     log_file = os.path.join(log_dir, f"pipeline_part{p}.log")
@@ -133,13 +138,20 @@ def run_single_partition(p, script_path, in_pat, trk_pat, tru_pat, dsp_pat, log_
         dsp_pat,
     ]
 
+    env = os.environ.copy()
+    if displays_only:
+        env["DISPLAYS_ONLY"] = "1"
+    if force:
+        env["FORCE"] = "1"
+
     t0 = time.time()
     with open(log_file, "w") as lf:
         proc = subprocess.Popen(
             cmd,
             stdout=lf,
             stderr=subprocess.STDOUT,
-            preexec_fn=os.setsid
+            preexec_fn=os.setsid,
+            env=env,
         )
 
         while proc.poll() is None:
@@ -232,6 +244,11 @@ def main():
         help="Force reprocessing even if partition outputs already exist."
     )
     parser.add_argument(
+        "--displays-only",
+        action="store_true",
+        help="Only extract event displays (Step 3) using already existing truth ROOT files.",
+    )
+    parser.add_argument(
         "--no-symlinks",
         dest="create_symlinks",
         action="store_false",
@@ -269,10 +286,13 @@ def main():
     print("  SND@LHC Parallel Pipeline Orchestrator")
     print("=" * 76)
     print(f"  Preset Dataset    : {args.preset}")
+    if args.displays_only:
+        print("  Pipeline Mode     : Event Displays Only (Step 3)")
     print(f"  Parallel Workers  : {args.jobs}")
     print(f"  Total Partitions  : {len(partitions)}")
-    print(f"  Input Pattern     : {in_pat}")
-    print(f"  Tracking Target   : {trk_pat}")
+    if not args.displays_only:
+        print(f"  Input Pattern     : {in_pat}")
+        print(f"  Tracking Target   : {trk_pat}")
     print(f"  Truth Target      : {tru_pat}")
     print(f"  Displays Target   : {dsp_pat}")
     print(f"  Partition Logs Dir: {log_dir}")
@@ -282,7 +302,7 @@ def main():
     to_run = []
     already_done = 0
     for p in partitions:
-        if not args.force and is_partition_complete(p, tru_pat, dsp_pat):
+        if not args.force and is_partition_complete(p, tru_pat, dsp_pat, displays_only=args.displays_only):
             already_done += 1
         else:
             to_run.append(p)
@@ -290,7 +310,7 @@ def main():
     print(f"  Status Summary    : {already_done} already completed | {len(to_run)} to process\n")
 
     # If symlinks enabled, ensure already completed partitions also have original ROOT files linked
-    if args.create_symlinks and already_done > 0:
+    if args.create_symlinks and not args.displays_only and already_done > 0:
         for p in partitions:
             if p not in to_run:
                 create_partition_symlinks(p, in_pat, trk_pat)
@@ -312,7 +332,10 @@ def main():
                 break
             fut = executor.submit(
                 run_single_partition,
-                p, pipeline_script, in_pat, trk_pat, tru_pat, dsp_pat, log_dir, args.create_symlinks
+                p, pipeline_script, in_pat, trk_pat, tru_pat, dsp_pat, log_dir,
+                create_symlinks=args.create_symlinks,
+                displays_only=args.displays_only,
+                force=args.force,
             )
             active_futures[fut] = p
 

@@ -105,58 +105,62 @@ echo "======================================================================"
 
 cd "${REPO_DIR}"
 
-# 4. Step 1: Run Dimuon Tracking
-echo " ~ [3/6] Step 1/3: Running dimuon tracking for partition ${PARTITION}..."
-set +e
-"${PYTHON_BIN}" "${TRACK_SCRIPT}" \
-    -i "${INPUT_PATTERN}" \
-    -o "${TRACK_PATTERN}" \
-    -p "${PARTITION}" \
-    -j 1 \
-    -t "dimuon_DS" \
-    --nTracks 2 \
-    --skip-existing
-TRACK_EXIT=$?
-set -e
+if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
+    # 4. Step 1: Run Dimuon Tracking
+    echo " ~ [3/6] Step 1/3: Running dimuon tracking for partition ${PARTITION}..."
+    set +e
+    "${PYTHON_BIN}" "${TRACK_SCRIPT}" \
+        -i "${INPUT_PATTERN}" \
+        -o "${TRACK_PATTERN}" \
+        -p "${PARTITION}" \
+        -j 1 \
+        -t "dimuon_DS" \
+        --nTracks 2 \
+        --skip-existing
+    TRACK_EXIT=$?
+    set -e
 
-# 0 or 143 (SIGTERM atexit handler in FairRoot) is considered normal success
-if [ $TRACK_EXIT -ne 0 ] && [ $TRACK_EXIT -ne 143 ]; then
-    echo "ERROR: Dimuon tracking failed for partition ${PARTITION} with exit code ${TRACK_EXIT}." >&2
-    exit $TRACK_EXIT
-fi
+    # 0 or 143 (SIGTERM atexit handler in FairRoot) is considered normal success
+    if [ $TRACK_EXIT -ne 0 ] && [ $TRACK_EXIT -ne 143 ]; then
+        echo "ERROR: Dimuon tracking failed for partition ${PARTITION} with exit code ${TRACK_EXIT}." >&2
+        exit $TRACK_EXIT
+    fi
 
-if [ ! -f "${TRACK_FILE}" ]; then
-    echo "ERROR: Expected tracking output file does not exist: ${TRACK_FILE}" >&2
-    exit 3
-fi
-echo " ~ Tracking output verified: ${TRACK_FILE}"
+    if [ ! -f "${TRACK_FILE}" ]; then
+        echo "ERROR: Expected tracking output file does not exist: ${TRACK_FILE}" >&2
+        exit 3
+    fi
+    echo " ~ Tracking output verified: ${TRACK_FILE}"
 
-# 5. Step 2: Run MCTruth Extraction on tracked dimuon events
-echo " ~ [4/6] Step 2/3: Running MCTruth extraction on tracked dimuon events..."
-"${PYTHON_BIN}" "${TRUTH_SCRIPT}" \
-    -i "${TRACK_PATTERN}" \
-    -o "${TRUTH_PATTERN}" \
-    -p "${PARTITION}" \
-    -j 1 \
-    -c "${CONFIG_FILE}" \
-    --skip-existing \
-    --no-symlink-input
-TRUTH_EXIT=$?
+    # 5. Step 2: Run MCTruth Extraction on tracked dimuon events
+    echo " ~ [4/6] Step 2/3: Running MCTruth extraction on tracked dimuon events..."
+    "${PYTHON_BIN}" "${TRUTH_SCRIPT}" \
+        -i "${TRACK_PATTERN}" \
+        -o "${TRUTH_PATTERN}" \
+        -p "${PARTITION}" \
+        -j 1 \
+        -c "${CONFIG_FILE}" \
+        --skip-existing \
+        --no-symlink-input
+    TRUTH_EXIT=$?
 
-if [ $TRUTH_EXIT -ne 0 ]; then
-    echo "ERROR: MCTruth extraction failed for partition ${PARTITION} with exit code ${TRUTH_EXIT}." >&2
-    exit $TRUTH_EXIT
+    if [ $TRUTH_EXIT -ne 0 ]; then
+        echo "ERROR: MCTruth extraction failed for partition ${PARTITION} with exit code ${TRUTH_EXIT}." >&2
+        exit $TRUTH_EXIT
+    fi
+else
+    echo " ~ [Displays-Only Mode] Skipping Step 1 (Tracking) and Step 2 (Truth Extraction)."
 fi
 
 if [ ! -f "${TRUTH_FILE}" ]; then
     echo "ERROR: Expected truth output file does not exist: ${TRUTH_FILE}" >&2
     exit 4
 fi
-echo " ~ Truth output verified: ${TRUTH_FILE}"
+echo " ~ Truth input verified: ${TRUTH_FILE}"
 
 # 6. Step 3: Run 2D Event Display Generation
 echo " ~ [5/6] Step 3/3: Generating 2D Event Displays for partition ${PARTITION}..."
-if [ -f "${DISP_FILE}" ] && [ $(stat -c%s "${DISP_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
+if [ "${FORCE:-0}" != "1" ] && [ "${FORCE_DISPLAYS:-0}" != "1" ] && [ -f "${DISP_FILE}" ] && [ $(stat -c%s "${DISP_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
     echo " ~ Event display file already exists and is non-empty: ${DISP_FILE} (skipping)"
 else
     set +e

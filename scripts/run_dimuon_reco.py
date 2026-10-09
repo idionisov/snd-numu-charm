@@ -354,6 +354,24 @@ def main():
         help="Required minimum number of reconstructed tracks to save event",
     )
     parser.add_argument(
+        "--store-events",
+        choices=["all", "two_tracks"],
+        default=None,
+        help="Whether to store all events or only events with at least two tracks ('all' sets nTracks=0, 'two_tracks' sets nTracks=2)",
+    )
+    parser.add_argument(
+        "--all-events",
+        action="store_true",
+        default=False,
+        help="Store all events in output file regardless of reconstructed track count (sets nTracks=0)",
+    )
+    parser.add_argument(
+        "--two-tracks-only",
+        action="store_true",
+        default=False,
+        help="Store only events with at least two reconstructed tracks (sets nTracks=2)",
+    )
+    parser.add_argument(
         "--no-ht",
         dest="hough_tracking",
         action="store_false",
@@ -388,6 +406,14 @@ def main():
 
     args, extra_args = parser.parse_known_args()
 
+    # Determine effective nTracks based on storage mode flags
+    if args.all_events or args.store_events == "all":
+        effective_n_tracks = 0
+    elif args.two_tracks_only or args.store_events == "two_tracks":
+        effective_n_tracks = 2
+    else:
+        effective_n_tracks = args.nTracks
+
     # 1. Resolve tracking script location
     tracking_script = resolve_tracking_script()
 
@@ -406,6 +432,8 @@ def main():
     else:
         target_partitions = [0]
 
+    storage_mode_desc = "All Events (nTracks=0)" if effective_n_tracks == 0 else f"Min {effective_n_tracks} Tracks"
+
     print("=" * 80)
     print(" SND@LHC DOWNSTREAM DIMUON RECONSTRUCTION")
     print("=" * 80)
@@ -413,7 +441,7 @@ def main():
     print(f" Output Pattern:      {args.output}")
     print(f" Track Script:        {tracking_script}")
     print(f" Track Type:          {args.track_type}")
-    print(f" Minimum Tracks:      {args.nTracks}")
+    print(f" Event Storage:       {storage_mode_desc}")
     print(f" Hough Tracking:      {args.hough_tracking}")
     print(f" Start / Max Events:  {args.start_event} / {args.n_events if args.n_events >= 0 else 'All'}")
     print(f" Parallel Workers:    {args.jobs}")
@@ -463,7 +491,7 @@ def main():
         print("\n[Dry Run] Sample commands that would be executed:")
         for t in tasks_to_run[:5]:
             cmd_preview = (
-                f"python {tracking_script} -ht -t {args.track_type} --nTracks {args.nTracks} "
+                f"python {tracking_script} -ht -t {args.track_type} --nTracks {effective_n_tracks} "
                 f"-f {t['input_file']} -o {t['output_file']} -g {t['geo_file']} "
                 f"-s {args.start_event} -n {args.n_events}"
             )
@@ -498,7 +526,7 @@ def main():
             start_event=args.start_event,
             n_events=args.n_events,
             track_type=args.track_type,
-            n_tracks=args.nTracks,
+            n_tracks=effective_n_tracks,
             hough_tracking=args.hough_tracking,
             par_file=args.par_file,
             extra_args=extra_args,
@@ -510,7 +538,8 @@ def main():
         with print_lock:
             completed_count += 1
             if res["status"] == "SUCCESS":
-                print(f"  [Done]  Partition {p:<4} ({completed_count}/{total_tasks}) in {res['elapsed_sec']:.1f}s | {res['entries']} dimuon events")
+                event_type_str = "events" if effective_n_tracks == 0 else "dimuon events"
+                print(f"  [Done]  Partition {p:<4} ({completed_count}/{total_tasks}) in {res['elapsed_sec']:.1f}s | {res['entries']} {event_type_str}")
             else:
                 print(f"  [FAIL]  Partition {p:<4} ({completed_count}/{total_tasks}) in {res['elapsed_sec']:.1f}s | Error: {res['error_message']}")
 
@@ -533,13 +562,15 @@ def main():
     print(" DIMUON RECONSTRUCTION SUMMARY")
     print("=" * 80)
     print(f" Partitions Scanned:        {len(target_partitions)}")
+    print(f" Storage Mode:              {storage_mode_desc}")
     print(f" Missing Input (Skipped):   {len(skipped_missing)}")
     if args.skip_existing:
         print(f" Already Existing (Skipped):{len(skipped_existing)}")
     print(f" Successfully Processed:    {len(successful_results)}/{total_tasks}")
     if failed_results:
         print(f" Failed Tasks:              {len(failed_results)}/{total_tasks}")
-    print(f" Total Dimuon Events Found: {total_dimuon_events}")
+    events_label = "Total Events Saved:" if effective_n_tracks == 0 else "Total Dimuon Events Found:"
+    print(f" {events_label:<27} {total_dimuon_events}")
     print(f" Total Elapsed Time:        {total_time:.1f} seconds")
     print("=" * 80)
 

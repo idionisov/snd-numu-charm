@@ -119,7 +119,8 @@ def create_partition_symlinks(p, in_pat, trk_pat):
 
 def run_single_partition(
     p, script_path, in_pat, trk_pat, tru_pat, dsp_pat, log_dir,
-    create_symlinks=True, displays_only=False, force=False
+    create_symlinks=True, displays_only=False, force=False,
+    all_events=False
 ):
     """Executes run_pipeline_partition.sh for a single partition and logs to a file."""
     if stop_requested:
@@ -128,6 +129,7 @@ def run_single_partition(
     if create_symlinks and not displays_only:
         create_partition_symlinks(p, in_pat, trk_pat)
 
+    store_arg = "all" if all_events else "two_tracks"
     log_file = os.path.join(log_dir, f"pipeline_part{p}.log")
     cmd = [
         script_path,
@@ -136,6 +138,7 @@ def run_single_partition(
         trk_pat,
         tru_pat,
         dsp_pat,
+        store_arg,
     ]
 
     env = os.environ.copy()
@@ -143,6 +146,11 @@ def run_single_partition(
         env["DISPLAYS_ONLY"] = "1"
     if force:
         env["FORCE"] = "1"
+    if all_events:
+        env["ALL_EVENTS"] = "1"
+        env["STORE_EVENTS"] = "all"
+    else:
+        env["STORE_EVENTS"] = "two_tracks"
 
     t0 = time.time()
     with open(log_file, "w") as lf:
@@ -255,6 +263,24 @@ def main():
         default=True,
         help="Disable automatic symlink creation for input directory ROOT files into output directory."
     )
+    parser.add_argument(
+        "--store-events",
+        choices=["all", "two_tracks"],
+        default=None,
+        help="Whether to store all events ('all', nTracks=0) or only events with at least 2 tracks ('two_tracks', nTracks=2) during tracking."
+    )
+    parser.add_argument(
+        "--all-events",
+        action="store_true",
+        default=False,
+        help="Store all events in tracking step (sets nTracks=0) instead of requiring 2 tracks."
+    )
+    parser.add_argument(
+        "--two-tracks-only",
+        action="store_true",
+        default=False,
+        help="Store only events with at least two tracks in tracking step (sets nTracks=2)."
+    )
 
     args = parser.parse_args()
 
@@ -282,6 +308,13 @@ def main():
     log_dir = args.log_dir or os.path.join(repo_dir, "logs_local_pipeline", args.preset)
     os.makedirs(log_dir, exist_ok=True)
 
+    if args.all_events or args.store_events == "all":
+        store_all_events = True
+    elif args.two_tracks_only or args.store_events == "two_tracks":
+        store_all_events = False
+    else:
+        store_all_events = (os.environ.get("ALL_EVENTS", "0") == "1")
+
     print("=" * 76)
     print("  SND@LHC Parallel Pipeline Orchestrator")
     print("=" * 76)
@@ -293,6 +326,8 @@ def main():
     if not args.displays_only:
         print(f"  Input Pattern     : {in_pat}")
         print(f"  Tracking Target   : {trk_pat}")
+        storage_label = "All Events (nTracks=0)" if store_all_events else "Two Tracks Only (nTracks=2)"
+        print(f"  Tracking Storage  : {storage_label}")
     print(f"  Truth Target      : {tru_pat}")
     print(f"  Displays Target   : {dsp_pat}")
     print(f"  Partition Logs Dir: {log_dir}")
@@ -336,6 +371,7 @@ def main():
                 create_symlinks=args.create_symlinks,
                 displays_only=args.displays_only,
                 force=args.force,
+                all_events=store_all_events,
             )
             active_futures[fut] = p
 

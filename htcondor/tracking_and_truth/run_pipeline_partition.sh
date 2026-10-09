@@ -61,6 +61,22 @@ INPUT_PATTERN="${2:-$DEFAULT_INPUT}"
 TRACK_PATTERN="${3:-$DEFAULT_TRACK}"
 TRUTH_PATTERN="${4:-$DEFAULT_TRUTH}"
 DISP_PATTERN="${5:-$DEFAULT_DISP}"
+STORE_EVENTS_ARG="${6:-}"
+
+# Determine tracking event storage option
+if [ "$STORE_EVENTS_ARG" = "all" ] || [ "$STORE_EVENTS_ARG" = "--all-events" ] || [ "${ALL_EVENTS:-0}" = "1" ] || [ "${STORE_EVENTS:-}" = "all" ]; then
+    STORE_EVENTS_FLAG="--all-events"
+else
+    STORE_EVENTS_FLAG="--two-tracks-only"
+fi
+
+# Determine skip flag based on FORCE
+SKIP_TRACK_FLAG="--skip-existing"
+SKIP_TRUTH_FLAG="--skip-existing"
+if [ "${FORCE:-0}" = "1" ]; then
+    SKIP_TRACK_FLAG=""
+    SKIP_TRUTH_FLAG=""
+fi
 
 INPUT_FILE=$(printf "$INPUT_PATTERN" "$PARTITION")
 TRACK_FILE=$(printf "$TRACK_PATTERN" "$PARTITION")
@@ -100,6 +116,8 @@ echo "  Raw Input    : ${INPUT_PATTERN}"
 echo "  Track Target : ${TRACK_FILE}"
 echo "  Truth Target : ${TRUTH_FILE}"
 echo "  Disp Target  : ${DISP_FILE}"
+echo "  Storage Mode : ${STORE_EVENTS_FLAG}"
+echo "  Force Mode   : ${FORCE:-0}"
 echo "  Python       : ${PYTHON_BIN}"
 echo "======================================================================"
 
@@ -107,7 +125,7 @@ cd "${REPO_DIR}"
 
 if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
     # 4. Step 1: Run Dimuon Tracking
-    echo " ~ [3/6] Step 1/3: Running dimuon tracking for partition ${PARTITION}..."
+    echo " ~ [3/6] Step 1/3: Running dimuon tracking for partition ${PARTITION} (${STORE_EVENTS_FLAG})..."
     set +e
     "${PYTHON_BIN}" "${TRACK_SCRIPT}" \
         -i "${INPUT_PATTERN}" \
@@ -115,8 +133,8 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
         -p "${PARTITION}" \
         -j 1 \
         -t "dimuon_DS" \
-        --nTracks 2 \
-        --skip-existing
+        ${STORE_EVENTS_FLAG} \
+        ${SKIP_TRACK_FLAG}
     TRACK_EXIT=$?
     set -e
 
@@ -140,7 +158,7 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
         -p "${PARTITION}" \
         -j 1 \
         -c "${CONFIG_FILE}" \
-        --skip-existing \
+        ${SKIP_TRUTH_FLAG} \
         --no-symlink-input
     TRUTH_EXIT=$?
 

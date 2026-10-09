@@ -219,6 +219,119 @@ def channel_slug(pdg_tuple: Tuple[int, ...]) -> str:
     return "_".join(sorted(parts))
 
 
+NAME_TO_PDG: Dict[str, int] = {v: k for k, v in PDG_NAMES.items()}
+SELF_CONJUGATE_PDGS: Set[int] = {22, 111, 130, 310, 221, 331}
+
+
+def canonicalize_channel_str(channel_str: str) -> str:
+    """Sorts daughter particle names in a channel string to ensure consistent matching."""
+    parts = [p.strip() for p in channel_str.split(" + ")]
+    return " + ".join(sorted(parts))
+
+
+def get_conjugate_channel_str(channel_str: str) -> str:
+    """Computes the CP / charge-conjugate channel formula."""
+    parts = [p.strip() for p in channel_str.split(" + ")]
+    cc_parts = []
+    for p in parts:
+        pdg = NAME_TO_PDG.get(p)
+        if pdg is not None:
+            cc_pdg = pdg if abs(pdg) in SELF_CONJUGATE_PDGS else -pdg
+            cc_parts.append(PDG_NAMES.get(cc_pdg, p))
+        else:
+            cc_parts.append(p)
+    return " + ".join(sorted(cc_parts))
+
+
+class PDGDecayMode:
+    """Represents a decay channel reference from PDG summary tables."""
+    def __init__(self, channel: str, pdg_mode: str, br_pct: float, br_err_pct: float, cc_channel: str):
+        self.channel = channel
+        self.pdg_mode = pdg_mode
+        self.br_pct = br_pct
+        self.br_err_pct = br_err_pct
+        self.cc_channel = cc_channel
+
+    def __repr__(self) -> str:
+        return f"<PDGDecayMode {self.pdg_mode}: {self.br_pct:.3f}% +/- {self.br_err_pct:.3f}%>"
+
+
+def load_pdg_summary_tables(tables_dir: Optional[str]) -> Dict[int, Dict[str, Any]]:
+    """
+    Loads PDG reference decay tables from CSV files in tables_dir.
+    Maps:
+      branching_ratio_D0.csv -> 421 (D0)
+      branching_ratio_Dplus.csv -> 411 (D+)
+      branching_ratio_Ds.csv -> 431 (Ds)
+      branching_ratio_Lambda_c.csv -> 4122 (Lambda_c)
+    Returns:
+      {
+        species_pdg: {
+            "modes_by_label": {label: {"label": str, "formulas": set, "br_pct": float, "br_err_pct": float}},
+            "modes_list": [PDGDecayMode, ...],
+        }
+      }
+    """
+    if not tables_dir or not os.path.isdir(tables_dir):
+        return {}
+
+    mapping = {
+        "branching_ratio_D0.csv": 421,
+        "branching_ratio_Dplus.csv": 411,
+        "branching_ratio_Ds.csv": 431,
+        "branching_ratio_Lambda_c.csv": 4122,
+    }
+
+    result: Dict[int, Dict[str, Any]] = {}
+    import csv
+
+    for fname, sp_pdg in mapping.items():
+        fpath = os.path.join(tables_dir, fname)
+        if not os.path.isfile(fpath):
+            continue
+
+        modes_by_label: Dict[str, Dict[str, Any]] = {}
+        modes_list: List[PDGDecayMode] = []
+
+        with open(fpath, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                ch_raw = row.get("channel", "").strip()
+                if not ch_raw:
+                    continue
+                pdg_mode = row.get("pdg_mode", "").strip()
+                label = pdg_mode if pdg_mode else ch_raw
+                try:
+                    br_val = float(row.get("br", 0.0)) * 100.0
+                    br_err = float(row.get("br_err", 0.0)) * 100.0
+                except ValueError:
+                    continue
+
+                canon = canonicalize_channel_str(ch_raw)
+                cc = get_conjugate_channel_str(canon)
+
+                m_obj = PDGDecayMode(canon, label, br_val, br_err, cc)
+                modes_list.append(m_obj)
+
+                if label not in modes_by_label:
+                    modes_by_label[label] = {
+                        "label": label,
+                        "formulas": {canon, cc},
+                        "br_pct": br_val,
+                        "br_err_pct": br_err,
+                    }
+                else:
+                    modes_by_label[label]["formulas"].add(canon)
+                    modes_by_label[label]["formulas"].add(cc)
+
+        result[sp_pdg] = {
+            "modes_by_label": modes_by_label,
+            "modes_list": modes_list,
+        }
+
+    return result
+
+
 def fast_resolve_files(pattern: str, filelist_path: Optional[str] = None, max_files: int = -1) -> List[str]:
     """Quickly resolves input ROOT files from a text filelist, EOS command, or pattern."""
     matched: List[str] = []
@@ -285,26 +398,35 @@ def find_energy_bin_index(energy: float, bin_edges: List[float]) -> int:
     return -1
 
 
-def create_slow_rescaling_function(
+def create_slow_rescaling_model(
     name: str = "f_slow_rescaling",
     e_min: float = 0.0,
     e_max: float = 1500.0,
-    e_thresh: float = 3.7,
-    r_inf: float = 0.088,
+    m_c: float = 1.2729,
+    sigma_m_c: float = 0.0045,
+    v_cd: float = 0.22503,
+    sigma_v_cd: float = 0.00068,
+    v_cs: float = 0.97345,
+    sigma_v_cs: float = 0.00016,
     alpha: float = 1.15,
     e_scale: float = 28.0,
-) -> ROOT.TF1:
+) -> Tuple[ROOT.TF1, ROOT.TGraphErrors]:
     """
     Georgi-Politzer / Barnett Slow Rescaling Model prediction for:
       R_charm(E_nu) = sigma(nu_mu N -> mu- c X) / sigma_CC(nu_mu N -> mu- X)
-    Theoretical parameters:
-      - m_c = 1.4 GeV (charm quark mass) -> E_thresh ~ 3.7 GeV
-      - |V_cd| = 0.225, |V_cs| = 0.974
-      - Strange sea fraction kappa_s ~ 0.45
-      - Asymptotic plateau R_inf ~ 8.8%
+    Using user/PDG parameters:
+      - m_c = 1.2729 +/- 0.0045 GeV (CL = 90%)
+      - |V_cd| = 0.22503 +/- 0.00068
+      - |V_cs| = 0.97345 +/- 0.00016
+    Returns:
+      (f_central, g_band_1sigma)
     """
+    m_p = 0.938272
+    e_thresh = ((m_p + m_c)**2 - m_p**2) / (2.0 * m_p) + 1.50
+    r_inf = (v_cd**2 * 0.395) + (v_cs**2 * 0.0718)
+
     formula = (
-        f"x < {e_thresh} ? 0.0 : "
+        f"x < {e_thresh:.4f} ? 0.0 : "
         f"[0] * pow(1.0 - [1]/x, [2]) * (x / (x + [3]))"
     )
     f_sr = ROOT.TF1(name, formula, e_min, e_max)
@@ -313,6 +435,58 @@ def create_slow_rescaling_function(
     f_sr.SetLineColor(ROOT.kRed + 1)
     f_sr.SetLineWidth(3)
     f_sr.SetLineStyle(1)
+
+    # Build 1-sigma uncertainty band
+    n_pts = 300
+    g_band = ROOT.TGraphErrors(n_pts)
+    g_band.SetName(f"{name}_1sigma_band")
+    g_band.SetTitle(f"Slow Rescaling 1#sigma Uncertainty Belt;E_{{#nu}} [GeV];R_{{charm}}")
+
+    d_rinf_vcd = 2.0 * v_cd * 0.395
+    d_rinf_vcs = 2.0 * v_cs * 0.0718
+    d_ethresh_mc = (m_p + m_c) / m_p
+
+    # Strangeness suppression / PDF sea fraction uncertainty ~ 4%
+    sigma_pdf = 0.04 * r_inf
+    sigma_rinf = math.sqrt((d_rinf_vcd * sigma_v_cd)**2 + (d_rinf_vcs * sigma_v_cs)**2 + sigma_pdf**2)
+    sigma_ethresh = d_ethresh_mc * sigma_m_c
+
+    x_vals = [e_thresh + (e_max - e_thresh) * (i / float(n_pts - 1))**1.5 for i in range(n_pts)]
+    for i, x in enumerate(x_vals):
+        if x <= e_thresh:
+            y = 0.0
+            sigma_y = 0.0
+        else:
+            kin_factor = ((1.0 - e_thresh / x)**alpha) * (x / (x + e_scale))
+            y = r_inf * kin_factor
+            dy_dethresh = r_inf * alpha * ((1.0 - e_thresh / x)**(alpha - 1.0)) * (-1.0 / (x + e_scale))
+            sigma_kin = abs(dy_dethresh * sigma_ethresh)
+            sigma_r = kin_factor * sigma_rinf
+            sigma_y = math.sqrt(sigma_r**2 + sigma_kin**2)
+
+        g_band.SetPoint(i, x, y)
+        g_band.SetPointError(i, 0.0, sigma_y)
+
+    g_band.SetFillColorAlpha(ROOT.kRed - 7, 0.35)
+    g_band.SetLineColor(ROOT.kRed + 1)
+    g_band.SetLineWidth(1)
+
+    return f_sr, g_band
+
+
+def create_slow_rescaling_function(
+    name: str = "f_slow_rescaling",
+    e_min: float = 0.0,
+    e_max: float = 1500.0,
+    e_thresh: Optional[float] = None,
+    r_inf: Optional[float] = None,
+) -> ROOT.TF1:
+    """Wrapper returning central TF1 with default PDG parameters."""
+    f_sr, _ = create_slow_rescaling_model(name=name, e_min=e_min, e_max=e_max)
+    if e_thresh is not None:
+        f_sr.SetParameter(1, e_thresh)
+    if r_inf is not None:
+        f_sr.SetParameter(0, r_inf)
     return f_sr
 
 
@@ -688,11 +862,13 @@ def write_histograms_and_canvases(
     data: Dict[str, Any],
     nu_bin_edges: List[float],
     charm_bin_edges: List[float],
+    pdg_tables_dir: Optional[str] = None,
     export_png_dir: Optional[str] = None,
 ) -> None:
     """
     Builds comprehensive ROOT histograms, superimposes them onto formatted TCanvas objects,
-    overlays the slow rescaling model prediction, and writes everything into the ROOT file.
+    overlays the slow rescaling model prediction, overlays PDG reference tables, and writes
+    everything into the ROOT file.
     """
     out_dir = os.path.dirname(os.path.abspath(output_path))
     if out_dir:
@@ -702,6 +878,8 @@ def write_histograms_and_canvases(
     if not fout or fout.IsZombie():
         print(f"[Error] Failed to open {output_path} for writing.")
         return
+
+    pdg_data = load_pdg_summary_tables(pdg_tables_dir)
 
     import array
     n_nu_ebins = len(nu_bin_edges) - 1
@@ -1066,27 +1244,39 @@ def write_histograms_and_canvases(
     h_rate_frame.SetTitle("Charm Production Rate vs E_{#nu}: MC Simulation vs Slow Rescaling Model;E_{#nu} [GeV];R_{charm} = #sigma(#nu_{#mu} N #rightarrow c X) / #sigma_{CC}(#nu_{#mu} N #rightarrow X)")
     h_rate_frame.GetYaxis().SetTitleOffset(1.3)
 
-    # Slow Rescaling Model theoretical prediction
-    f_sr = create_slow_rescaling_function(
+    # Slow Rescaling Model theoretical prediction and 1-sigma uncertainty belt
+    f_sr, g_sr_band = create_slow_rescaling_model(
         name="f_slow_rescaling",
         e_min=0.0,
-        e_max=nu_bin_edges[-1],
-        e_thresh=3.7,
-        r_inf=0.088,
+        e_max=max(1000.0, nu_bin_edges[-1]),
+        m_c=1.2729,
+        sigma_m_c=0.0045,
+        v_cd=0.22503,
+        sigma_v_cd=0.00068,
+        v_cs=0.97345,
+        sigma_v_cs=0.00016,
     )
+    g_sr_band.Draw("3 same")
     f_sr.Draw("same")
 
     # MC data points
     h_charm_rate_ebins.Draw("E1 same")
 
-    leg_rate = ROOT.TLegend(0.16, 0.68, 0.88, 0.88)
+    leg_rate = ROOT.TLegend(0.14, 0.66, 0.90, 0.88)
     leg_rate.SetBorderSize(1)
     leg_rate.SetFillStyle(1001)
     leg_rate.SetFillColor(ROOT.kWhite)
     leg_rate.AddEntry(h_charm_rate_ebins, "SND@LHC MC Production (Binned Rate #pm Stat Error)", "lep")
-    leg_rate.AddEntry(f_sr, "Slow Rescaling Model (Georgi-Politzer / Barnett, m_{c}=1.4 GeV, |V_{cd}|=0.225, |V_{cs}|=0.974)", "l")
+    leg_rate.AddEntry(f_sr, "Slow Rescaling Model (m_{c}=1.273 GeV, |V_{cd}|=0.2250, |V_{cs}|=0.9735)", "l")
+    leg_rate.AddEntry(g_sr_band, "Slow Rescaling 1#sigma Uncertainty Belt (PDG m_{c}, |V_{cd}|, |V_{cs}|, #kappa_{s})", "f")
     leg_rate.Draw("same")
     c_rate.Write()
+
+    # Also store into Summary directory
+    dir_summary.cd()
+    f_sr.Write("f_slow_rescaling")
+    g_sr_band.Write("g_slow_rescaling_1sigma_band")
+    dir_canvases.cd()
 
     # --- Canvas 2: Overlaid Energy Spectra (Inclusive CC vs Charm CC vs Charm Hadron) ---
     c_spectra = ROOT.TCanvas("c_nu_and_charm_energy_spectra", "Neutrino and Charm Energy Spectra", 950, 700)
@@ -1252,6 +1442,232 @@ def write_histograms_and_canvases(
     h2_evs_e.Draw("COLZ")
     c_kin.Write()
 
+    # =========================================================================
+    # 5. PDG REFERENCE OVERLAYS & COMPARISON CANVASES
+    # =========================================================================
+    keep_alive_pdg: List[Any] = []
+
+    # Standalone PDG reference graphs and histograms in PDG_References/
+    if pdg_data:
+        dir_pdg_ref = fout.mkdir("PDG_References")
+        dir_pdg_ref.cd()
+        for abs_c in sorted(pdg_data.keys()):
+            sp_name = get_species_name(abs_c)
+            m_by_lbl = pdg_data[abs_c]["modes_by_label"]
+            n_m = len(m_by_lbl)
+            if n_m == 0:
+                continue
+            h_pdg_ref = ROOT.TH1D(
+                f"h_pdg_branching_ratio_{sp_name}",
+                f"PDG World Average Reference ({sp_name});Decay Mode;Branching Ratio [%]",
+                n_m, 0.5, n_m + 0.5
+            )
+            g_pdg_ref = ROOT.TGraphErrors(n_m)
+            g_pdg_ref.SetName(f"g_pdg_branching_ratio_{sp_name}")
+            g_pdg_ref.SetTitle(f"PDG World Average Reference ({sp_name})")
+            for idx, (lbl, info) in enumerate(m_by_lbl.items(), start=1):
+                h_pdg_ref.GetXaxis().SetBinLabel(idx, lbl)
+                h_pdg_ref.SetBinContent(idx, info["br_pct"])
+                h_pdg_ref.SetBinError(idx, info["br_err_pct"])
+                g_pdg_ref.SetPoint(idx - 1, float(idx), info["br_pct"])
+                g_pdg_ref.SetPointError(idx - 1, 0.25, info["br_err_pct"])
+            g_pdg_ref.SetMarkerStyle(20)
+            g_pdg_ref.SetMarkerSize(1.2)
+            g_pdg_ref.SetMarkerColor(ROOT.kRed + 1)
+            g_pdg_ref.SetLineColor(ROOT.kRed + 1)
+            g_pdg_ref.SetLineWidth(2)
+            h_pdg_ref.Write()
+            g_pdg_ref.Write()
+            keep_alive_pdg.extend([h_pdg_ref, g_pdg_ref])
+
+    # Superimposed Canvases: Simulation (with vertical hatched error bars) vs PDG (error graphs)
+    pdg_comparison_canvases: Dict[int, ROOT.TCanvas] = {}
+    pdg_sp_drawables: Dict[int, Tuple[ROOT.TH1D, ROOT.TH1D, ROOT.TGraphErrors, ROOT.TLegend]] = {}
+
+    for abs_c in species_order:
+        sp_name = get_species_name(abs_c)
+        sim_ch_map = data["decay_channels_by_species"].get(abs_c, Counter())
+        tot_sp_decays = data["total_decays_by_species"].get(abs_c, sum(sim_ch_map.values()))
+
+        sp_pdg_info = pdg_data.get(abs_c, {})
+        modes_by_label = sp_pdg_info.get("modes_by_label", {})
+
+        # Map simulation counts to PDG modes if formulas match
+        matched_sim = set()
+        sim_by_pdg_label: Dict[str, int] = {lbl: 0 for lbl in modes_by_label}
+
+        for tup, cnt in sim_ch_map.items():
+            formula = format_channel_formula(tup)
+            canon = canonicalize_channel_str(formula)
+            for lbl, info in modes_by_label.items():
+                if canon in info["formulas"]:
+                    sim_by_pdg_label[lbl] += cnt
+                    matched_sim.add(tup)
+                    break
+
+        all_candidates: List[Dict[str, Any]] = []
+
+        # 1. PDG modes
+        for lbl, info in modes_by_label.items():
+            cnt = sim_by_pdg_label.get(lbl, 0)
+            br_sim = (100.0 * cnt / tot_sp_decays) if tot_sp_decays > 0 else 0.0
+            br_sim_err = (100.0 * math.sqrt(cnt) / tot_sp_decays) if (tot_sp_decays > 0 and cnt > 0) else 0.0
+            all_candidates.append({
+                "label": lbl,
+                "br_sim": br_sim,
+                "br_sim_err": br_sim_err,
+                "br_pdg": info["br_pct"],
+                "br_pdg_err": info["br_err_pct"],
+                "cnt_sim": cnt,
+                "has_pdg": True,
+                "has_sim": (cnt > 0),
+            })
+
+        # 2. Simulation modes not present in PDG tables
+        for tup, cnt in sim_ch_map.items():
+            if tup not in matched_sim:
+                formula = format_channel_formula(tup)
+                br_sim = (100.0 * cnt / tot_sp_decays) if tot_sp_decays > 0 else 0.0
+                br_sim_err = (100.0 * math.sqrt(cnt) / tot_sp_decays) if (tot_sp_decays > 0 and cnt > 0) else 0.0
+                all_candidates.append({
+                    "label": formula,
+                    "br_sim": br_sim,
+                    "br_sim_err": br_sim_err,
+                    "br_pdg": None,
+                    "br_pdg_err": None,
+                    "cnt_sim": cnt,
+                    "has_pdg": False,
+                    "has_sim": True,
+                })
+
+        if not all_candidates:
+            continue
+
+        # Sort: matched modes first, then remaining PDG modes, then other sim modes, by max BR
+        all_candidates.sort(
+            key=lambda x: (
+                x["has_pdg"] and x["has_sim"],
+                x["has_pdg"],
+                max(x["br_sim"], x["br_pdg"] if x["br_pdg"] is not None else 0.0),
+            ),
+            reverse=True,
+        )
+
+        n_selected = min(len(all_candidates), 25)
+        selected = all_candidates[:n_selected]
+
+        # Build simulation histogram with hatched error bars
+        h_sim_comp = ROOT.TH1D(
+            f"h_br_sim_{sp_name}",
+            f"{sp_name} Branching Ratios: MC Simulation vs PDG World Averages;Decay Channel;Branching Ratio [%]",
+            n_selected, 0.5, n_selected + 0.5
+        )
+        for i, entry in enumerate(selected, start=1):
+            h_sim_comp.GetXaxis().SetBinLabel(i, entry["label"])
+            h_sim_comp.SetBinContent(i, entry["br_sim"])
+            h_sim_comp.SetBinError(i, entry["br_sim_err"])
+
+        h_sim_comp.SetLineColor(ROOT.kAzure + 2)
+        h_sim_comp.SetLineWidth(2)
+        h_sim_comp.GetXaxis().LabelsOption("v")
+        h_sim_comp.GetXaxis().SetLabelSize(0.033)
+        h_sim_comp.GetYaxis().SetTitle(f"Branching Ratio BR({sp_name} #rightarrow X) [%]")
+        h_sim_comp.GetYaxis().SetTitleOffset(1.25)
+
+        # Cloned histogram for vertical hatched error band (E2)
+        h_err_comp = h_sim_comp.Clone(f"h_br_sim_err_{sp_name}")
+        h_err_comp.SetFillColor(ROOT.kAzure - 4)
+        h_err_comp.SetFillStyle(3007)  # vertical hatch
+        h_err_comp.SetLineColor(ROOT.kAzure + 2)
+        h_err_comp.SetLineWidth(1)
+
+        # Build PDG error graph
+        pdg_points = [
+            (i, e["br_pdg"], e["br_pdg_err"])
+            for i, e in enumerate(selected, start=1)
+            if e["has_pdg"] and e["br_pdg"] is not None
+        ]
+        g_pdg_comp = ROOT.TGraphErrors(len(pdg_points))
+        g_pdg_comp.SetName(f"g_pdg_br_{sp_name}")
+        g_pdg_comp.SetTitle(f"PDG World Average Reference ({sp_name})")
+        for pt_idx, (bin_idx, br_val, br_err) in enumerate(pdg_points):
+            g_pdg_comp.SetPoint(pt_idx, float(bin_idx), br_val)
+            g_pdg_comp.SetPointError(pt_idx, 0.25, br_err)
+
+        g_pdg_comp.SetMarkerStyle(20)
+        g_pdg_comp.SetMarkerSize(1.2)
+        g_pdg_comp.SetMarkerColor(ROOT.kRed + 1)
+        g_pdg_comp.SetLineColor(ROOT.kRed + 1)
+        g_pdg_comp.SetLineWidth(2)
+
+        # Compute dynamic Y range
+        max_sim = max([e["br_sim"] + e["br_sim_err"] for e in selected] + [0.0])
+        max_pdg = max([e["br_pdg"] + e["br_pdg_err"] for e in selected if e["has_pdg"] and e["br_pdg"] is not None] + [0.0])
+        y_max = max(max_sim, max_pdg, 5.0) * 1.35
+        h_sim_comp.SetMaximum(y_max)
+        h_sim_comp.SetMinimum(0.0)
+
+        # Draw individual species canvas
+        dir_canvases.cd()
+        c_pdg_sp = ROOT.TCanvas(f"c_branching_ratios_vs_pdg_{sp_name}", f"{sp_name} Branching Ratios vs PDG Reference", 1150, 750)
+        c_pdg_sp.SetLeftMargin(0.12)
+        c_pdg_sp.SetRightMargin(0.06)
+        c_pdg_sp.SetTopMargin(0.08)
+        c_pdg_sp.SetBottomMargin(0.32)
+        c_pdg_sp.SetGridy()
+
+        h_sim_comp.Draw("HIST")
+        h_err_comp.Draw("E2 same")
+        h_sim_comp.Draw("HIST same")
+        if g_pdg_comp.GetN() > 0:
+            g_pdg_comp.Draw("P E1 same")
+
+        leg_pdg_sp = ROOT.TLegend(0.48, 0.72, 0.92, 0.88)
+        leg_pdg_sp.SetBorderSize(1)
+        leg_pdg_sp.SetFillColor(ROOT.kWhite)
+        leg_pdg_sp.AddEntry(h_sim_comp, f"MC Simulation ({tot_sp_decays} decays total)", "l")
+        leg_pdg_sp.AddEntry(h_err_comp, "MC Simulation Stat Error (Vertical Hatch)", "f")
+        leg_pdg_sp.AddEntry(g_pdg_comp, "PDG World Average Reference (#pm 1#sigma)", "lep")
+        leg_pdg_sp.Draw("same")
+
+        c_pdg_sp.Write()
+        pdg_comparison_canvases[abs_c] = c_pdg_sp
+        pdg_sp_drawables[abs_c] = (h_sim_comp, h_err_comp, g_pdg_comp, leg_pdg_sp)
+        keep_alive_pdg.extend([h_sim_comp, h_err_comp, g_pdg_comp, leg_pdg_sp, c_pdg_sp])
+
+        # Also store into Species/<sp_name>/
+        dir_sp = dir_species_root.GetDirectory(sp_name)
+        if dir_sp:
+            dir_sp.cd()
+            h_sim_comp.Write(f"h_br_sim_vs_pdg_{sp_name}")
+            g_pdg_comp.Write(f"g_pdg_br_{sp_name}")
+
+    # Summary 2x2 Canvas: All 4 Species Comparison
+    if len(pdg_comparison_canvases) > 0:
+        dir_canvases.cd()
+        c_all_sp = ROOT.TCanvas("c_branching_ratios_vs_pdg_all_species", "All Charmed Hadron Branching Ratios vs PDG", 1400, 1000)
+        c_all_sp.Divide(2, 2)
+        for pad_idx, abs_c in enumerate(species_order, start=1):
+            if abs_c not in pdg_sp_drawables:
+                continue
+            pad = c_all_sp.cd(pad_idx)
+            pad.SetLeftMargin(0.12)
+            pad.SetRightMargin(0.06)
+            pad.SetTopMargin(0.08)
+            pad.SetBottomMargin(0.32)
+            pad.SetGridy()
+
+            h_sc, h_ec, g_pc, l_pc = pdg_sp_drawables[abs_c]
+            h_sc.Draw("HIST")
+            h_ec.Draw("E2 same")
+            h_sc.Draw("HIST same")
+            if g_pc.GetN() > 0:
+                g_pc.Draw("P E1 same")
+            l_pc.Draw("same")
+
+        c_all_sp.Write()
+        keep_alive_pdg.append(c_all_sp)
+
     fout.Close()
     print(f"  ROOT Histograms and Superimposed Canvases written successfully to: {os.path.abspath(output_path)}")
 
@@ -1273,6 +1689,7 @@ def print_diagnostic_report(
     data: Dict[str, Any],
     nu_bin_edges: List[float],
     charm_bin_edges: List[float],
+    pdg_data: Optional[Dict[int, Dict[str, Any]]] = None,
 ) -> None:
     """Prints a structured summary table and physics diagnostic report."""
     n_nu_ebins = len(nu_bin_edges) - 1
@@ -1297,10 +1714,10 @@ def print_diagnostic_report(
     print("\n" + "-" * 86)
     print(" 1. CHARM PRODUCTION RATE AS A FUNCTION OF NEUTRINO ENERGY vs SLOW RESCALING")
     print("-" * 86)
-    print(f" {'E_nu Bin [GeV]':<20s} {'Total Nu_mu CC':<16s} {'Charm Count':<14s} {'MC Rate [%]':<18s} {'Slow Rescaling':<16s}")
-    print("-" * 86)
+    print(f" {'E_nu Bin [GeV]':<20s} {'Total Nu_mu CC':<16s} {'Charm Count':<14s} {'MC Rate [%]':<20s} {'Slow Rescaling':<20s}")
+    print("-" * 92)
 
-    f_sr_eval = create_slow_rescaling_function(e_thresh=3.7, r_inf=0.088)
+    f_sr_eval, g_sr_eval_band = create_slow_rescaling_model()
 
     for i in range(n_nu_ebins):
         e_low, e_high = nu_bin_edges[i], nu_bin_edges[i + 1]
@@ -1310,11 +1727,17 @@ def print_diagnostic_report(
         err_bin = (100.0 * math.sqrt(n_ch_bin) / n_cc_bin) if (n_cc_bin > 0 and n_ch_bin > 0) else 0.0
         e_mid = 0.5 * (e_low + e_high)
         sr_val = 100.0 * f_sr_eval.Eval(e_mid)
+        # Find closest point in g_sr_eval_band for 1-sigma error
+        sr_err = 0.0
+        for pt_idx in range(g_sr_eval_band.GetN()):
+            if g_sr_eval_band.GetPointX(pt_idx) >= e_mid:
+                sr_err = 100.0 * g_sr_eval_band.GetErrorY(pt_idx)
+                break
         bin_str = f"[{e_low:.0f}, {e_high:.0f})"
         rate_str = f"{rate_bin:5.2f}% +/- {err_bin:4.2f}%" if n_cc_bin > 0 else "N/A (0 events)"
-        sr_str = f"{sr_val:5.2f}%"
-        print(f" {bin_str:<20s} {n_cc_bin:<16d} {n_ch_bin:<14d} {rate_str:<18s} {sr_str:<16s}")
-    print("-" * 86)
+        sr_str = f"{sr_val:5.2f}% +/- {sr_err:4.2f}%"
+        print(f" {bin_str:<20s} {n_cc_bin:<16d} {n_ch_bin:<14d} {rate_str:<20s} {sr_str:<20s}")
+    print("-" * 92)
 
     # 2. Charm Hadron Energies per Species
     print("\n" + "-" * 86)
@@ -1438,6 +1861,43 @@ def print_diagnostic_report(
         else:
             print(f"    >>> STATUS: [PASS] Branching modes, semi-leptonic rates, and lifetimes look consistent.")
 
+    # 6. Simulation Branching Ratios vs PDG Reference Tables
+    if pdg_data:
+        print("\n" + "=" * 86)
+        print(" 6. SIMULATION BRANCHING RATIOS vs PDG WORLD AVERAGES")
+        print("=" * 86)
+        print(f" {'Species':<10s} {'Mode / Channel':<30s} {'MC Count':<10s} {'MC BR [%]':<20s} {'PDG Ref [%]':<18s}")
+        print("-" * 86)
+        for abs_c in major_pdgs:
+            sp_name = get_species_name(abs_c)
+            sp_pdg = pdg_data.get(abs_c, {})
+            modes_by_lbl = sp_pdg.get("modes_by_label", {})
+            tot_d = data["total_decays_by_species"].get(abs_c, 0)
+            sim_ch_map = data["decay_channels_by_species"].get(abs_c, Counter())
+
+            sim_by_pdg = {lbl: 0 for lbl in modes_by_lbl}
+            for tup, cnt in sim_ch_map.items():
+                f = format_channel_formula(tup)
+                canon = canonicalize_channel_str(f)
+                for lbl, info in modes_by_lbl.items():
+                    if canon in info["formulas"]:
+                        sim_by_pdg[lbl] += cnt
+                        break
+
+            printed_sp = False
+            for lbl, info in sorted(modes_by_lbl.items(), key=lambda x: (sim_by_pdg.get(x[0], 0) > 0, x[1]["br_pct"]), reverse=True):
+                cnt = sim_by_pdg.get(lbl, 0)
+                if cnt == 0 and info["br_pct"] < 3.0:
+                    continue
+                br_sim = (100.0 * cnt / tot_d) if tot_d > 0 else 0.0
+                br_sim_err = (100.0 * math.sqrt(cnt) / tot_d) if (tot_d > 0 and cnt > 0) else 0.0
+                mc_str = f"{br_sim:5.2f}% +/- {br_sim_err:4.2f}%" if cnt > 0 else "  0.00%           "
+                pdg_str = f"{info['br_pct']:5.2f}% +/- {info['br_err_pct']:4.2f}%"
+                sp_col = sp_name if not printed_sp else ""
+                printed_sp = True
+                print(f" {sp_col:<10s} {lbl:<30s} {cnt:<10d} {mc_str:<20s} {pdg_str:<18s}")
+        print("-" * 86)
+
     print("\n" + "=" * 86)
     print(" OVERALL DIAGNOSTIC VERDICT")
     print("=" * 86)
@@ -1552,6 +2012,12 @@ def main():
         default=None,
         help="Optional directory to also export PNG diagnostic plots",
     )
+    parser.add_argument(
+        "--pdg-tables-dir",
+        type=str,
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "pdg_summary_tables"),
+        help="Directory containing PDG summary CSV tables (branching_ratio_*.csv)",
+    )
 
     args = parser.parse_args()
 
@@ -1562,6 +2028,7 @@ def main():
     if args.filelist:
         print(f" Filelist             : {args.filelist}")
     print(f" Output ROOT File     : {os.path.abspath(args.output)}")
+    print(f" PDG Tables Dir       : {os.path.abspath(args.pdg_tables_dir)}")
     print(f" Max Events           : {'All' if args.max_events < 0 else args.max_events}")
     print(f" Max Files            : {'All' if args.max_files < 0 else args.max_files}")
     print(f" Parallel Workers     : {args.jobs}")
@@ -1624,10 +2091,12 @@ def main():
         merged_data,
         args.nu_energy_bins,
         args.charm_energy_bins,
+        pdg_tables_dir=args.pdg_tables_dir,
         export_png_dir=args.plots_dir,
     )
 
-    print_diagnostic_report(merged_data, args.nu_energy_bins, args.charm_energy_bins)
+    pdg_data = load_pdg_summary_tables(args.pdg_tables_dir)
+    print_diagnostic_report(merged_data, args.nu_energy_bins, args.charm_energy_bins, pdg_data=pdg_data)
 
 
 if __name__ == "__main__":

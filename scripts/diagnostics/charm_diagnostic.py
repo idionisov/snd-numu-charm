@@ -11,17 +11,28 @@ Capable of analyzing:
   - Full raw Monte Carlo production files:
     /eos/experiment/sndlhc/MonteCarlo/.../*/sndLHC.Genie-TGeant4_digCPP.root
 
-Specifically answers:
-  1. How often do we get charm hadrons from muon neutrino CC interactions (overall & vs E_nu)?
-  2. What fractions of those charm hadrons are D0, D+, Ds, Lambda_c (overall & vs E_nu)?
-  3. What do each of these species decay to, and how often is each channel engaged (overall & vs E_nu)?
-  4. Physical modeling checks:
+Features:
+  1. Charm Production Rate vs Neutrino Energy (E_nu):
+     - R_charm(E_nu) = N(nu_mu CC with charm) / N(nu_mu CC inclusive).
+     - Overlaid with theoretical prediction from the Georgi-Politzer / Barnett Slow Rescaling Model.
+  2. Charm Hadron Energies & Kinematics:
+     - Charm hadron energy spectrum E_charm (inclusive and per species).
+     - 2D correlation E_charm vs E_nu and fragmentation function z = E_charm / E_nu.
+  3. Charm Species Fragmentation Fractions:
+     - Fractions f(D0), f(D+), f(Ds), f(Lambda_c) overall and as a function of E_nu and E_charm.
+  4. Exclusive Decay Channels & Branching Ratios vs Energy:
+     - Full decay channel formulas (e.g. K- pi+, K- mu+ nu_mu).
+     - Branching ratio evolution as a function of charm hadron energy E_charm and neutrino energy E_nu.
+  5. Physical Modeling Checks:
      - Prompt semi-leptonic branching fractions BR(-> mu X) and BR(-> e X) vs PDG world averages.
      - Lepton universality test (BR(mu) / BR(e) ~ 1.0).
-     - Proper decay length / lifetime c*tau distribution compared with known PDG values.
-     - Charm hadron energy fraction / elasticity z = E_charm / E_nu (fragmentation).
-     - Transverse momentum pT and production angle relative to the neutrino beam.
-     - Neutrino vs Anti-neutrino charm baryon asymmetry (Lambda_c production).
+     - Proper lifetime c*tau distributions compared with PDG lifetimes.
+     - Transverse momentum pT and production angle relative to neutrino beam.
+     - Neutrino vs Antineutrino charm baryon asymmetry (Lambda_c production).
+  6. ROOT Output with Superimposed Canvases:
+     - Everything stored in a single structured ROOT file.
+     - Dedicated 'Canvases/' directory containing fully formatted TCanvas objects with superimposed
+       histograms, theoretical curves, and legends.
 
 Supports high-performance parallel processing via ProcessPoolExecutor (-j / --jobs).
 """
@@ -160,6 +171,14 @@ CHARM_NOMINAL_MASSES: Dict[int, float] = {
     4332: 2.6952,
 }
 
+# Species color palette for multi-line and superimposed plots
+SPECIES_COLORS: Dict[int, int] = {
+    421: ROOT.kRed + 1,       # D0
+    411: ROOT.kAzure + 1,     # D+
+    431: ROOT.kGreen + 2,     # Ds
+    4122: ROOT.kMagenta + 1,  # Lambda_c
+}
+
 
 def is_charm_hadron(pdg: int) -> bool:
     """Checks if a PDG code corresponds to a charmed hadron."""
@@ -190,10 +209,18 @@ def format_channel_formula(pdg_tuple: Tuple[int, ...]) -> str:
     return " + ".join(sorted(names))
 
 
+def channel_slug(pdg_tuple: Tuple[int, ...]) -> str:
+    """Creates a filesystem/ROOT safe identifier for a decay channel."""
+    parts = []
+    for p in pdg_tuple:
+        name = PDG_NAMES.get(p, f"pdg{p}")
+        clean = name.replace("+", "plus").replace("-", "minus").replace("'", "prime").replace("_", "")
+        parts.append(clean)
+    return "_".join(sorted(parts))
+
+
 def fast_resolve_files(pattern: str, filelist_path: Optional[str] = None, max_files: int = -1) -> List[str]:
-    """
-    Quickly resolves input ROOT files from a text filelist, EOS command, or pattern.
-    """
+    """Quickly resolves input ROOT files from a text filelist, EOS command, or pattern."""
     matched: List[str] = []
 
     # 1. Explicit filelist option
@@ -229,7 +256,6 @@ def fast_resolve_files(pattern: str, filelist_path: Optional[str] = None, max_fi
             if res.returncode == 0:
                 lines = [l.strip() for l in res.stdout.splitlines() if l.strip().endswith(".root")]
                 if lines:
-                    # Natural numerical sort by partition number
                     lines = sorted(
                         lines,
                         key=lambda x: [int(c) if c.isdigit() else c for c in os.path.dirname(x).split("/")]
@@ -259,6 +285,37 @@ def find_energy_bin_index(energy: float, bin_edges: List[float]) -> int:
     return -1
 
 
+def create_slow_rescaling_function(
+    name: str = "f_slow_rescaling",
+    e_min: float = 0.0,
+    e_max: float = 1500.0,
+    e_thresh: float = 3.7,
+    r_inf: float = 0.088,
+    alpha: float = 1.15,
+    e_scale: float = 28.0,
+) -> ROOT.TF1:
+    """
+    Georgi-Politzer / Barnett Slow Rescaling Model prediction for:
+      R_charm(E_nu) = sigma(nu_mu N -> mu- c X) / sigma_CC(nu_mu N -> mu- X)
+    Theoretical parameters:
+      - m_c = 1.4 GeV (charm quark mass) -> E_thresh ~ 3.7 GeV
+      - |V_cd| = 0.225, |V_cs| = 0.974
+      - Strange sea fraction kappa_s ~ 0.45
+      - Asymptotic plateau R_inf ~ 8.8%
+    """
+    formula = (
+        f"x < {e_thresh} ? 0.0 : "
+        f"[0] * pow(1.0 - [1]/x, [2]) * (x / (x + [3]))"
+    )
+    f_sr = ROOT.TF1(name, formula, e_min, e_max)
+    f_sr.SetParameters(r_inf, e_thresh, alpha, e_scale)
+    f_sr.SetParNames("R_inf", "E_thresh", "alpha", "E_scale")
+    f_sr.SetLineColor(ROOT.kRed + 1)
+    f_sr.SetLineWidth(3)
+    f_sr.SetLineStyle(1)
+    return f_sr
+
+
 def process_files_worker(args_tuple) -> Dict[str, Any]:
     """
     Worker process analyzing a batch of ROOT files.
@@ -266,7 +323,8 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
     """
     (
         file_chunk,
-        bin_edges,
+        nu_bin_edges,
+        charm_bin_edges,
         decay_only,
         ground_state_only,
         numu_cc_only,
@@ -276,6 +334,9 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
     import ROOT
     ROOT.gROOT.SetBatch(True)
 
+    n_nu_ebins = len(nu_bin_edges) - 1
+    n_ch_ebins = len(charm_bin_edges) - 1
+
     local_data = {
         "files_processed": 0,
         "total_events": 0,
@@ -284,28 +345,32 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
         # Energy spectra
         "nu_e_cc_all": [],
         "nu_e_cc_charm": [],
+        "charm_e_all": [],
+        "charm_e_by_species": {},             # abs_pdg -> list of E_charm
         # Binned counts
-        "cc_all_per_ebin": [0] * (len(bin_edges) - 1),
-        "cc_charm_per_ebin": [0] * (len(bin_edges) - 1),
+        "cc_all_per_ebin": [0] * n_nu_ebins,
+        "cc_charm_per_ebin": [0] * n_nu_ebins,
         # Species counts
         "species_hadron_counts": Counter(),
-        "species_ebin_counts": {i: Counter() for i in range(len(bin_edges) - 1)},
+        "species_nu_ebin_counts": {i: Counter() for i in range(n_nu_ebins)},
+        "species_charm_ebin_counts": {i: Counter() for i in range(n_ch_ebins)},
         # Decay channels
-        "decay_channels_by_species": {},     # abs_pdg -> Counter of tuples
-        "decay_channels_by_species_ebin": {},# abs_pdg -> {ebin_idx: Counter}
+        "decay_channels_by_species": {},            # abs_pdg -> Counter of tuples
+        "decay_channels_by_species_nu_ebin": {},   # abs_pdg -> {ebin_idx: Counter}
+        "decay_channels_by_species_charm_ebin": {},# abs_pdg -> {charm_ebin_idx: Counter}
         "all_decay_channels": Counter(),
         # Semi-leptonic counts
         "semi_muonic_counts": Counter(),
         "semi_electronic_counts": Counter(),
         "total_decays_by_species": Counter(),
         # Kinematics
-        "ctau_values_um": {},                # abs_pdg -> list of c*tau values
-        "decay_dist_mm": {},                 # abs_pdg -> list of L values
-        "fragmentation_z": [],               # list of E_charm / E_nu
-        "charm_pt": [],                      # list of pT relative to neutrino beam
-        "charm_theta": [],                   # list of production angle theta
+        "ctau_values_um": {},                       # abs_pdg -> list of c*tau values
+        "decay_dist_mm": {},                        # abs_pdg -> list of L values
+        "fragmentation_z": [],                      # list of E_charm / E_nu
+        "charm_pt": [],                             # list of pT relative to neutrino beam
+        "charm_theta": [],                          # list of production angle theta
         # Neutrino vs Antineutrino asymmetry
-        "nu_sign_charm_species": {1: Counter(), -1: Counter()}, # +1 for nu, -1 for anti-nu
+        "nu_sign_charm_species": {1: Counter(), -1: Counter()},
     }
 
     events_analyzed = 0
@@ -359,22 +424,20 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
             if tree_truth and hasattr(tree_cbmsim, "is_cc"):
                 is_cc = bool(tree_cbmsim.is_cc)
             else:
-                # Fallback to identify prompt muon from primary vertex (mother == 0)
                 for trk in tracks:
                     if trk.GetMotherId() == 0 and abs(trk.GetPdgCode()) in [11, 13, 15]:
                         is_cc = True
                         break
 
-            # Check nu_mu / anti-nu_mu CC selection
             is_numu_cc = (abs(nu_pdg) == 14 and is_cc)
             if numu_cc_only and not is_numu_cc:
                 continue
 
             local_data["nu_cc_inclusive"] += 1
             local_data["nu_e_cc_all"].append(nu_energy)
-            ebin_idx = find_energy_bin_index(nu_energy, bin_edges)
-            if ebin_idx >= 0:
-                local_data["cc_all_per_ebin"][ebin_idx] += 1
+            nu_ebin_idx = find_energy_bin_index(nu_energy, nu_bin_edges)
+            if nu_ebin_idx >= 0:
+                local_data["cc_all_per_ebin"][nu_ebin_idx] += 1
 
             # 2. Scan event for charm hadrons
             n_tracks = len(tracks)
@@ -395,23 +458,33 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
 
             local_data["nu_cc_charm"] += 1
             local_data["nu_e_cc_charm"].append(nu_energy)
-            if ebin_idx >= 0:
-                local_data["cc_charm_per_ebin"][ebin_idx] += 1
+            if nu_ebin_idx >= 0:
+                local_data["cc_charm_per_ebin"][nu_ebin_idx] += 1
 
             nu_sign = 1 if nu_pdg > 0 else -1
 
-            # 3. Analyze each charm hadron and its direct daughters
+            # 3. Analyze each charm hadron, its energy, and its direct daughters
             for i_charm, charm_pdg, abs_charm_pdg in charm_hadrons_in_event:
                 charm_trk = tracks[i_charm]
-                local_data["species_hadron_counts"][abs_charm_pdg] += 1
-                if ebin_idx >= 0:
-                    local_data["species_ebin_counts"][ebin_idx][abs_charm_pdg] += 1
-                local_data["nu_sign_charm_species"][nu_sign][abs_charm_pdg] += 1
-
-                # Hadron kinematics
                 c_p = charm_trk.GetP()
                 c_e = charm_trk.GetEnergy()
                 c_px, c_py, c_pz = charm_trk.GetPx(), charm_trk.GetPy(), charm_trk.GetPz()
+
+                local_data["species_hadron_counts"][abs_charm_pdg] += 1
+                local_data["charm_e_all"].append(c_e)
+                if abs_charm_pdg not in local_data["charm_e_by_species"]:
+                    local_data["charm_e_by_species"][abs_charm_pdg] = []
+                local_data["charm_e_by_species"][abs_charm_pdg].append(c_e)
+
+                # Energy bin indices
+                charm_ebin_idx = find_energy_bin_index(c_e, charm_bin_edges)
+
+                if nu_ebin_idx >= 0:
+                    local_data["species_nu_ebin_counts"][nu_ebin_idx][abs_charm_pdg] += 1
+                if charm_ebin_idx >= 0:
+                    local_data["species_charm_ebin_counts"][charm_ebin_idx][abs_charm_pdg] += 1
+
+                local_data["nu_sign_charm_species"][nu_sign][abs_charm_pdg] += 1
 
                 # Elasticity z = E_charm / E_nu
                 if nu_energy > 0:
@@ -460,12 +533,21 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
                     local_data["decay_channels_by_species"][abs_charm_pdg][ch_tuple] += 1
                     local_data["all_decay_channels"][ch_tuple] += 1
 
-                    if ebin_idx >= 0:
-                        if abs_charm_pdg not in local_data["decay_channels_by_species_ebin"]:
-                            local_data["decay_channels_by_species_ebin"][abs_charm_pdg] = {
-                                b: Counter() for b in range(len(bin_edges) - 1)
+                    # Binned by neutrino energy E_nu
+                    if nu_ebin_idx >= 0:
+                        if abs_charm_pdg not in local_data["decay_channels_by_species_nu_ebin"]:
+                            local_data["decay_channels_by_species_nu_ebin"][abs_charm_pdg] = {
+                                b: Counter() for b in range(n_nu_ebins)
                             }
-                        local_data["decay_channels_by_species_ebin"][abs_charm_pdg][ebin_idx][ch_tuple] += 1
+                        local_data["decay_channels_by_species_nu_ebin"][abs_charm_pdg][nu_ebin_idx][ch_tuple] += 1
+
+                    # Binned by charm hadron energy E_charm
+                    if charm_ebin_idx >= 0:
+                        if abs_charm_pdg not in local_data["decay_channels_by_species_charm_ebin"]:
+                            local_data["decay_channels_by_species_charm_ebin"][abs_charm_pdg] = {
+                                b: Counter() for b in range(n_ch_ebins)
+                            }
+                        local_data["decay_channels_by_species_charm_ebin"][abs_charm_pdg][charm_ebin_idx][ch_tuple] += 1
 
                     # Semi-leptonic checks
                     if any(abs(d) == 13 for d in daughters):
@@ -481,7 +563,6 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
                         dist_cm = math.sqrt(dx * dx + dy * dy + dz * dz)
                         dist_mm = dist_cm * 10.0
 
-                        # Relativistic boost beta*gamma = p / m
                         mass = math.sqrt(max(0.01, c_e * c_e - c_p * c_p))
                         if mass < 0.5:
                             mass = CHARM_NOMINAL_MASSES.get(abs_charm_pdg, 1.86)
@@ -499,8 +580,15 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
     return local_data
 
 
-def merge_worker_results(results: List[Dict[str, Any]], bin_edges: List[float]) -> Dict[str, Any]:
+def merge_worker_results(
+    results: List[Dict[str, Any]],
+    nu_bin_edges: List[float],
+    charm_bin_edges: List[float],
+) -> Dict[str, Any]:
     """Combines statistics from all parallel workers."""
+    n_nu_ebins = len(nu_bin_edges) - 1
+    n_ch_ebins = len(charm_bin_edges) - 1
+
     merged = {
         "files_processed": sum(r["files_processed"] for r in results),
         "total_events": sum(r["total_events"] for r in results),
@@ -508,12 +596,16 @@ def merge_worker_results(results: List[Dict[str, Any]], bin_edges: List[float]) 
         "nu_cc_charm": sum(r["nu_cc_charm"] for r in results),
         "nu_e_cc_all": [],
         "nu_e_cc_charm": [],
-        "cc_all_per_ebin": [0] * (len(bin_edges) - 1),
-        "cc_charm_per_ebin": [0] * (len(bin_edges) - 1),
+        "charm_e_all": [],
+        "charm_e_by_species": {},
+        "cc_all_per_ebin": [0] * n_nu_ebins,
+        "cc_charm_per_ebin": [0] * n_nu_ebins,
         "species_hadron_counts": Counter(),
-        "species_ebin_counts": {i: Counter() for i in range(len(bin_edges) - 1)},
+        "species_nu_ebin_counts": {i: Counter() for i in range(n_nu_ebins)},
+        "species_charm_ebin_counts": {i: Counter() for i in range(n_ch_ebins)},
         "decay_channels_by_species": {},
-        "decay_channels_by_species_ebin": {},
+        "decay_channels_by_species_nu_ebin": {},
+        "decay_channels_by_species_charm_ebin": {},
         "all_decay_channels": Counter(),
         "semi_muonic_counts": Counter(),
         "semi_electronic_counts": Counter(),
@@ -529,14 +621,23 @@ def merge_worker_results(results: List[Dict[str, Any]], bin_edges: List[float]) 
     for r in results:
         merged["nu_e_cc_all"].extend(r["nu_e_cc_all"])
         merged["nu_e_cc_charm"].extend(r["nu_e_cc_charm"])
+        merged["charm_e_all"].extend(r["charm_e_all"])
         merged["fragmentation_z"].extend(r["fragmentation_z"])
         merged["charm_pt"].extend(r["charm_pt"])
         merged["charm_theta"].extend(r["charm_theta"])
 
-        for i in range(len(bin_edges) - 1):
+        for abs_c, e_list in r["charm_e_by_species"].items():
+            if abs_c not in merged["charm_e_by_species"]:
+                merged["charm_e_by_species"][abs_c] = []
+            merged["charm_e_by_species"][abs_c].extend(e_list)
+
+        for i in range(n_nu_ebins):
             merged["cc_all_per_ebin"][i] += r["cc_all_per_ebin"][i]
             merged["cc_charm_per_ebin"][i] += r["cc_charm_per_ebin"][i]
-            merged["species_ebin_counts"][i].update(r["species_ebin_counts"][i])
+            merged["species_nu_ebin_counts"][i].update(r["species_nu_ebin_counts"][i])
+
+        for i in range(n_ch_ebins):
+            merged["species_charm_ebin_counts"][i].update(r["species_charm_ebin_counts"][i])
 
         merged["species_hadron_counts"].update(r["species_hadron_counts"])
         merged["all_decay_channels"].update(r["all_decay_channels"])
@@ -553,14 +654,23 @@ def merge_worker_results(results: List[Dict[str, Any]], bin_edges: List[float]) 
                 merged["decay_channels_by_species"][abs_c] = Counter()
             merged["decay_channels_by_species"][abs_c].update(counter)
 
-        # Decay channels per energy bin
-        for abs_c, ebin_map in r["decay_channels_by_species_ebin"].items():
-            if abs_c not in merged["decay_channels_by_species_ebin"]:
-                merged["decay_channels_by_species_ebin"][abs_c] = {
-                    b: Counter() for b in range(len(bin_edges) - 1)
+        # Decay channels per nu energy bin
+        for abs_c, ebin_map in r["decay_channels_by_species_nu_ebin"].items():
+            if abs_c not in merged["decay_channels_by_species_nu_ebin"]:
+                merged["decay_channels_by_species_nu_ebin"][abs_c] = {
+                    b: Counter() for b in range(n_nu_ebins)
                 }
             for b_idx, counter in ebin_map.items():
-                merged["decay_channels_by_species_ebin"][abs_c][b_idx].update(counter)
+                merged["decay_channels_by_species_nu_ebin"][abs_c][b_idx].update(counter)
+
+        # Decay channels per charm energy bin
+        for abs_c, ebin_map in r["decay_channels_by_species_charm_ebin"].items():
+            if abs_c not in merged["decay_channels_by_species_charm_ebin"]:
+                merged["decay_channels_by_species_charm_ebin"][abs_c] = {
+                    b: Counter() for b in range(n_ch_ebins)
+                }
+            for b_idx, counter in ebin_map.items():
+                merged["decay_channels_by_species_charm_ebin"][abs_c][b_idx].update(counter)
 
         # Lifetimes
         for abs_c, ctau_list in r["ctau_values_um"].items():
@@ -573,12 +683,17 @@ def merge_worker_results(results: List[Dict[str, Any]], bin_edges: List[float]) 
     return merged
 
 
-def write_histograms(
+def write_histograms_and_canvases(
     output_path: str,
     data: Dict[str, Any],
-    bin_edges: List[float],
+    nu_bin_edges: List[float],
+    charm_bin_edges: List[float],
+    export_png_dir: Optional[str] = None,
 ) -> None:
-    """Builds and writes comprehensive ROOT histograms."""
+    """
+    Builds comprehensive ROOT histograms, superimposes them onto formatted TCanvas objects,
+    overlays the slow rescaling model prediction, and writes everything into the ROOT file.
+    """
     out_dir = os.path.dirname(os.path.abspath(output_path))
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
@@ -588,24 +703,47 @@ def write_histograms(
         print(f"[Error] Failed to open {output_path} for writing.")
         return
 
-    n_ebins = len(bin_edges) - 1
+    import array
+    n_nu_ebins = len(nu_bin_edges) - 1
+    arr_nu_edges = array.array("d", nu_bin_edges)
+
+    n_ch_ebins = len(charm_bin_edges) - 1
+    arr_ch_edges = array.array("d", charm_bin_edges)
+
+    species_order = [421, 411, 431, 4122]
+    other_species = [s for s in data["species_hadron_counts"].keys() if s not in species_order]
+    all_species_display = species_order + other_species
+    n_sp_bins = max(1, len(all_species_display))
+    tot_charm_all = sum(data["species_hadron_counts"].values())
 
     # =========================================================================
-    # 1. SUMMARY DIRECTORY: Production Rates, Fractions, Kinematics
+    # 1. SUMMARY DIRECTORY: Spectra, Rates, Fractions, Kinematics
     # =========================================================================
     dir_summary = fout.mkdir("Summary")
     dir_summary.cd()
 
-    # Energy spectra (fine 1D, 50 bins 0-1000 GeV)
+    # Neutrino energy spectra (fine 1D, 50 bins 0-1000 GeV)
     h_nu_e_cc_all = ROOT.TH1D("h_nu_e_cc_all", "Neutrino Energy (#nu_{#mu} CC Inclusive);E_{#nu} [GeV];Events", 50, 0.0, 1000.0)
     for e in data["nu_e_cc_all"]:
         h_nu_e_cc_all.Fill(e)
+    h_nu_e_cc_all.SetLineColor(ROOT.kBlue + 2)
+    h_nu_e_cc_all.SetLineWidth(2)
     h_nu_e_cc_all.Write()
 
     h_nu_e_cc_charm = ROOT.TH1D("h_nu_e_cc_charm", "Neutrino Energy (#nu_{#mu} CC with Charm);E_{#nu} [GeV];Events", 50, 0.0, 1000.0)
     for e in data["nu_e_cc_charm"]:
         h_nu_e_cc_charm.Fill(e)
+    h_nu_e_cc_charm.SetLineColor(ROOT.kRed + 1)
+    h_nu_e_cc_charm.SetLineWidth(2)
     h_nu_e_cc_charm.Write()
+
+    # Charm hadron energy spectrum (fine 1D, 50 bins 0-1000 GeV)
+    h_charm_e_all = ROOT.TH1D("h_charm_e_all", "Charm Hadron Energy Spectrum;E_{charm} [GeV];Charm Hadrons", 50, 0.0, 1000.0)
+    for ec in data["charm_e_all"]:
+        h_charm_e_all.Fill(ec)
+    h_charm_e_all.SetLineColor(ROOT.kGreen + 2)
+    h_charm_e_all.SetLineWidth(2)
+    h_charm_e_all.Write()
 
     # Charm production rate ratio vs energy (fine)
     h_charm_rate_fine = h_nu_e_cc_charm.Clone("h_charm_rate_vs_energy_fine")
@@ -614,28 +752,25 @@ def write_histograms(
     h_charm_rate_fine.Write()
 
     # Charm production rate in discrete energy bins
-    import array
-    arr_edges = array.array("d", bin_edges)
-    h_ebin_all = ROOT.TH1D("h_cc_all_ebins", "CC Inclusive Events per Energy Bin;E_{#nu} [GeV];Events", n_ebins, arr_edges)
-    h_ebin_charm = ROOT.TH1D("h_cc_charm_ebins", "CC Charm Events per Energy Bin;E_{#nu} [GeV];Events", n_ebins, arr_edges)
-    for i in range(n_ebins):
+    h_ebin_all = ROOT.TH1D("h_cc_all_ebins", "CC Inclusive Events per Energy Bin;E_{#nu} [GeV];Events", n_nu_ebins, arr_nu_edges)
+    h_ebin_charm = ROOT.TH1D("h_cc_charm_ebins", "CC Charm Events per Energy Bin;E_{#nu} [GeV];Events", n_nu_ebins, arr_nu_edges)
+    for i in range(n_nu_ebins):
         h_ebin_all.SetBinContent(i + 1, data["cc_all_per_ebin"][i])
         h_ebin_charm.SetBinContent(i + 1, data["cc_charm_per_ebin"][i])
     h_ebin_all.Write()
     h_ebin_charm.Write()
 
     h_charm_rate_ebins = h_ebin_charm.Clone("h_charm_rate_vs_energy_bins")
-    h_charm_rate_ebins.SetTitle("Charm Production Rate in Energy Bins;E_{#nu} [GeV];R_{charm} = N_{charm} / N_{#nu_{#mu} CC}")
+    h_charm_rate_ebins.SetTitle("Charm Production Rate in Energy Bins;E_{#nu} [GeV];R_{charm} = #sigma(c) / #sigma_{CC}")
     h_charm_rate_ebins.Divide(h_ebin_charm, h_ebin_all, 1.0, 1.0, "B")
+    h_charm_rate_ebins.SetMarkerStyle(20)
+    h_charm_rate_ebins.SetMarkerSize(1.3)
+    h_charm_rate_ebins.SetMarkerColor(ROOT.kBlue + 2)
+    h_charm_rate_ebins.SetLineColor(ROOT.kBlue + 2)
+    h_charm_rate_ebins.SetLineWidth(2)
     h_charm_rate_ebins.Write()
 
     # Species counts and fractions (Overall)
-    species_order = [421, 411, 431, 4122]
-    other_species = [s for s in data["species_hadron_counts"].keys() if s not in species_order]
-    all_species_display = species_order + other_species
-
-    tot_charm_all = sum(data["species_hadron_counts"].values())
-    n_sp_bins = max(1, len(all_species_display))
     h_species_counts = ROOT.TH1D("h_species_counts", "Charm Species Counts;Charm Hadron;Entries", n_sp_bins, 0.5, n_sp_bins + 0.5)
     h_species_frac = ROOT.TH1D("h_species_fractions", "Charm Species Fractions (f_{i} = N_{i} / N_{charm});Charm Hadron;Fraction", n_sp_bins, 0.5, n_sp_bins + 0.5)
 
@@ -650,37 +785,83 @@ def write_histograms(
     h_species_counts.Write()
     h_species_frac.Write()
 
-    # 2D Species Fraction vs Energy Bins (TH2D: x=E_nu bins, y=Species)
-    h2_species_ebin = ROOT.TH2D(
-        "h2_species_vs_energy",
-        "Charm Species Breakdown across Energy Bins;E_{#nu} [GeV];Charm Hadron",
-        n_ebins, arr_edges, n_sp_bins, 0.5, n_sp_bins + 0.5
+    # 2D Species Fraction vs Neutrino Energy Bins
+    h2_species_nu_ebin = ROOT.TH2D(
+        "h2_species_vs_nu_energy",
+        "Charm Species Breakdown across E_{#nu} Bins;E_{#nu} [GeV];Charm Hadron",
+        n_nu_ebins, arr_nu_edges, n_sp_bins, 0.5, n_sp_bins + 0.5
     )
     for y_idx, abs_c in enumerate(all_species_display, start=1):
-        h2_species_ebin.GetYaxis().SetBinLabel(y_idx, get_species_name(abs_c))
+        h2_species_nu_ebin.GetYaxis().SetBinLabel(y_idx, get_species_name(abs_c))
 
-    for x_idx in range(n_ebins):
-        ebin_tot = sum(data["species_ebin_counts"][x_idx].values())
+    for x_idx in range(n_nu_ebins):
+        ebin_tot = sum(data["species_nu_ebin_counts"][x_idx].values())
         for y_idx, abs_c in enumerate(all_species_display, start=1):
-            c_cnt = data["species_ebin_counts"][x_idx].get(abs_c, 0)
+            c_cnt = data["species_nu_ebin_counts"][x_idx].get(abs_c, 0)
             frac = (c_cnt / ebin_tot) if ebin_tot > 0 else 0.0
-            h2_species_ebin.SetBinContent(x_idx + 1, y_idx, frac)
-    h2_species_ebin.Write()
+            h2_species_nu_ebin.SetBinContent(x_idx + 1, y_idx, frac)
+    h2_species_nu_ebin.Write()
 
-    # 1D Species Fraction vs Energy for each major ground state
+    # 2D Species Fraction vs Charm Hadron Energy Bins
+    h2_species_charm_ebin = ROOT.TH2D(
+        "h2_species_vs_charm_energy",
+        "Charm Species Breakdown across E_{charm} Bins;E_{charm} [GeV];Charm Hadron",
+        n_ch_ebins, arr_ch_edges, n_sp_bins, 0.5, n_sp_bins + 0.5
+    )
+    for y_idx, abs_c in enumerate(all_species_display, start=1):
+        h2_species_charm_ebin.GetYaxis().SetBinLabel(y_idx, get_species_name(abs_c))
+
+    for x_idx in range(n_ch_ebins):
+        ebin_tot = sum(data["species_charm_ebin_counts"][x_idx].values())
+        for y_idx, abs_c in enumerate(all_species_display, start=1):
+            c_cnt = data["species_charm_ebin_counts"][x_idx].get(abs_c, 0)
+            frac = (c_cnt / ebin_tot) if ebin_tot > 0 else 0.0
+            h2_species_charm_ebin.SetBinContent(x_idx + 1, y_idx, frac)
+    h2_species_charm_ebin.Write()
+
+    # 1D Species Fraction vs E_nu for each major ground state
+    species_frac_nu_hists: Dict[int, ROOT.TH1D] = {}
     for abs_c in species_order:
         sp_name = get_species_name(abs_c)
         h_frac_vs_e = ROOT.TH1D(
-            f"h_fraction_{sp_name}_vs_energy",
+            f"h_fraction_{sp_name}_vs_nu_energy",
             f"{sp_name} Fraction vs Neutrino Energy;E_{{#nu}} [GeV];f({sp_name}) = N({sp_name}) / N_{{charm}}",
-            n_ebins, arr_edges
+            n_nu_ebins, arr_nu_edges
         )
-        for i_b in range(n_ebins):
-            ebin_tot = sum(data["species_ebin_counts"][i_b].values())
-            c_cnt = data["species_ebin_counts"][i_b].get(abs_c, 0)
+        for i_b in range(n_nu_ebins):
+            ebin_tot = sum(data["species_nu_ebin_counts"][i_b].values())
+            c_cnt = data["species_nu_ebin_counts"][i_b].get(abs_c, 0)
             frac = (c_cnt / ebin_tot) if ebin_tot > 0 else 0.0
             h_frac_vs_e.SetBinContent(i_b + 1, frac)
+        col = SPECIES_COLORS.get(abs_c, ROOT.kBlack)
+        h_frac_vs_e.SetLineColor(col)
+        h_frac_vs_e.SetMarkerColor(col)
+        h_frac_vs_e.SetMarkerStyle(20)
+        h_frac_vs_e.SetLineWidth(2)
         h_frac_vs_e.Write()
+        species_frac_nu_hists[abs_c] = h_frac_vs_e
+
+    # 1D Species Fraction vs E_charm for each major ground state
+    species_frac_ch_hists: Dict[int, ROOT.TH1D] = {}
+    for abs_c in species_order:
+        sp_name = get_species_name(abs_c)
+        h_frac_vs_ce = ROOT.TH1D(
+            f"h_fraction_{sp_name}_vs_charm_energy",
+            f"{sp_name} Fraction vs Charm Hadron Energy;E_{{charm}} [GeV];f({sp_name}) = N({sp_name}) / N_{{charm}}",
+            n_ch_ebins, arr_ch_edges
+        )
+        for i_b in range(n_ch_ebins):
+            ebin_tot = sum(data["species_charm_ebin_counts"][i_b].values())
+            c_cnt = data["species_charm_ebin_counts"][i_b].get(abs_c, 0)
+            frac = (c_cnt / ebin_tot) if ebin_tot > 0 else 0.0
+            h_frac_vs_ce.SetBinContent(i_b + 1, frac)
+        col = SPECIES_COLORS.get(abs_c, ROOT.kBlack)
+        h_frac_vs_ce.SetLineColor(col)
+        h_frac_vs_ce.SetMarkerColor(col)
+        h_frac_vs_ce.SetMarkerStyle(21)
+        h_frac_vs_ce.SetLineWidth(2)
+        h_frac_vs_ce.Write()
+        species_frac_ch_hists[abs_c] = h_frac_vs_ce
 
     # Kinematics: Fragmentation z, pT, Theta
     h_z = ROOT.TH1D("h_fragmentation_z", "Charm Energy Fraction (Fragmentation);z = E_{charm} / E_{#nu};Entries", 50, 0.0, 1.0)
@@ -733,11 +914,23 @@ def write_histograms(
     # 3. PER-SPECIES DIRECTORIES (D0, Dplus, Ds, Lambda_c)
     # =========================================================================
     dir_species_root = fout.mkdir("Species")
+    species_ctau_hists: Dict[int, ROOT.TH1D] = {}
+    species_br_vs_charm_e: Dict[int, List[Tuple[str, ROOT.TH1D]]] = {}
+    species_br_vs_nu_e: Dict[int, List[Tuple[str, ROOT.TH1D]]] = {}
 
     for abs_c in sorted(data["species_hadron_counts"].keys()):
         sp_name = get_species_name(abs_c)
         dir_sp = dir_species_root.mkdir(sp_name)
         dir_sp.cd()
+
+        # Species Hadron Energy Spectrum
+        c_e_list = data["charm_e_by_species"].get(abs_c, [])
+        h_c_e = ROOT.TH1D(f"h_energy_{sp_name}", f"{sp_name} Hadron Energy Spectrum;E_{{{sp_name}}} [GeV];Entries", 50, 0.0, 1000.0)
+        for ce in c_e_list:
+            h_c_e.Fill(ce)
+        h_c_e.SetLineColor(SPECIES_COLORS.get(abs_c, ROOT.kBlack))
+        h_c_e.SetLineWidth(2)
+        h_c_e.Write()
 
         ch_map = data["decay_channels_by_species"].get(abs_c, Counter())
         tot_sp_decays = data["total_decays_by_species"].get(abs_c, sum(ch_map.values()))
@@ -765,7 +958,7 @@ def write_histograms(
         h_sp_ch.Write()
         h_sp_br.Write()
 
-        # Lifetime c*tau
+        # Proper Lifetime c*tau
         ctau_list = data["ctau_values_um"].get(abs_c, [])
         h_ctau = ROOT.TH1D(
             f"h_ctau_{sp_name}",
@@ -774,7 +967,12 @@ def write_histograms(
         )
         for val in ctau_list:
             h_ctau.Fill(val)
+        col = SPECIES_COLORS.get(abs_c, ROOT.kBlack)
+        h_ctau.SetLineColor(col)
+        h_ctau.SetFillColorAlpha(col, 0.35)
+        h_ctau.SetLineWidth(2)
         h_ctau.Write()
+        species_ctau_hists[abs_c] = h_ctau
 
         # Lab decay distance in mm
         dist_list = data["decay_dist_mm"].get(abs_c, [])
@@ -787,100 +985,388 @@ def write_histograms(
             h_dist.Fill(d)
         h_dist.Write()
 
-        # Energy Bins Subdirectory for Decay Channels vs Energy
-        dir_ebins = dir_sp.mkdir("EnergyBins")
-        ebin_ch_map = data["decay_channels_by_species_ebin"].get(abs_c, {})
+        # Branching Ratios vs E_charm for top 4 decay modes
+        top_modes = [tup for tup, _ in sorted_sp_channels[:4]]
+        ch_ebin_map = data["decay_channels_by_species_charm_ebin"].get(abs_c, {})
+        species_br_vs_charm_e[abs_c] = []
 
-        for i_b in range(n_ebins):
-            e_low, e_high = bin_edges[i_b], bin_edges[i_b + 1]
-            dir_b = dir_ebins.mkdir(f"Bin_{i_b}_{int(e_low)}to{int(e_high)}GeV")
-            dir_b.cd()
+        dir_br_ce = dir_sp.mkdir("BranchingRatios_vs_CharmEnergy")
+        dir_br_ce.cd()
 
-            b_channels = ebin_ch_map.get(i_b, Counter())
-            sorted_b_ch = sorted(b_channels.items(), key=lambda x: x[1], reverse=True)
-            n_b_top = min(len(sorted_b_ch), 15)
-            h_b_ch = ROOT.TH1D(
-                f"h_decay_channels_{sp_name}_bin{i_b}",
-                f"{sp_name} Decay Channels ({int(e_low)} <= E_{{#nu}} < {int(e_high)} GeV);Decay Channel;Decays",
-                max(1, n_b_top), 0.5, max(1, n_b_top) + 0.5
+        mode_colors = [ROOT.kRed + 1, ROOT.kBlue + 1, ROOT.kGreen + 2, ROOT.kOrange + 2]
+
+        for m_idx, mode_tuple in enumerate(top_modes):
+            formula = format_channel_formula(mode_tuple)
+            slug = channel_slug(mode_tuple)
+            h_mode_vs_ce = ROOT.TH1D(
+                f"h_br_{slug}_vs_charm_e",
+                f"BR({sp_name} -> {formula}) vs E_{{charm}};E_{{charm}} [GeV];Branching Ratio [%]",
+                n_ch_ebins, arr_ch_edges
             )
-            for j_ch, (ch_tup, cnt) in enumerate(sorted_b_ch[:n_b_top], start=1):
-                h_b_ch.GetXaxis().SetBinLabel(j_ch, format_channel_formula(ch_tup))
-                h_b_ch.SetBinContent(j_ch, cnt)
-            h_b_ch.Write()
+            for i_b in range(n_ch_ebins):
+                eb_counter = ch_ebin_map.get(i_b, Counter())
+                eb_tot = sum(eb_counter.values())
+                mode_cnt = eb_counter.get(mode_tuple, 0)
+                br = (100.0 * mode_cnt / eb_tot) if eb_tot > 0 else 0.0
+                h_mode_vs_ce.SetBinContent(i_b + 1, br)
+
+            col = mode_colors[m_idx % len(mode_colors)]
+            h_mode_vs_ce.SetLineColor(col)
+            h_mode_vs_ce.SetMarkerColor(col)
+            h_mode_vs_ce.SetMarkerStyle(20 + m_idx)
+            h_mode_vs_ce.SetLineWidth(2)
+            h_mode_vs_ce.Write()
+            species_br_vs_charm_e[abs_c].append((formula, h_mode_vs_ce))
+
+        # Branching Ratios vs E_nu for top 4 decay modes
+        nu_ebin_map = data["decay_channels_by_species_nu_ebin"].get(abs_c, {})
+        species_br_vs_nu_e[abs_c] = []
+
+        dir_br_nue = dir_sp.mkdir("BranchingRatios_vs_NuEnergy")
+        dir_br_nue.cd()
+
+        for m_idx, mode_tuple in enumerate(top_modes):
+            formula = format_channel_formula(mode_tuple)
+            slug = channel_slug(mode_tuple)
+            h_mode_vs_nue = ROOT.TH1D(
+                f"h_br_{slug}_vs_nu_e",
+                f"BR({sp_name} -> {formula}) vs E_{{#nu}};E_{{#nu}} [GeV];Branching Ratio [%]",
+                n_nu_ebins, arr_nu_edges
+            )
+            for i_b in range(n_nu_ebins):
+                eb_counter = nu_ebin_map.get(i_b, Counter())
+                eb_tot = sum(eb_counter.values())
+                mode_cnt = eb_counter.get(mode_tuple, 0)
+                br = (100.0 * mode_cnt / eb_tot) if eb_tot > 0 else 0.0
+                h_mode_vs_nue.SetBinContent(i_b + 1, br)
+
+            col = mode_colors[m_idx % len(mode_colors)]
+            h_mode_vs_nue.SetLineColor(col)
+            h_mode_vs_nue.SetMarkerColor(col)
+            h_mode_vs_nue.SetMarkerStyle(20 + m_idx)
+            h_mode_vs_nue.SetLineWidth(2)
+            h_mode_vs_nue.Write()
+            species_br_vs_nu_e[abs_c].append((formula, h_mode_vs_nue))
+
+    # =========================================================================
+    # 4. CANVASES DIRECTORY: Superimposed Histograms, Models & Legends
+    # =========================================================================
+    dir_canvases = fout.mkdir("Canvases")
+    dir_canvases.cd()
+
+    # --- Canvas 1: Charm Production Rate vs E_nu (MC vs Slow Rescaling Model) ---
+    c_rate = ROOT.TCanvas("c_charm_rate_vs_energy", "Charm Production Rate vs Neutrino Energy", 950, 700)
+    c_rate.SetLeftMargin(0.12)
+    c_rate.SetRightMargin(0.06)
+    c_rate.SetTopMargin(0.08)
+    c_rate.SetBottomMargin(0.12)
+    c_rate.SetGrid()
+
+    h_rate_frame = c_rate.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), max(0.20, h_charm_rate_ebins.GetMaximum() * 1.35))
+    h_rate_frame.SetTitle("Charm Production Rate vs E_{#nu}: MC Simulation vs Slow Rescaling Model;E_{#nu} [GeV];R_{charm} = #sigma(#nu_{#mu} N #rightarrow c X) / #sigma_{CC}(#nu_{#mu} N #rightarrow X)")
+    h_rate_frame.GetYaxis().SetTitleOffset(1.3)
+
+    # Slow Rescaling Model theoretical prediction
+    f_sr = create_slow_rescaling_function(
+        name="f_slow_rescaling",
+        e_min=0.0,
+        e_max=nu_bin_edges[-1],
+        e_thresh=3.7,
+        r_inf=0.088,
+    )
+    f_sr.Draw("same")
+
+    # MC data points
+    h_charm_rate_ebins.Draw("E1 same")
+
+    leg_rate = ROOT.TLegend(0.16, 0.68, 0.88, 0.88)
+    leg_rate.SetBorderSize(1)
+    leg_rate.SetFillStyle(1001)
+    leg_rate.SetFillColor(ROOT.kWhite)
+    leg_rate.AddEntry(h_charm_rate_ebins, "SND@LHC MC Production (Binned Rate #pm Stat Error)", "lep")
+    leg_rate.AddEntry(f_sr, "Slow Rescaling Model (Georgi-Politzer / Barnett, m_{c}=1.4 GeV, |V_{cd}|=0.225, |V_{cs}|=0.974)", "l")
+    leg_rate.Draw("same")
+    c_rate.Write()
+
+    # --- Canvas 2: Overlaid Energy Spectra (Inclusive CC vs Charm CC vs Charm Hadron) ---
+    c_spectra = ROOT.TCanvas("c_nu_and_charm_energy_spectra", "Neutrino and Charm Energy Spectra", 950, 700)
+    c_spectra.SetLeftMargin(0.12)
+    c_spectra.SetRightMargin(0.06)
+    c_spectra.SetTopMargin(0.08)
+    c_spectra.SetBottomMargin(0.12)
+    c_spectra.SetLogy()
+
+    max_spec = max(h_nu_e_cc_all.GetMaximum(), h_nu_e_cc_charm.GetMaximum(), h_charm_e_all.GetMaximum(), 1.0)
+    h_spec_frame = c_spectra.DrawFrame(0.0, 0.5, 1000.0, max_spec * 3.0)
+    h_spec_frame.SetTitle("Energy Distributions: E_{#nu} (CC Inclusive), E_{#nu} (with Charm), and E_{charm};Energy [GeV];Events / 20 GeV")
+
+    h_nu_e_cc_all.SetLineColor(ROOT.kBlue + 2)
+    h_nu_e_cc_all.Draw("HIST same")
+
+    h_nu_e_cc_charm.SetLineColor(ROOT.kRed + 1)
+    h_nu_e_cc_charm.Draw("HIST same")
+
+    h_charm_e_all.SetLineColor(ROOT.kGreen + 2)
+    h_charm_e_all.Draw("HIST same")
+
+    leg_spec = ROOT.TLegend(0.50, 0.70, 0.90, 0.88)
+    leg_spec.SetBorderSize(1)
+    leg_spec.SetFillColor(ROOT.kWhite)
+    leg_spec.AddEntry(h_nu_e_cc_all, "#nu_{#mu} CC Inclusive (E_{#nu})", "l")
+    leg_spec.AddEntry(h_nu_e_cc_charm, "#nu_{#mu} CC with Charm (E_{#nu})", "l")
+    leg_spec.AddEntry(h_charm_e_all, "Charm Hadron Energy (E_{charm})", "l")
+    leg_spec.Draw("same")
+    c_spectra.Write()
+
+    # --- Canvas 3: Superimposed Species Fractions vs E_nu ---
+    c_sp_nu = ROOT.TCanvas("c_species_fractions_vs_nu_energy", "Charm Species Fractions vs Neutrino Energy", 950, 700)
+    c_sp_nu.SetLeftMargin(0.12)
+    c_sp_nu.SetRightMargin(0.06)
+    c_sp_nu.SetTopMargin(0.08)
+    c_sp_nu.SetBottomMargin(0.12)
+    c_sp_nu.SetGrid()
+
+    h_sp_nu_frame = c_sp_nu.DrawFrame(0.0, 0.0, nu_bin_edges[-1], 1.05)
+    h_sp_nu_frame.SetTitle("Charm Species Fragmentation Fractions vs E_{#nu};E_{#nu} [GeV];Fraction f_{i} = N_{i} / N_{charm}")
+
+    leg_sp_nu = ROOT.TLegend(0.68, 0.70, 0.92, 0.88)
+    leg_sp_nu.SetBorderSize(1)
+    leg_sp_nu.SetFillColor(ROOT.kWhite)
+
+    for abs_c in species_order:
+        h = species_frac_nu_hists.get(abs_c)
+        if h:
+            h.Draw("LP same")
+            leg_sp_nu.AddEntry(h, get_species_name(abs_c), "lp")
+    leg_sp_nu.Draw("same")
+    c_sp_nu.Write()
+
+    # --- Canvas 4: Superimposed Species Fractions vs E_charm ---
+    c_sp_ce = ROOT.TCanvas("c_species_fractions_vs_charm_energy", "Charm Species Fractions vs Charm Hadron Energy", 950, 700)
+    c_sp_ce.SetLeftMargin(0.12)
+    c_sp_ce.SetRightMargin(0.06)
+    c_sp_ce.SetTopMargin(0.08)
+    c_sp_ce.SetBottomMargin(0.12)
+    c_sp_ce.SetGrid()
+
+    h_sp_ce_frame = c_sp_ce.DrawFrame(0.0, 0.0, charm_bin_edges[-1], 1.05)
+    h_sp_ce_frame.SetTitle("Charm Species Fragmentation Fractions vs E_{charm};E_{charm} [GeV];Fraction f_{i} = N_{i} / N_{charm}")
+
+    leg_sp_ce = ROOT.TLegend(0.68, 0.70, 0.92, 0.88)
+    leg_sp_ce.SetBorderSize(1)
+    leg_sp_ce.SetFillColor(ROOT.kWhite)
+
+    for abs_c in species_order:
+        h = species_frac_ch_hists.get(abs_c)
+        if h:
+            h.Draw("LP same")
+            leg_sp_ce.AddEntry(h, get_species_name(abs_c), "lp")
+    leg_sp_ce.Draw("same")
+    c_sp_ce.Write()
+
+    # --- Canvas 5: Superimposed Branching Ratios vs E_charm (for D0 and D+) ---
+    for abs_c in [421, 411]:
+        sp_name = get_species_name(abs_c)
+        mode_list = species_br_vs_charm_e.get(abs_c, [])
+        if not mode_list:
+            continue
+
+        c_br_ce = ROOT.TCanvas(f"c_branching_ratios_vs_charm_energy_{sp_name}", f"{sp_name} Branching Ratios vs Charm Energy", 950, 700)
+        c_br_ce.SetLeftMargin(0.12)
+        c_br_ce.SetRightMargin(0.06)
+        c_br_ce.SetTopMargin(0.08)
+        c_br_ce.SetBottomMargin(0.12)
+        c_br_ce.SetGrid()
+
+        max_br = max([h.GetMaximum() for _, h in mode_list] + [10.0])
+        h_br_frame = c_br_ce.DrawFrame(0.0, 0.0, charm_bin_edges[-1], min(100.0, max_br * 1.35))
+        h_br_frame.SetTitle(f"Evolution of {sp_name} Branching Ratios with Hadron Energy;E_{{{sp_name}}} [GeV];Branching Ratio [%]")
+
+        leg_br_ce = ROOT.TLegend(0.48, 0.68, 0.92, 0.88)
+        leg_br_ce.SetBorderSize(1)
+        leg_br_ce.SetFillColor(ROOT.kWhite)
+
+        for formula, h in mode_list:
+            h.Draw("LP same")
+            leg_br_ce.AddEntry(h, f"{sp_name} #rightarrow {formula}", "lp")
+        leg_br_ce.Draw("same")
+        c_br_ce.Write()
+
+    # --- Canvas 6: Superimposed Proper Lifetimes c*tau with PDG Reference Markers ---
+    c_ctau = ROOT.TCanvas("c_proper_lifetimes", "Proper Lifetime Distributions (c*tau) vs PDG References", 1000, 700)
+    c_ctau.Divide(2, 2)
+
+    pad_lines = []
+    for idx_sp, abs_c in enumerate(species_order, start=1):
+        sp_name = get_species_name(abs_c)
+        pad = c_ctau.cd(idx_sp)
+        pad.SetLeftMargin(0.14)
+        pad.SetRightMargin(0.06)
+        pad.SetBottomMargin(0.14)
+
+        h_ct = species_ctau_hists.get(abs_c)
+        if h_ct:
+            h_ct.Draw("HIST")
+            pdg_tau = PDG_LIFETIMES_CTAU_UM.get(abs_c, 0.0)
+            if pdg_tau > 0:
+                line = ROOT.TLine(pdg_tau, 0.0, pdg_tau, h_ct.GetMaximum() * 1.05)
+                line.SetLineColor(ROOT.kBlack)
+                line.SetLineWidth(3)
+                line.SetLineStyle(2)
+                line.Draw("same")
+                pad_lines.append(line)
+
+                leg_ct = ROOT.TLegend(0.42, 0.70, 0.90, 0.88)
+                leg_ct.SetBorderSize(1)
+                leg_ct.SetFillColor(ROOT.kWhite)
+                leg_ct.AddEntry(h_ct, f"MC <c#tau> = {h_ct.GetMean():.1f} #mum", "f")
+                leg_ct.AddEntry(line, f"PDG c#tau = {pdg_tau:.1f} #mum", "l")
+                leg_ct.Draw("same")
+                pad_lines.append(leg_ct)
+    c_ctau.Write()
+
+    # --- Canvas 7: Kinematics 4-Pad Display (z, pT, theta, E_charm vs E_nu) ---
+    c_kin = ROOT.TCanvas("c_fragmentation_and_kinematics", "Charm Hadron Kinematics", 1000, 700)
+    c_kin.Divide(2, 2)
+
+    c_kin.cd(1)
+    h_z.SetFillColorAlpha(ROOT.kTeal - 5, 0.5)
+    h_z.SetLineColor(ROOT.kTeal + 2)
+    h_z.Draw("HIST")
+
+    c_kin.cd(2)
+    h_pt.SetFillColorAlpha(ROOT.kAzure - 4, 0.5)
+    h_pt.SetLineColor(ROOT.kBlue + 2)
+    h_pt.Draw("HIST")
+
+    c_kin.cd(3)
+    h_theta.SetFillColorAlpha(ROOT.kOrange - 3, 0.5)
+    h_theta.SetLineColor(ROOT.kOrange + 2)
+    h_theta.Draw("HIST")
+
+    c_kin.cd(4)
+    # 2D correlation E_charm vs E_nu
+    h2_evs_e = ROOT.TH2D("h2_echarm_vs_enu", "E_{charm} vs E_{#nu};E_{#nu} [GeV];E_{charm} [GeV]", 40, 0.0, 1000.0, 40, 0.0, 1000.0)
+    for i_pt in range(min(len(data["nu_e_cc_charm"]), len(data["charm_e_all"]))):
+        h2_evs_e.Fill(data["nu_e_cc_charm"][i_pt], data["charm_e_all"][i_pt])
+    h2_evs_e.Draw("COLZ")
+    c_kin.Write()
 
     fout.Close()
-    print(f"  ROOT Histograms written successfully to: {os.path.abspath(output_path)}")
+    print(f"  ROOT Histograms and Superimposed Canvases written successfully to: {os.path.abspath(output_path)}")
+
+    # Optional PNG Export
+    if export_png_dir:
+        os.makedirs(export_png_dir, exist_ok=True)
+        fin_read = ROOT.TFile.Open(output_path, "READ")
+        canvases_dir = fin_read.Get("Canvases")
+        if canvases_dir:
+            for k in canvases_dir.GetListOfKeys():
+                obj = k.ReadObj()
+                if "TCanvas" in obj.ClassName():
+                    obj.SaveAs(os.path.join(export_png_dir, f"{k.GetName()}.png"))
+        fin_read.Close()
+        print(f"  Exported diagnostic PNG plots to: {os.path.abspath(export_png_dir)}")
 
 
-def print_diagnostic_report(data: Dict[str, Any], bin_edges: List[float]) -> None:
+def print_diagnostic_report(
+    data: Dict[str, Any],
+    nu_bin_edges: List[float],
+    charm_bin_edges: List[float],
+) -> None:
     """Prints a structured summary table and physics diagnostic report."""
-    n_ebins = len(bin_edges) - 1
+    n_nu_ebins = len(nu_bin_edges) - 1
+    n_ch_ebins = len(charm_bin_edges) - 1
     tot_files = data["files_processed"]
     tot_events = data["total_events"]
     tot_cc = data["nu_cc_inclusive"]
     tot_charm = data["nu_cc_charm"]
     charm_rate = (100.0 * tot_charm / tot_cc) if tot_cc > 0 else 0.0
 
-    print("\n" + "=" * 84)
+    print("\n" + "=" * 86)
     print(" SND@LHC CHARMED HADRON COMPREHENSIVE PHYSICS & DECAY DIAGNOSTIC REPORT")
-    print("=" * 84)
+    print("=" * 86)
     print(f" Analyzed Files          : {tot_files}")
     print(f" Total Events Scanned    : {tot_events}")
     print(f" Nu_mu CC Events         : {tot_cc}")
     print(f" Nu_mu CC Charm Events   : {tot_charm}")
     print(f" Overall Charm Production: {tot_charm} / {tot_cc} ({charm_rate:.2f}%)")
-    print("-" * 84)
+    print("-" * 86)
 
-    # 1. Charm Production Rate vs Energy
-    print("\n" + "-" * 84)
-    print(" 1. CHARM PRODUCTION RATE AS A FUNCTION OF NEUTRINO ENERGY")
-    print("-" * 84)
-    print(f" {'Energy Bin [GeV]':<22s} {'Total Nu_mu CC':<18s} {'Charm Count':<16s} {'Charm Rate [%]':<16s}")
-    print("-" * 84)
-    for i in range(n_ebins):
-        e_low, e_high = bin_edges[i], bin_edges[i + 1]
+    # 1. Charm Production Rate vs Neutrino Energy & Slow Rescaling comparison
+    print("\n" + "-" * 86)
+    print(" 1. CHARM PRODUCTION RATE AS A FUNCTION OF NEUTRINO ENERGY vs SLOW RESCALING")
+    print("-" * 86)
+    print(f" {'E_nu Bin [GeV]':<20s} {'Total Nu_mu CC':<16s} {'Charm Count':<14s} {'MC Rate [%]':<18s} {'Slow Rescaling':<16s}")
+    print("-" * 86)
+
+    f_sr_eval = create_slow_rescaling_function(e_thresh=3.7, r_inf=0.088)
+
+    for i in range(n_nu_ebins):
+        e_low, e_high = nu_bin_edges[i], nu_bin_edges[i + 1]
         n_cc_bin = data["cc_all_per_ebin"][i]
         n_ch_bin = data["cc_charm_per_ebin"][i]
         rate_bin = (100.0 * n_ch_bin / n_cc_bin) if n_cc_bin > 0 else 0.0
         err_bin = (100.0 * math.sqrt(n_ch_bin) / n_cc_bin) if (n_cc_bin > 0 and n_ch_bin > 0) else 0.0
+        e_mid = 0.5 * (e_low + e_high)
+        sr_val = 100.0 * f_sr_eval.Eval(e_mid)
         bin_str = f"[{e_low:.0f}, {e_high:.0f})"
         rate_str = f"{rate_bin:5.2f}% +/- {err_bin:4.2f}%" if n_cc_bin > 0 else "N/A (0 events)"
-        print(f" {bin_str:<22s} {n_cc_bin:<18d} {n_ch_bin:<16d} {rate_str:<16s}")
-    print("-" * 84)
+        sr_str = f"{sr_val:5.2f}%"
+        print(f" {bin_str:<20s} {n_cc_bin:<16d} {n_ch_bin:<14d} {rate_str:<18s} {sr_str:<16s}")
+    print("-" * 86)
 
-    # 2. Charm Species Fractions (Overall & vs Energy)
-    tot_charm_hadrons = sum(data["species_hadron_counts"].values())
-    print("\n" + "-" * 84)
-    print(" 2. CHARM SPECIES FRAGMENTATION FRACTIONS (RATIO TO TOTAL CHARM)")
-    print("-" * 84)
-    header = f" {'Species':<14s} {'|PDG|':<8s} {'Overall Share':<16s}"
-    for i in range(n_ebins):
-        header += f" [{bin_edges[i]:.0f},{bin_edges[i+1]:.0f}) GeV".ljust(14)
-    print(header)
-    print("-" * 84)
-
+    # 2. Charm Hadron Energies per Species
+    print("\n" + "-" * 86)
+    print(" 2. CHARM HADRON ENERGY SPECTRUM (E_charm)")
+    print("-" * 86)
+    print(f" {'Species':<14s} {'|PDG|':<8s} {'Count':<8s} {'Mean E [GeV]':<16s} {'Min E [GeV]':<14s} {'Max E [GeV]':<14s}")
+    print("-" * 86)
     major_pdgs = [421, 411, 431, 4122]
     other_pdgs = [p for p in sorted(data["species_hadron_counts"].keys()) if p not in major_pdgs]
 
     for abs_c in major_pdgs + other_pdgs:
         sp_name = get_species_name(abs_c)
+        c_list = data["charm_e_by_species"].get(abs_c, [])
+        cnt = len(c_list)
+        if cnt > 0:
+            mean_e = sum(c_list) / cnt
+            min_e = min(c_list)
+            max_e = max(c_list)
+            print(f" {sp_name:<14s} {abs_c:<8d} {cnt:<8d} {mean_e:8.1f}        {min_e:8.1f}      {max_e:8.1f}")
+        else:
+            print(f" {sp_name:<14s} {abs_c:<8d} 0        N/A             N/A            N/A")
+    print("-" * 86)
+
+    # 3. Charm Species Fractions vs E_charm
+    tot_charm_hadrons = sum(data["species_hadron_counts"].values())
+    print("\n" + "-" * 86)
+    print(" 3. SPECIES FRAGMENTATION FRACTIONS AS A FUNCTION OF CHARM HADRON ENERGY (E_charm)")
+    print("-" * 86)
+    header = f" {'Species':<14s} {'Overall Share':<16s}"
+    for i in range(n_ch_ebins):
+        header += f" [{charm_bin_edges[i]:.0f},{charm_bin_edges[i+1]:.0f}) GeV".ljust(14)
+    print(header)
+    print("-" * 86)
+
+    for abs_c in major_pdgs + other_pdgs:
+        sp_name = get_species_name(abs_c)
         cnt = data["species_hadron_counts"].get(abs_c, 0)
         overall_share = (100.0 * cnt / tot_charm_hadrons) if tot_charm_hadrons > 0 else 0.0
-        row = f" {sp_name:<14s} {abs_c:<8d} {overall_share:5.2f}% ({cnt:<3d})"
-        row = f"{row:<40s}"
-        for i in range(n_ebins):
-            ebin_tot = sum(data["species_ebin_counts"][i].values())
-            c_ebin = data["species_ebin_counts"][i].get(abs_c, 0)
+        row = f" {sp_name:<14s} {overall_share:5.2f}% ({cnt:<3d})"
+        row = f"{row:<32s}"
+        for i in range(n_ch_ebins):
+            ebin_tot = sum(data["species_charm_ebin_counts"][i].values())
+            c_ebin = data["species_charm_ebin_counts"][i].get(abs_c, 0)
             share_ebin = (100.0 * c_ebin / ebin_tot) if ebin_tot > 0 else 0.0
             row += f"{share_ebin:5.1f}% ({c_ebin:<2d})".ljust(14)
         print(row)
-    print("-" * 84)
+    print("-" * 86)
 
-    # 3. Decay Channels Breakdown
-    print("\n" + "-" * 84)
-    print(" 3. EXCLUSIVE DECAY CHANNELS & BRANCHING RATIOS PER SPECIES")
-    print("-" * 84)
+    # 4. Exclusive Decay Channels & Branching Ratio Evolution with E_charm
+    print("\n" + "-" * 86)
+    print(" 4. EXCLUSIVE DECAY CHANNELS & EVOLUTION WITH CHARM HADRON ENERGY")
+    print("-" * 86)
     for abs_c in major_pdgs:
         sp_name = get_species_name(abs_c)
         ch_map = data["decay_channels_by_species"].get(abs_c, Counter())
@@ -888,16 +1374,27 @@ def print_diagnostic_report(data: Dict[str, Any], bin_edges: List[float]) -> Non
         if tot_d == 0:
             continue
         sorted_ch = sorted(ch_map.items(), key=lambda x: x[1], reverse=True)
-        print(f"\n  [{sp_name}] (Total Decays Analyzed: {tot_d}, Distinct Modes Observed: {len(ch_map)}):")
-        for rank, (ch_tup, count) in enumerate(sorted_ch[:5], start=1):
-            formula = format_channel_formula(ch_tup)
-            br = 100.0 * count / tot_d
-            print(f"    #{rank:02d}: {formula:<40s} -> {count:3d} decays ({br:5.1f}%)")
+        print(f"\n  [{sp_name}] (Total Decays: {tot_d}, Distinct Modes: {len(ch_map)}):")
+        ch_eb_map = data["decay_channels_by_species_charm_ebin"].get(abs_c, {})
 
-    # 4. Physical Modeling Checks
-    print("\n" + "=" * 84)
-    print(" 4. PHYSICS MODELING TESTS (BRANCHING FRACTIONS, LIFETIMES, KINEMATICS)")
-    print("=" * 84)
+        for rank, (ch_tup, count) in enumerate(sorted_ch[:4], start=1):
+            formula = format_channel_formula(ch_tup)
+            br_tot = 100.0 * count / tot_d
+            print(f"    #{rank:02d}: {formula:<36s} -> Overall: {count:3d} ({br_tot:4.1f}%)")
+            # Energy evolution
+            e_str = "         Evolution vs E_charm: "
+            for i_b in range(n_ch_ebins):
+                eb_cnt = ch_eb_map.get(i_b, Counter())
+                eb_tot = sum(eb_cnt.values())
+                m_cnt = eb_cnt.get(ch_tup, 0)
+                br_b = (100.0 * m_cnt / eb_tot) if eb_tot > 0 else 0.0
+                e_str += f"[{charm_bin_edges[i_b]:.0f}-{charm_bin_edges[i_b+1]:.0f}G]: {br_b:4.1f}%  "
+            print(e_str)
+
+    # 5. Physics Modeling Checks
+    print("\n" + "=" * 86)
+    print(" 5. PHYSICAL VALIDATION TESTS (BRANCHING FRACTIONS, LIFETIMES, LEPTICITY)")
+    print("=" * 86)
 
     any_anomalies = False
 
@@ -929,7 +1426,6 @@ def print_diagnostic_report(data: Dict[str, Any], bin_edges: List[float]) -> Non
         print(f"    - Proper Lifetime <c*tau>      : {mean_ctau:5.1f} um (PDG reference: {pdg_ctau:.1f} um)")
         print(f"    - Most Frequent Decay Mode     : '{format_channel_formula(top_mode)}' ({top_frac:4.1f}%)")
 
-        # Tests
         if top_frac >= 80.0 and tot_d >= 15:
             any_anomalies = True
             print(f"    >>> STATUS: [FAIL] FORCED EXCLUSIVE CHANNEL DETECTED! Mode '{format_channel_formula(top_mode)}' dominates {top_frac:.1f}%.")
@@ -942,106 +1438,16 @@ def print_diagnostic_report(data: Dict[str, Any], bin_edges: List[float]) -> Non
         else:
             print(f"    >>> STATUS: [PASS] Branching modes, semi-leptonic rates, and lifetimes look consistent.")
 
-    # 5. Neutrino vs Antineutrino Baryon Asymmetry Check
-    print("\n" + "-" * 84)
-    print(" 5. NEUTRINO VS ANTINEUTRINO ASYMMETRY (LAMBDA_C BARYON PRODUCTION)")
-    print("-" * 84)
-    nu_lc = data["nu_sign_charm_species"][1].get(4122, 0)
-    nu_tot_c = sum(data["nu_sign_charm_species"][1].values())
-    anti_lc = data["nu_sign_charm_species"][-1].get(4122, 0)
-    anti_tot_c = sum(data["nu_sign_charm_species"][-1].values())
-
-    frac_nu_lc = (100.0 * nu_lc / nu_tot_c) if nu_tot_c > 0 else 0.0
-    frac_anti_lc = (100.0 * anti_lc / anti_tot_c) if anti_tot_c > 0 else 0.0
-    print(f"  Nu_mu interactions      : Lambda_c+ share = {nu_lc}/{nu_tot_c} ({frac_nu_lc:4.1f}%)")
-    print(f"  Anti-Nu_mu interactions : anti-Lambda_c- share = {anti_lc}/{anti_tot_c} ({frac_anti_lc:4.1f}%)")
-    if frac_nu_lc >= frac_anti_lc:
-        print("  >>> STATUS: [PASS] Expected baryon suppression in anti-neutrinos is confirmed!")
-    else:
-        print("  >>> STATUS: [INFO] Statistics limited or unexpected anti-neutrino baryon fraction.")
-
-    print("\n" + "=" * 84)
+    print("\n" + "=" * 86)
     print(" OVERALL DIAGNOSTIC VERDICT")
-    print("=" * 84)
+    print("=" * 86)
     if any_anomalies:
         print(" [WARNING]: Anomalies detected in charm decay modeling (e.g. forced branching ratios).")
     else:
         print(" [ALL CHECKS PASSED]: Charm production rates, hadron fragmentation species,")
         print(" inclusive branching fractions, proper decay lifetimes, and kinematics appear")
         print(" correctly modelled and consistent with physical expectations.")
-    print("=" * 84 + "\n")
-
-
-def export_diagnostic_plots(root_file_path: str, plots_dir: str) -> None:
-    """Exports key histograms as high-quality PNG images."""
-    os.makedirs(plots_dir, exist_ok=True)
-    fin = ROOT.TFile.Open(root_file_path, "READ")
-    if not fin or fin.IsZombie():
-        return
-
-    c = ROOT.TCanvas("c_diag", "Diagnostic Plot", 900, 650)
-    c.SetLeftMargin(0.12)
-    c.SetRightMargin(0.08)
-    c.SetBottomMargin(0.12)
-    c.SetTopMargin(0.08)
-
-    # 1. Charm production rate vs energy bins
-    h_rate = fin.Get("Summary/h_charm_rate_vs_energy_bins")
-    if h_rate:
-        c.Clear()
-        h_rate.SetMarkerStyle(20)
-        h_rate.SetMarkerSize(1.3)
-        h_rate.SetMarkerColor(ROOT.kBlue + 2)
-        h_rate.SetLineColor(ROOT.kBlue + 2)
-        h_rate.SetLineWidth(2)
-        max_val = max(0.5, h_rate.GetMaximum() * 1.3)
-        h_rate.GetYaxis().SetRangeUser(0.0, max_val)
-        h_rate.Draw("E1")
-        c.SaveAs(os.path.join(plots_dir, "charm_production_rate_vs_energy.png"))
-
-    # 2. Species fractions bar chart
-    h_sp = fin.Get("Summary/h_species_fractions")
-    if h_sp:
-        c.Clear()
-        h_sp.SetFillColor(ROOT.kAzure - 4)
-        h_sp.SetLineColor(ROOT.kBlue + 2)
-        h_sp.SetLineWidth(2)
-        h_sp.GetYaxis().SetRangeUser(0.0, 1.0)
-        h_sp.Draw("HIST")
-        c.SaveAs(os.path.join(plots_dir, "charm_species_fractions.png"))
-
-    # 3. Species vs energy 2D
-    h2_sp = fin.Get("Summary/h2_species_vs_energy")
-    if h2_sp:
-        c.Clear()
-        c.SetRightMargin(0.14)
-        h2_sp.Draw("COLZ TEXT")
-        c.SaveAs(os.path.join(plots_dir, "charm_species_vs_energy_2d.png"))
-        c.SetRightMargin(0.08)
-
-    # 4. Fragmentation z
-    h_z = fin.Get("Summary/h_fragmentation_z")
-    if h_z:
-        c.Clear()
-        h_z.SetFillColor(ROOT.kTeal - 5)
-        h_z.SetLineColor(ROOT.kTeal + 2)
-        h_z.Draw("HIST")
-        c.SaveAs(os.path.join(plots_dir, "charm_fragmentation_z.png"))
-
-    # 5. Decay channels for major species
-    for sp in ["D0", "Dplus", "Ds", "Lambda_c"]:
-        h_ch = fin.Get(f"Species/{sp}/h_branching_ratio_{sp}")
-        if h_ch and h_ch.GetEntries() > 0:
-            c.Clear()
-            c.SetBottomMargin(0.28)
-            h_ch.SetFillColor(ROOT.kOrange - 2)
-            h_ch.SetLineColor(ROOT.kOrange + 2)
-            h_ch.Draw("HIST")
-            c.SaveAs(os.path.join(plots_dir, f"decay_channels_{sp}.png"))
-            c.SetBottomMargin(0.12)
-
-    fin.Close()
-    print(f"  Exported diagnostic PNG plots to: {os.path.abspath(plots_dir)}")
+    print("=" * 86 + "\n")
 
 
 def main():
@@ -1070,7 +1476,7 @@ def main():
         "-o", "--output",
         type=str,
         default="charm_diagnostic_results.root",
-        help="Output ROOT file to store histograms",
+        help="Output ROOT file to store histograms and superimposed canvases",
     )
     parser.add_argument(
         "-n", "--max-events",
@@ -1091,11 +1497,18 @@ def main():
         help="Number of parallel worker processes",
     )
     parser.add_argument(
-        "--energy-bins",
+        "--nu-energy-bins",
         nargs="+",
         type=float,
         default=[0.0, 100.0, 250.0, 500.0, 1500.0],
-        help="Neutrino energy bin edges in GeV (e.g. 0 100 250 500 1500)",
+        help="Neutrino energy bin edges in GeV",
+    )
+    parser.add_argument(
+        "--charm-energy-bins",
+        nargs="+",
+        type=float,
+        default=[0.0, 50.0, 100.0, 250.0, 500.0, 1500.0],
+        help="Charm hadron energy bin edges in GeV",
     )
     parser.add_argument(
         "--decay-only",
@@ -1137,14 +1550,14 @@ def main():
         "--plots-dir",
         type=str,
         default=None,
-        help="Directory to export publication-quality PNG diagnostic plots",
+        help="Optional directory to also export PNG diagnostic plots",
     )
 
     args = parser.parse_args()
 
-    print("=" * 84)
+    print("=" * 86)
     print(" SND@LHC: Charmed Hadron Production, Species Fractions & Decay Diagnostic")
-    print("=" * 84)
+    print("=" * 86)
     print(f" Input Source         : {args.input}")
     if args.filelist:
         print(f" Filelist             : {args.filelist}")
@@ -1152,11 +1565,12 @@ def main():
     print(f" Max Events           : {'All' if args.max_events < 0 else args.max_events}")
     print(f" Max Files            : {'All' if args.max_files < 0 else args.max_files}")
     print(f" Parallel Workers     : {args.jobs}")
-    print(f" Energy Bins [GeV]    : {args.energy_bins}")
+    print(f" Nu Energy Bins [GeV] : {args.nu_energy_bins}")
+    print(f" Charm Energy Bins    : {args.charm_energy_bins}")
     print(f" Decay Process Only   : {args.decay_only}")
     print(f" Ground State Only    : {args.ground_state_only}")
     print(f" Nu_mu CC Only        : {args.numu_cc_only}")
-    print("=" * 84)
+    print("=" * 86)
 
     # 1. Resolve input files
     t0_resolve = time.time()
@@ -1179,7 +1593,8 @@ def main():
     tasks = [
         (
             chunk,
-            args.energy_bins,
+            args.nu_energy_bins,
+            args.charm_energy_bins,
             args.decay_only,
             args.ground_state_only,
             args.numu_cc_only,
@@ -1201,14 +1616,18 @@ def main():
     print(f"      Completed event processing in {elapsed_proc:.2f}s!")
 
     # 3. Merge results and generate outputs
-    print("[3/3] Merging statistics, writing histograms & compiling diagnostic report...")
-    merged_data = merge_worker_results(results, args.energy_bins)
+    print("[3/3] Merging statistics, writing histograms & superimposed canvases...")
+    merged_data = merge_worker_results(results, args.nu_energy_bins, args.charm_energy_bins)
 
-    write_histograms(args.output, merged_data, args.energy_bins)
-    print_diagnostic_report(merged_data, args.energy_bins)
+    write_histograms_and_canvases(
+        args.output,
+        merged_data,
+        args.nu_energy_bins,
+        args.charm_energy_bins,
+        export_png_dir=args.plots_dir,
+    )
 
-    if args.plots_dir:
-        export_diagnostic_plots(args.output, args.plots_dir)
+    print_diagnostic_report(merged_data, args.nu_energy_bins, args.charm_energy_bins)
 
 
 if __name__ == "__main__":

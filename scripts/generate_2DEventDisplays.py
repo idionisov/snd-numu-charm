@@ -14,13 +14,13 @@ Operating Modes:
 2. Monte Carlo Truth Mode (--mc-truth):
    - Truth tracks, interaction vertices, and kinematics summary tables are rendered.
    - Event displays are dynamically distributed into a structured multi-tiered TDirectory hierarchy:
-       MCTruth / <flavor> / <current> / <neutrino_process_id_or_label> / <subsequent_process_category>_<N>mu / <acceptance_dir>
+       MCTruth / <flavor> / <current> / <mu_mult> / <neutrino_process_id_or_label> / <subsequent_process_category> / <acceptance_dir>
 
      Examples:
-       - MCTruth/numu/CC/ch15_mu-_D0_p/D0_directToMu_2mu/inDSAcceptance
-       - MCTruth/numu/CC/ch27_mu-_D+_n/DPlus_hadronic_downstreamMu_2mu/notInDSAcceptance
-       - MCTruth/numu/CC/ch1_mu-_p/noCharm_1mu/inDSAcceptance
-       - MCTruth/numu/NC/ch42_pi+_pi-_p/noCharm_0mu/notInDSAcceptance
+       - MCTruth/numu/CC/2mu/ch15_mu-_D0_p/D0_directToMu_2mu/inDSAcceptance
+       - MCTruth/numu/CC/2mu/ch27_mu-_D+_n/DPlus_hadronic_downstreamMu_2mu/other
+       - MCTruth/numu/CC/1mu/ch1_mu-_p/noCharm_1mu/inDSAcceptance
+       - MCTruth/numu/NC/0mu/ch42_pi+_pi-_p/noCharm_0mu/other
 
 Event Selection:
 - By default (no --events), runs on ALL events in the input ROOT files.
@@ -320,7 +320,7 @@ def process_single_file_worker(args_tuple):
                     target_parts = base_parts
             elif mc_truth:
                 # Dynamic MC truth hierarchy:
-                # MCTruth / <flavor> / <current> / <process> / <category>_<N>mu / <acceptance>
+                # MCTruth / <flavor> / <current> / <mu_mult> / <process> / <category> / <acceptance>
                 target_parts = resolve_mctruth_directory_hierarchy(
                     tree,
                     processor=truth_processor,
@@ -500,7 +500,7 @@ def main():
         "--other-dir",
         type=str,
         default=None,
-        help="Subdirectory name for events not in acceptance (default: 'notInDSAcceptance')",
+        help="Subdirectory name for events not in acceptance (default: 'other')",
     )
     parser.add_argument(
         "--save-images",
@@ -570,7 +570,7 @@ def main():
     min_ds_hor_points = args.min_ds_hor_points if args.min_ds_hor_points is not None else int(acc_cfg.get("min_ds_hor_points", min_ds_points))
     min_ds_ver_points = args.min_ds_ver_points if args.min_ds_ver_points is not None else int(acc_cfg.get("min_ds_ver_points", min_ds_points))
     in_acc_name = args.in_acceptance_dir or acc_cfg.get("in_acceptance", "inDSAcceptance")
-    other_name = args.other_dir or acc_cfg.get("other", "notInDSAcceptance")
+    other_name = args.other_dir or acc_cfg.get("other", "other")
 
     save_images = args.save_images if args.save_images is not None else bool(disp_cfg.get("save_images", False))
     images_dir = args.images_dir if args.images_dir is not None else disp_cfg.get("images_dir", "event_displays/images")

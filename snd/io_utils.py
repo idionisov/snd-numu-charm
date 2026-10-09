@@ -395,17 +395,17 @@ def resolve_mctruth_directory_hierarchy(
     min_ds_ver_points: int = 3,
     top_name: str = "MCTruth",
     in_acceptance_name: str = "inDSAcceptance",
-    not_in_acceptance_name: str = "notInDSAcceptance",
+    not_in_acceptance_name: str = "other",
 ) -> List[str]:
     """
     Dynamically determine the multi-tiered TDirectory hierarchy for an event based on MC truth:
-      MCTruth / <flavor> / <current> / <neutrino_process_id_or_label> / <subsequent_process_category>_<N>mu / <acceptance_dir>
+      MCTruth / <flavor> / <current> / <mu_mult> / <neutrino_process_id_or_label> / <subsequent_process_category> / <acceptance_dir>
 
     Examples:
-      - MCTruth/numu/CC/ch15_mu-_D0_p/D0_directToMu_2mu/inDSAcceptance
-      - MCTruth/numu/CC/ch27_mu-_D+_n/DPlus_hadronic_downstreamMu_2mu/inDSAcceptance
-      - MCTruth/numu/CC/ch1_mu-_p/noCharm_1mu/inDSAcceptance
-      - MCTruth/numu/NC/ch42_pi+_pi-_p/noCharm_0mu/notInDSAcceptance
+      - MCTruth/numu/CC/2mu/ch15_mu-_D0_p/D0_directToMu_2mu/inDSAcceptance
+      - MCTruth/numu/CC/2mu/ch27_mu-_D+_n/DPlus_hadronic_downstreamMu_2mu/other
+      - MCTruth/numu/CC/1mu/ch1_mu-_p/noCharm_1mu/inDSAcceptance
+      - MCTruth/numu/NC/0mu/ch42_pi+_pi-_p/noCharm_0mu/other
     """
     from .channels import ChannelLookupManager, pdg_to_name
     from .filter import (
@@ -543,7 +543,17 @@ def resolve_mctruth_directory_hierarchy(
 
     subsequent_cat = f"{cat_base}_{n_mu}mu"
 
-    # 6. DS Acceptance Tier
+    # 6. Muon Multiplicity Directory Tier
+    if n_mu == 0:
+        mu_tier = "0mu"
+    elif n_mu == 1:
+        mu_tier = "1mu"
+    elif n_mu == 2:
+        mu_tier = "2mu"
+    else:
+        mu_tier = "other"
+
+    # 7. DS Acceptance Tier
     is_in_ds = False
     if n_mu == 2:
         if hasattr(tree, "dimuon_in_ds_acceptance") and tree.dimuon_in_ds_acceptance != 0:
@@ -583,7 +593,7 @@ def resolve_mctruth_directory_hierarchy(
 
     acc_dir = in_acceptance_name if is_in_ds else not_in_acceptance_name
 
-    return [top_name, flavor_dir, current_dir, process_label, subsequent_cat, acc_dir]
+    return [top_name, flavor_dir, current_dir, mu_tier, process_label, subsequent_cat, acc_dir]
 
 
 def get_or_create_tdirectory(tfile: Any, path_parts: List[str]) -> Any:

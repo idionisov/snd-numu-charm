@@ -14,13 +14,14 @@ Operating Modes:
 2. Monte Carlo Truth Mode (--mc-truth):
    - Truth tracks, interaction vertices, and kinematics summary tables are rendered.
    - Event displays are dynamically distributed into a structured multi-tiered TDirectory hierarchy:
-       MCTruth / <flavor> / <current> / <mu_mult> / <neutrino_process_id_or_label> / <subsequent_process_category> / <acceptance_dir>
+       MCTruth / <flavor> / <current> / <mu_mult> / <acceptance_dir> / <neutrino_process_id_or_label> / <subsequent_process_category>
 
      Examples:
-       - MCTruth/numu/CC/2mu/ch15_mu-_D0_p/D0_directToMu_2mu/inDSAcceptance
-       - MCTruth/numu/CC/2mu/ch27_mu-_D+_n/DPlus_hadronic_downstreamMu_2mu/other
-       - MCTruth/numu/CC/1mu/ch1_mu-_p/noCharm_1mu/inDSAcceptance
-       - MCTruth/numu/NC/0mu/ch42_pi+_pi-_p/noCharm_0mu/other
+       - MCTruth/numu/CC/0mu/other/ch42_pi+_pi-_p/noCharm_0mu
+       - MCTruth/numu/CC/1mu/inDSAcceptance/ch1_mu-_p/noCharm_1mu
+       - MCTruth/numu/CC/1mu/other/ch2_mu-_p_pi0/noCharm_1mu
+       - MCTruth/numu/CC/2mu/inDSAcceptance/ch15_mu-_D0_p/D0_directToMu_2mu
+       - MCTruth/numu/CC/2mu/other/ch27_mu-_D+_n/DPlus_hadronic_downstreamMu_2mu
 
 Event Selection:
 - By default (no --events), runs on ALL events in the input ROOT files.
@@ -57,6 +58,11 @@ import tempfile
 import argparse
 from typing import List, Optional, Set
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import ROOT
+
+# Ensure ROOT operates in batch mode and uses the official SND@LHC Viridis color palette
+ROOT.gROOT.SetBatch(True)
+ROOT.gStyle.SetPalette(ROOT.kViridis)
 
 # Add project root to sys.path so 'snd' package can be imported
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -135,6 +141,7 @@ def process_single_file_worker(args_tuple):
 
     import ROOT
     ROOT.gROOT.SetBatch(True)
+    ROOT.gStyle.SetPalette(ROOT.kViridis)
     from snd import (
         Snd2DEventDisplay,
         get_event_header_number,
@@ -320,7 +327,7 @@ def process_single_file_worker(args_tuple):
                     target_parts = base_parts
             elif mc_truth:
                 # Dynamic MC truth hierarchy:
-                # MCTruth / <flavor> / <current> / <mu_mult> / <process> / <category> / <acceptance>
+                # MCTruth / <flavor> / <current> / <mu_mult> / <acceptance> / <process> / <category>
                 target_parts = resolve_mctruth_directory_hierarchy(
                     tree,
                     processor=truth_processor,
@@ -330,10 +337,10 @@ def process_single_file_worker(args_tuple):
                     in_acceptance_name=in_acc_name,
                     not_in_acceptance_name=other_name,
                 )
+                is_in_acceptance = (in_acc_name in target_parts)
                 if not split_acceptance:
-                    target_parts = target_parts[:-1]
+                    del target_parts[4]
                 category = target_parts[-1]
-                is_in_acceptance = (category == in_acc_name)
             else:
                 # Real data mode default: Run<####>
                 if isinstance(ev_run_id, int) and 0 <= ev_run_id < 10000:
@@ -587,7 +594,7 @@ def main():
         hierarchy_display_str = "/".join(base_tdirectory_parts)
     elif args.mc_truth:
         base_tdirectory_parts = None
-        hierarchy_display_str = "MCTruth/<flavor>/<current>/<process_id>/<category>_<N>mu/<acceptance> (dynamic per-event)"
+        hierarchy_display_str = "MCTruth/<flavor>/<current>/<mu_mult>/<acceptance>/<process_id>/<category> (dynamic per-event)"
     else:
         # Real data default: dynamically determined per-event as Run<####>
         base_tdirectory_parts = None

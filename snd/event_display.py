@@ -20,8 +20,9 @@ from typing import Optional, List, Dict, Any, Tuple
 import numpy as np
 import ROOT
 
-# Ensure ROOT operates in batch mode
+# Ensure ROOT operates in batch mode and uses the official SND@LHC Viridis color palette
 ROOT.gROOT.SetBatch(True)
+ROOT.gStyle.SetPalette(ROOT.kViridis)
 
 DEFAULT_GEOFILE = "/eos/experiment/sndlhc/convertedData/physics/2022/geofile_sndlhc_TI18_V4_2022.root"
 
@@ -174,6 +175,7 @@ class Snd2DEventDisplay:
         draw_logo: bool = True,
         draw_text: bool = True,
     ):
+        ROOT.gStyle.SetPalette(ROOT.kViridis)
         self.geo_file = geo_file
         self.z_min = z_start
         self.z_max = z_start + z_length

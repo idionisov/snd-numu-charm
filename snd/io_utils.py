@@ -399,13 +399,14 @@ def resolve_mctruth_directory_hierarchy(
 ) -> List[str]:
     """
     Dynamically determine the multi-tiered TDirectory hierarchy for an event based on MC truth:
-      MCTruth / <flavor> / <current> / <mu_mult> / <neutrino_process_id_or_label> / <subsequent_process_category> / <acceptance_dir>
+      MCTruth / <flavor> / <current> / <mu_mult> / <acceptance_dir> / <neutrino_process_id_or_label> / <subsequent_process_category>
 
     Examples:
-      - MCTruth/numu/CC/2mu/ch15_mu-_D0_p/D0_directToMu_2mu/inDSAcceptance
-      - MCTruth/numu/CC/2mu/ch27_mu-_D+_n/DPlus_hadronic_downstreamMu_2mu/other
-      - MCTruth/numu/CC/1mu/ch1_mu-_p/noCharm_1mu/inDSAcceptance
-      - MCTruth/numu/NC/0mu/ch42_pi+_pi-_p/noCharm_0mu/other
+      - MCTruth/numu/CC/0mu/other/ch42_pi+_pi-_p/noCharm_0mu
+      - MCTruth/numu/CC/1mu/inDSAcceptance/ch1_mu-_p/noCharm_1mu
+      - MCTruth/numu/CC/1mu/other/ch2_mu-_p_pi0/noCharm_1mu
+      - MCTruth/numu/CC/2mu/inDSAcceptance/ch15_mu-_D0_p/D0_directToMu_2mu
+      - MCTruth/numu/CC/2mu/other/ch27_mu-_D+_n/DPlus_hadronic_downstreamMu_2mu
     """
     from .channels import ChannelLookupManager, pdg_to_name
     from .filter import (
@@ -593,7 +594,7 @@ def resolve_mctruth_directory_hierarchy(
 
     acc_dir = in_acceptance_name if is_in_ds else not_in_acceptance_name
 
-    return [top_name, flavor_dir, current_dir, mu_tier, process_label, subsequent_cat, acc_dir]
+    return [top_name, flavor_dir, current_dir, mu_tier, acc_dir, process_label, subsequent_cat]
 
 
 def get_or_create_tdirectory(tfile: Any, path_parts: List[str]) -> Any:

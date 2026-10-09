@@ -261,6 +261,20 @@ def normalize_channel_photons(channel_str: str) -> str:
     return channel_str
 
 
+def expand_neutral_kaons(channel_str: str) -> Set[str]:
+    """
+    Expands formulas containing neutral kaons so that simulated decays
+    with either K_S0 (310) or K_L0 (130) or K0/anti_K0 match the corresponding PDG mode.
+    """
+    parts = [p.strip() for p in channel_str.split(" + ")]
+    forms = {channel_str}
+    if any(k in parts for k in ["K_S0", "K_L0", "K0", "anti_K0"]):
+        for target in ["K_S0", "K_L0"]:
+            new_parts = [target if p in ["K_S0", "K_L0", "K0", "anti_K0"] else p for p in parts]
+            forms.add(" + ".join(sorted(new_parts)))
+    return forms
+
+
 def clopper_pearson_errors(k: int, n: int, cl: float = 0.6827) -> Tuple[float, float, float]:
     """
     Computes Clopper-Pearson asymmetric binomial confidence interval for branching fraction / efficiency:
@@ -351,7 +365,11 @@ def load_pdg_summary_tables(tables_dir: Optional[str]) -> Dict[int, Dict[str, An
                 m_obj = PDGDecayMode(canon, label, br_val, br_err, cc)
                 modes_list.append(m_obj)
 
-                formulas_set = {canon, cc, canon_p, cc_p}
+                base_forms = {canon, cc, canon_p, cc_p}
+                formulas_set = set()
+                for bf in base_forms:
+                    formulas_set.update(expand_neutral_kaons(bf))
+
                 if label not in modes_by_label:
                     modes_by_label[label] = {
                         "label": label,

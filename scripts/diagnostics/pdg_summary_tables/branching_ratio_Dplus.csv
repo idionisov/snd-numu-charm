@@ -1,26 +1,40 @@
 channel,pdg_mode,br,br_err
-K_L0 + anti_nu_mu + mu-,anti-K0 mu+ nu_mu,0.0868,0.0010
-K_L0 + mu+ + nu_mu,anti-K0 mu+ nu_mu,0.0868,0.0010
-gamma + gamma + anti_nu_mu + mu-,pi0 mu+ nu_mu,0.00350,0.00015
-K_L0 + gamma + gamma + anti_nu_mu + mu-,anti-K0 pi0 mu+ nu_mu,0.00896,0.00019
-K+ + anti_nu_mu + mu- + pi-,K+ mu+ nu_mu pi-,0.00362,0.00033
-K- + mu+ + nu_mu + pi+,K- pi+ mu+ nu_mu,0.0362,0.0033
-anti_nu_mu + mu+ + pi+,mu+ nu_mu,0.000402,0.000009
-mu+ + nu_mu + pi+ + pi-,pi+ pi- mu+ nu_mu,0.00245,0.00008
-anti_nu_mu + gamma + gamma + mu+ + pi+ + pi-,pi+ pi- pi0 mu+ nu_mu,0.00164,0.00016
+K- + pi+ + pi+,K- 2pi+,0.0938,0.0016
+anti_K0 + e+ + nu_e,anti-K0 e+ nu_e,0.0881,0.0007
+K_S0 + e+ + nu_e,anti-K0 e+ nu_e,0.0881,0.0007
 K_L0 + e+ + nu_e,anti-K0 e+ nu_e,0.0881,0.0007
-K- + e+ + nu_e + pi+,K- pi+ e+ nu_e,0.0400,0.0017
-anti_nu_e + e- + pi+,pi0 e+ nu_e,0.00372,0.00017
-gamma + gamma + anti_nu_mu + mu- + pi+ + pi-,pi+ pi- pi0 mu+ nu_mu,0.00164,0.00016
-gamma + gamma + mu+ + nu_mu + pi+ + pi-,pi+ pi- pi0 mu+ nu_mu,0.00164,0.00016
-K_L0 + pi+ + pi- + pi-,K_L0 2pi+ pi-,0.0308,0.0008
-anti_nu_mu + gamma + gamma + mu-,pi0 mu+ nu_mu,0.00350,0.00015
-K_L0 + mu+ + nu_mu + pi+ + pi-,anti-K0 pi+ pi- mu+ nu_mu,0.00109,0.00014
-K- + mu+ + nu_mu + pi+,K- pi+ mu+ nu_mu,0.0362,0.0033
-K- + gamma + gamma + mu+ + nu_mu + pi+,K- pi0 pi+ mu+ nu_mu,0.00109,0.00014
-K_L0 + gamma + gamma + pi+,K_L0 pi+ pi0,0.0731,0.0020
-K+ + pi- + pi+,K+ pi+ pi-,0.000488,0.000008
-K+ + K_L0 + gamma + gamma + pi+,K_L0 K+ pi+ pi0,0.00507,0.00030
-K_L0 + gamma + gamma + pi+ + pi+ + pi-,K_L0 2pi+ pi- pi0,0.0153,0.0008
+anti_K0 + mu+ + nu_mu,anti-K0 mu+ nu_mu,0.0868,0.0010
+K_S0 + mu+ + nu_mu,anti-K0 mu+ nu_mu,0.0868,0.0010
+K_L0 + mu+ + nu_mu,anti-K0 mu+ nu_mu,0.0868,0.0010
+K_S0 + pi+ + pi0,K0S pi+ pi0,0.0731,0.0020
+K_L0 + pi+ + pi0,K0S pi+ pi0,0.0731,0.0020
+K_S0 + gamma + gamma + pi+,K0S pi+ pi0,0.0731,0.0020
+K_L0 + gamma + gamma + pi+,K0S pi+ pi0,0.0731,0.0020
+K- + pi+ + e+ + nu_e,K- pi+ e+ nu_e,0.0400,0.0017
+K- + pi+ + mu+ + nu_mu,K- pi+ mu+ nu_mu,0.0362,0.0033
+K_S0 + pi+ + pi+ + pi-,K0S 2pi+ pi-,0.0308,0.0008
+K_L0 + pi+ + pi+ + pi-,K0S 2pi+ pi-,0.0308,0.0008
+K_S0 + 2pi+ + pi- + pi0,K0S 2pi+ pi- pi0,0.0153,0.0008
+K_L0 + 2pi+ + pi- + pi0,K0S 2pi+ pi- pi0,0.0153,0.0008
+K_S0 + gamma + gamma + pi+ + pi+ + pi-,K0S 2pi+ pi- pi0,0.0153,0.0008
+K_L0 + gamma + gamma + pi+ + pi+ + pi-,K0S 2pi+ pi- pi0,0.0153,0.0008
+2pi+ + pi- + pi0,2pi+ pi- pi0,0.01165,0.00030
 gamma + gamma + pi+ + pi+ + pi-,2pi+ pi- pi0,0.01165,0.00030
-K_L0 + e+ + e-,anti-K0 e+ e-,0.000024,0.000005
+K_S0 + pi0 + mu+ + nu_mu,K0S pi0 mu+ nu_mu,0.00896,0.00019
+K_L0 + pi0 + mu+ + nu_mu,K0S pi0 mu+ nu_mu,0.00896,0.00019
+K_S0 + gamma + gamma + mu+ + nu_mu,K0S pi0 mu+ nu_mu,0.00896,0.00019
+K_L0 + gamma + gamma + mu+ + nu_mu,K0S pi0 mu+ nu_mu,0.00896,0.00019
+K_S0 + K+ + pi0,K0S K+ pi0,0.00507,0.00030
+K_L0 + K+ + pi0,K0S K+ pi0,0.00507,0.00030
+K+ + K_S0 + gamma + gamma,K0S K+ pi0,0.00507,0.00030
+K+ + K_L0 + gamma + gamma,K0S K+ pi0,0.00507,0.00030
+pi0 + e+ + nu_e,pi0 e+ nu_e,0.00372,0.00017
+gamma + gamma + e+ + nu_e,pi0 e+ nu_e,0.00372,0.00017
+pi0 + mu+ + nu_mu,pi0 mu+ nu_mu,0.00350,0.00015
+gamma + gamma + mu+ + nu_mu,pi0 mu+ nu_mu,0.00350,0.00015
+pi+ + pi- + e+ + nu_e,pi+ pi- e+ nu_e,0.00245,0.00008
+pi+ + pi- + mu+ + nu_mu,pi+ pi- mu+ nu_mu,0.00164,0.00016
+K- + pi0 + pi+ + mu+ + nu_mu,K- pi0 pi+ mu+ nu_mu,0.00109,0.00014
+K- + gamma + gamma + pi+ + mu+ + nu_mu,K- pi0 pi+ mu+ nu_mu,0.00109,0.00014
+K+ + pi+ + pi-,K+ pi+ pi-,0.000488,0.000008
+mu+ + nu_mu,mu+ nu_mu,0.000402,0.000009

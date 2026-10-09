@@ -33,11 +33,18 @@ DEFAULT_PRESETS = {
         "disp_pattern": "/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions/displays_part%s.root",
         "default_partitions": list(range(1, 1001)),
     },
+    "old_100fb_2022": {
+        "input_pattern": "/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/%s/sndLHC.Genie-TGeant4_digCPP.root",
+        "track_pattern": "/eos/user/i/idioniso/snd-numu-charm/data/old_sndlhc_100fb-1_2022_down_volTarget/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks.root",
+        "truth_pattern": "/eos/user/i/idioniso/snd-numu-charm/data/old_sndlhc_100fb-1_2022_down_volTarget/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks_truth.root",
+        "disp_pattern": "/eos/user/i/idioniso/snd-numu-charm/event_displays/old_sndlhc_100fb-1_2022_down_volTarget/partitions/displays_part%s.root",
+        "default_partitions": list(range(0, 401)),
+    },
     "100fb": {
         "input_pattern": "/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/%s/sndLHC.Genie-TGeant4_digCPP.root",
-        "track_pattern": "/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks.root",
-        "truth_pattern": "/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks_truth.root",
-        "disp_pattern": "/eos/user/i/idioniso/snd-numu-charm/event_displays/partitions/displays_part%s.root",
+        "track_pattern": "/eos/user/i/idioniso/snd-numu-charm/data/old_sndlhc_100fb-1_2022_down_volTarget/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks.root",
+        "truth_pattern": "/eos/user/i/idioniso/snd-numu-charm/data/old_sndlhc_100fb-1_2022_down_volTarget/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks_truth.root",
+        "disp_pattern": "/eos/user/i/idioniso/snd-numu-charm/event_displays/old_sndlhc_100fb-1_2022_down_volTarget/partitions/displays_part%s.root",
         "default_partitions": list(range(0, 401)),
     }
 }
@@ -167,7 +174,7 @@ def main():
     )
     parser.add_argument(
         "--preset",
-        choices=["nu14_2022", "100fb"],
+        choices=list(DEFAULT_PRESETS.keys()),
         default="nu14_2022",
         help="Preset dataset configuration (default: nu14_2022)."
     )

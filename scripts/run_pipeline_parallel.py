@@ -78,10 +78,43 @@ def is_partition_complete(p, truth_pat, disp_pat):
     return False
 
 
-def run_single_partition(p, script_path, in_pat, trk_pat, tru_pat, dsp_pat, log_dir):
+def create_partition_symlinks(p, in_pat, trk_pat):
+    """Creates symlinks to all ROOT files from the input directory into the output directory."""
+    try:
+        in_file = in_pat % p
+        out_file = trk_pat % p
+        in_dir = os.path.dirname(os.path.abspath(in_file))
+        out_dir = os.path.dirname(os.path.abspath(out_file))
+        if os.path.isdir(in_dir) and os.path.abspath(in_dir) != os.path.abspath(out_dir):
+            os.makedirs(out_dir, exist_ok=True)
+            for entry in os.listdir(in_dir):
+                if not entry.endswith(".root"):
+                    continue
+                src_path = os.path.join(in_dir, entry)
+                dst_path = os.path.join(out_dir, entry)
+                if not os.path.isfile(src_path):
+                    continue
+                if os.path.islink(dst_path):
+                    if os.path.realpath(dst_path) == os.path.realpath(src_path) or os.readlink(dst_path) == src_path:
+                        continue
+                    os.remove(dst_path)
+                elif os.path.exists(dst_path):
+                    continue
+                try:
+                    os.symlink(src_path, dst_path)
+                except OSError:
+                    pass
+    except Exception:
+        pass
+
+
+def run_single_partition(p, script_path, in_pat, trk_pat, tru_pat, dsp_pat, log_dir, create_symlinks=True):
     """Executes run_pipeline_partition.sh for a single partition and logs to a file."""
     if stop_requested:
-        return p, "cancelled", 0.0
+        return p, "cancelled", 0.0, ""
+
+    if create_symlinks:
+        create_partition_symlinks(p, in_pat, trk_pat)
 
     log_file = os.path.join(log_dir, f"pipeline_part{p}.log")
     cmd = [
@@ -191,6 +224,13 @@ def main():
         action="store_true",
         help="Force reprocessing even if partition outputs already exist."
     )
+    parser.add_argument(
+        "--no-symlinks",
+        dest="create_symlinks",
+        action="store_false",
+        default=True,
+        help="Disable automatic symlink creation for input directory ROOT files into output directory."
+    )
 
     args = parser.parse_args()
 
@@ -242,6 +282,12 @@ def main():
 
     print(f"  Status Summary    : {already_done} already completed | {len(to_run)} to process\n")
 
+    # If symlinks enabled, ensure already completed partitions also have original ROOT files linked
+    if args.create_symlinks and already_done > 0:
+        for p in partitions:
+            if p not in to_run:
+                create_partition_symlinks(p, in_pat, trk_pat)
+
     if not to_run:
         print("  All partitions are already completed! Nothing to run.")
         return
@@ -259,7 +305,7 @@ def main():
                 break
             fut = executor.submit(
                 run_single_partition,
-                p, pipeline_script, in_pat, trk_pat, tru_pat, dsp_pat, log_dir
+                p, pipeline_script, in_pat, trk_pat, tru_pat, dsp_pat, log_dir, args.create_symlinks
             )
             active_futures[fut] = p
 

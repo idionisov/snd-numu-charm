@@ -823,8 +823,9 @@ class Snd2DEventDisplay:
                         if q > 0:
                             this_qdc += q
 
-                # Only draw bars that actually registered positive signal (QDC > 0)
-                if this_qdc <= 0.0:
+                # Threshold for drawing hit bars: set to -999.0 to show all bars as before (can be adjusted to 0.0 or higher in the future)
+                min_qdc_threshold = -999.0
+                if this_qdc <= min_qdc_threshold:
                     continue
 
                 if self.color_by_qdc_and_density:

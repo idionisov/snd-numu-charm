@@ -62,13 +62,28 @@ TRACK_PATTERN="${3:-$DEFAULT_TRACK}"
 TRUTH_PATTERN="${4:-$DEFAULT_TRUTH}"
 DISP_PATTERN="${5:-$DEFAULT_DISP}"
 
+INPUT_FILE=$(printf "$INPUT_PATTERN" "$PARTITION")
 TRACK_FILE=$(printf "$TRACK_PATTERN" "$PARTITION")
 TRUTH_FILE=$(printf "$TRUTH_PATTERN" "$PARTITION")
 DISP_FILE=$(printf "$DISP_PATTERN" "$PARTITION")
 
-mkdir -p "$(dirname "$TRACK_FILE")"
+OUTPUT_DIR="$(dirname "$TRACK_FILE")"
+mkdir -p "${OUTPUT_DIR}"
 mkdir -p "$(dirname "$TRUTH_FILE")"
 mkdir -p "$(dirname "$DISP_FILE")"
+
+# Symlink original ROOT files from input partition directory to output directory
+INPUT_DIR="$(dirname "$INPUT_FILE")"
+if [ -d "$INPUT_DIR" ] && [ "$INPUT_DIR" != "$OUTPUT_DIR" ]; then
+    for rf in "$INPUT_DIR"/*.root; do
+        if [ -f "$rf" ]; then
+            rbname=$(basename "$rf")
+            if [ ! -e "${OUTPUT_DIR}/${rbname}" ]; then
+                ln -sf "$rf" "${OUTPUT_DIR}/${rbname}" 2>/dev/null || true
+            fi
+        fi
+    done
+fi
 
 PYTHON_BIN="$(command -v python3)"
 TRACK_SCRIPT="${REPO_DIR}/scripts/run_dimuon_reco.py"

@@ -1,0 +1,20 @@
+channel,pdg_mode,br,br_err
+K- + pi+ + pi0,K- pi+ pi0,0.144,0.005
+K- + mu+ + nu_mu,K- mu+ nu_mu,0.03418,0.00019
+mu+ + nu_mu + pi-,pi- mu+ nu_mu,0.00267,0.00012
+K- + gamma + gamma + pi+,K- pi+ pi0,0.144,0.005
+K- + gamma + gamma + mu+ + nu_mu,K- pi0 mu+ nu_mu,0.00710,0.00021
+K- + K_L0 + pi+,K_L0 K- pi+,0.0034,0.0005
+K_L0 + pi+ + pi-,K_L0 pi+ pi-,0.0284,0.0016
+gamma + gamma + gamma + gamma + pi+ + pi-,pi+ pi- 2pi0,0.01002,0.00031
+gamma + gamma + pi+ + pi-,pi+ pi- pi0,0.0149,0.0006
+gamma + gamma + pi+ + pi+ + pi- + pi-,2pi+ 2pi- pi0,0.00346,0.00021
+K_L0 + gamma + gamma + pi+ + pi-,K_L0 pi+ pi- pi0,0.052,0.006
+K+ + K- + pi0,K+ K- pi0,0.00341,0.00014
+K- + gamma + gamma + gamma + gamma + pi+,K- pi+ 2pi0,0.0886,0.0023
+K- + gamma + gamma + pi+ + pi- + pi+,K- 2pi+ pi- pi0,0.043,0.004
+K- + K_L0 + pi+,K_L0 K- pi+,0.0034,0.0005
+e+ + nu_e + pi-,pi- e+ nu_e,0.00291,0.00004
+K- + pi+ + pi- + pi+,K- 2pi+ pi-,0.0820,0.0014
+K_L0 + gamma + gamma + pi+ + pi-,K_L0 pi+ pi- pi0,0.052,0.006
+K- + pi+,K- pi+,0.03936,0.00030

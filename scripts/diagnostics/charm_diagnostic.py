@@ -243,6 +243,42 @@ def get_conjugate_channel_str(channel_str: str) -> str:
     return " + ".join(sorted(cc_parts))
 
 
+def normalize_channel_photons(channel_str: str) -> str:
+    """
+    Pairs photons (gamma + gamma) into pi0:
+    e.g. 'K- + gamma + gamma + pi+' -> 'K- + pi+ + pi0'
+         'gamma + gamma + gamma + gamma + pi+ + pi-' -> 'pi+ + pi- + 2pi0'
+    """
+    parts = [p.strip() for p in channel_str.split(" + ")]
+    n_gamma = parts.count("gamma")
+    if n_gamma >= 2:
+        n_pi0 = n_gamma // 2
+        rem_gamma = n_gamma % 2
+        reduced = [p for p in parts if p != "gamma"]
+        reduced.extend(["pi0"] * n_pi0)
+        reduced.extend(["gamma"] * rem_gamma)
+        return " + ".join(sorted(reduced))
+    return channel_str
+
+
+def clopper_pearson_errors(k: int, n: int, cl: float = 0.6827) -> Tuple[float, float, float]:
+    """
+    Computes Clopper-Pearson asymmetric binomial confidence interval for branching fraction / efficiency:
+    Returns (br_pct, err_low_pct, err_high_pct) in percent, strictly bounded in [0%, 100%].
+    Guarantees upper uncertainty never exceeds 100.0% and lower uncertainty never drops below 0.0%.
+    """
+    if n <= 0:
+        return 0.0, 0.0, 0.0
+    val = 100.0 * k / n
+    low = 100.0 * ROOT.TEfficiency.ClopperPearson(n, k, cl, False)
+    high = 100.0 * ROOT.TEfficiency.ClopperPearson(n, k, cl, True)
+    low = max(0.0, min(val, low))
+    high = min(100.0, max(val, high))
+    err_low = val - low
+    err_high = high - val
+    return val, err_low, err_high
+
+
 class PDGDecayMode:
     """Represents a decay channel reference from PDG summary tables."""
     def __init__(self, channel: str, pdg_mode: str, br_pct: float, br_err_pct: float, cc_channel: str):
@@ -309,20 +345,22 @@ def load_pdg_summary_tables(tables_dir: Optional[str]) -> Dict[int, Dict[str, An
 
                 canon = canonicalize_channel_str(ch_raw)
                 cc = get_conjugate_channel_str(canon)
+                canon_p = normalize_channel_photons(canon)
+                cc_p = get_conjugate_channel_str(canon_p)
 
                 m_obj = PDGDecayMode(canon, label, br_val, br_err, cc)
                 modes_list.append(m_obj)
 
+                formulas_set = {canon, cc, canon_p, cc_p}
                 if label not in modes_by_label:
                     modes_by_label[label] = {
                         "label": label,
-                        "formulas": {canon, cc},
+                        "formulas": formulas_set,
                         "br_pct": br_val,
                         "br_err_pct": br_err,
                     }
                 else:
-                    modes_by_label[label]["formulas"].add(canon)
-                    modes_by_label[label]["formulas"].add(cc)
+                    modes_by_label[label]["formulas"].update(formulas_set)
 
         result[sp_pdg] = {
             "modes_by_label": modes_by_label,
@@ -1244,6 +1282,30 @@ def write_histograms_and_canvases(
     h_rate_frame.SetTitle("Charm Production Rate vs E_{#nu}: MC Simulation vs Slow Rescaling Model;E_{#nu} [GeV];R_{charm} = #sigma(#nu_{#mu} N #rightarrow c X) / #sigma_{CC}(#nu_{#mu} N #rightarrow X)")
     h_rate_frame.GetYaxis().SetTitleOffset(1.3)
 
+    # MC data points with Clopper-Pearson asymmetric binomial errors
+    g_charm_rate_mc = ROOT.TGraphAsymmErrors(n_nu_ebins)
+    g_charm_rate_mc.SetName("g_charm_rate_mc")
+    g_charm_rate_mc.SetTitle("MC Production Rate (2MuTrks Stream)")
+    for i_b in range(n_nu_ebins):
+        n_cc = data["cc_all_per_ebin"][i_b]
+        n_c = data["cc_charm_per_ebin"][i_b]
+        x_center = 0.5 * (nu_bin_edges[i_b] + nu_bin_edges[i_b + 1])
+        x_err = 0.5 * (nu_bin_edges[i_b + 1] - nu_bin_edges[i_b])
+        val_pct, err_lo_pct, err_hi_pct = clopper_pearson_errors(n_c, n_cc, 0.6827)
+        val = val_pct / 100.0
+        err_lo = err_lo_pct / 100.0
+        err_hi = err_hi_pct / 100.0
+        g_charm_rate_mc.SetPoint(i_b, x_center, val)
+        g_charm_rate_mc.SetPointError(i_b, x_err, x_err, err_lo, err_hi)
+        h_charm_rate_ebins.SetBinContent(i_b + 1, val)
+        h_charm_rate_ebins.SetBinError(i_b + 1, max(err_lo, err_hi))
+
+    g_charm_rate_mc.SetMarkerStyle(20)
+    g_charm_rate_mc.SetMarkerSize(1.2)
+    g_charm_rate_mc.SetMarkerColor(ROOT.kBlack)
+    g_charm_rate_mc.SetLineColor(ROOT.kBlack)
+    g_charm_rate_mc.SetLineWidth(2)
+
     # Slow Rescaling Model theoretical prediction and 1-sigma uncertainty belt
     f_sr, g_sr_band = create_slow_rescaling_model(
         name="f_slow_rescaling",
@@ -1258,24 +1320,34 @@ def write_histograms_and_canvases(
     )
     g_sr_band.Draw("3 same")
     f_sr.Draw("same")
+    g_charm_rate_mc.Draw("P E1 same")
 
-    # MC data points
-    h_charm_rate_ebins.Draw("E1 same")
-
-    leg_rate = ROOT.TLegend(0.14, 0.66, 0.90, 0.88)
+    leg_rate = ROOT.TLegend(0.14, 0.68, 0.90, 0.88)
     leg_rate.SetBorderSize(1)
     leg_rate.SetFillStyle(1001)
     leg_rate.SetFillColor(ROOT.kWhite)
-    leg_rate.AddEntry(h_charm_rate_ebins, "SND@LHC MC Production (Binned Rate #pm Stat Error)", "lep")
+    leg_rate.AddEntry(g_charm_rate_mc, "SND@LHC MC (2MuTrks Dimuon Stream - charm enriched)", "lep")
     leg_rate.AddEntry(f_sr, "Slow Rescaling Model (m_{c}=1.273 GeV, |V_{cd}|=0.2250, |V_{cs}|=0.9735)", "l")
     leg_rate.AddEntry(g_sr_band, "Slow Rescaling 1#sigma Uncertainty Belt (PDG m_{c}, |V_{cd}|, |V_{cs}|, #kappa_{s})", "f")
     leg_rate.Draw("same")
+
+    pave_rate_note = ROOT.TPaveText(0.14, 0.54, 0.90, 0.66, "NDC")
+    pave_rate_note.SetBorderSize(1)
+    pave_rate_note.SetFillColorAlpha(ROOT.kWhite, 0.9)
+    pave_rate_note.SetTextAlign(12)
+    pave_rate_note.SetTextSize(0.026)
+    pave_rate_note.AddText("#bf{Physical Note on MC Charm Rate:}")
+    pave_rate_note.AddText("Input files are 2MuTrks-filtered candidates (#geq 2 reconstructed muon tracks).")
+    pave_rate_note.AddText("Semileptonic charm decays (c #rightarrow #mu^{+} #nu_{#mu} X) generate a second muon, heavily enriching")
+    pave_rate_note.AddText("the charm fraction in this sample relative to inclusive unselected #nu_{#mu} CC DIS.")
+    pave_rate_note.Draw("same")
     c_rate.Write()
 
     # Also store into Summary directory
     dir_summary.cd()
     f_sr.Write("f_slow_rescaling")
     g_sr_band.Write("g_slow_rescaling_1sigma_band")
+    g_charm_rate_mc.Write("g_charm_rate_mc")
     dir_canvases.cd()
 
     # --- Canvas 2: Overlaid Energy Spectra (Inclusive CC vs Charm CC vs Charm Hadron) ---
@@ -1482,7 +1554,7 @@ def write_histograms_and_canvases(
 
     # Superimposed Canvases: Simulation (with vertical hatched error bars) vs PDG (error graphs)
     pdg_comparison_canvases: Dict[int, ROOT.TCanvas] = {}
-    pdg_sp_drawables: Dict[int, Tuple[ROOT.TH1D, ROOT.TH1D, ROOT.TGraphErrors, ROOT.TLegend]] = {}
+    pdg_sp_drawables: Dict[int, Tuple[ROOT.TH1D, ROOT.TGraphAsymmErrors, ROOT.TGraphAsymmErrors, ROOT.TLegend]] = {}
 
     for abs_c in species_order:
         sp_name = get_species_name(abs_c)
@@ -1499,73 +1571,79 @@ def write_histograms_and_canvases(
         for tup, cnt in sim_ch_map.items():
             formula = format_channel_formula(tup)
             canon = canonicalize_channel_str(formula)
+            canon_p = normalize_channel_photons(canon)
             for lbl, info in modes_by_label.items():
-                if canon in info["formulas"]:
+                if canon in info["formulas"] or canon_p in info["formulas"]:
                     sim_by_pdg_label[lbl] += cnt
                     matched_sim.add(tup)
                     break
 
+        # Calculate counts for Other category
+        cnt_other = max(0, tot_sp_decays - sum(sim_by_pdg_label.values()))
+
+        # PDG remainder for Other category
+        sum_pdg_br = sum(info["br_pct"] for info in modes_by_label.values())
+        sum_pdg_var = sum(info["br_err_pct"] ** 2 for info in modes_by_label.values())
+        pdg_other_br = max(0.0, 100.0 - sum_pdg_br) if sum_pdg_br < 100.0 else 0.0
+        pdg_other_err = min(pdg_other_br, math.sqrt(sum_pdg_var)) if pdg_other_br > 0 else 0.0
+
+        # Build list of modes: listed PDG modes sorted by PDG BR (descending), then "Other"
         all_candidates: List[Dict[str, Any]] = []
 
-        # 1. PDG modes
-        for lbl, info in modes_by_label.items():
-            cnt = sim_by_pdg_label.get(lbl, 0)
-            br_sim = (100.0 * cnt / tot_sp_decays) if tot_sp_decays > 0 else 0.0
-            br_sim_err = (100.0 * math.sqrt(cnt) / tot_sp_decays) if (tot_sp_decays > 0 and cnt > 0) else 0.0
-            all_candidates.append({
-                "label": lbl,
-                "br_sim": br_sim,
-                "br_sim_err": br_sim_err,
-                "br_pdg": info["br_pct"],
-                "br_pdg_err": info["br_err_pct"],
-                "cnt_sim": cnt,
-                "has_pdg": True,
-                "has_sim": (cnt > 0),
-            })
-
-        # 2. Simulation modes not present in PDG tables
-        for tup, cnt in sim_ch_map.items():
-            if tup not in matched_sim:
-                formula = format_channel_formula(tup)
-                br_sim = (100.0 * cnt / tot_sp_decays) if tot_sp_decays > 0 else 0.0
-                br_sim_err = (100.0 * math.sqrt(cnt) / tot_sp_decays) if (tot_sp_decays > 0 and cnt > 0) else 0.0
-                all_candidates.append({
-                    "label": formula,
-                    "br_sim": br_sim,
-                    "br_sim_err": br_sim_err,
-                    "br_pdg": None,
-                    "br_pdg_err": None,
-                    "cnt_sim": cnt,
-                    "has_pdg": False,
-                    "has_sim": True,
-                })
-
-        if not all_candidates:
-            continue
-
-        # Sort: matched modes first, then remaining PDG modes, then other sim modes, by max BR
-        all_candidates.sort(
-            key=lambda x: (
-                x["has_pdg"] and x["has_sim"],
-                x["has_pdg"],
-                max(x["br_sim"], x["br_pdg"] if x["br_pdg"] is not None else 0.0),
-            ),
+        # Sort PDG modes descending by PDG BR
+        sorted_pdg_labels = sorted(
+            modes_by_label.keys(),
+            key=lambda lbl: modes_by_label[lbl]["br_pct"],
             reverse=True,
         )
 
-        n_selected = min(len(all_candidates), 25)
-        selected = all_candidates[:n_selected]
+        for lbl in sorted_pdg_labels:
+            info = modes_by_label[lbl]
+            cnt = sim_by_pdg_label.get(lbl, 0)
+            br_sim, err_lo, err_hi = clopper_pearson_errors(cnt, tot_sp_decays, 0.6827)
+            all_candidates.append({
+                "label": lbl,
+                "br_sim": br_sim,
+                "br_sim_err_lo": err_lo,
+                "br_sim_err_hi": err_hi,
+                "br_pdg": info["br_pct"],
+                "br_pdg_err": info["br_err_pct"],
+                "cnt_sim": cnt,
+            })
 
-        # Build simulation histogram with hatched error bars
+        # Append single "Other" category for all unlisted decay channels
+        br_other, err_lo_other, err_hi_other = clopper_pearson_errors(cnt_other, tot_sp_decays, 0.6827)
+        all_candidates.append({
+            "label": "Other",
+            "br_sim": br_other,
+            "br_sim_err_lo": err_lo_other,
+            "br_sim_err_hi": err_hi_other,
+            "br_pdg": pdg_other_br,
+            "br_pdg_err": pdg_other_err,
+            "cnt_sim": cnt_other,
+        })
+
+        n_bins = len(all_candidates)
+
+        # Build simulation histogram with bin values
         h_sim_comp = ROOT.TH1D(
             f"h_br_sim_{sp_name}",
-            f"{sp_name} Branching Ratios: MC Simulation vs PDG World Averages;Decay Channel;Branching Ratio [%]",
-            n_selected, 0.5, n_selected + 0.5
+            f"{sp_name} Branching Ratios: MC Simulation vs PDG Reference;Decay Channel;Branching Ratio [%]",
+            n_bins, 0.5, n_bins + 0.5
         )
-        for i, entry in enumerate(selected, start=1):
+        # TGraphAsymmErrors for vertical hatched error band with Clopper-Pearson bounds
+        g_err_comp = ROOT.TGraphAsymmErrors(n_bins)
+        g_err_comp.SetName(f"g_br_sim_err_{sp_name}")
+        g_err_comp.SetTitle(f"MC Simulation Stat Error (Clopper-Pearson 68% CL)")
+
+        for i, entry in enumerate(all_candidates, start=1):
             h_sim_comp.GetXaxis().SetBinLabel(i, entry["label"])
             h_sim_comp.SetBinContent(i, entry["br_sim"])
-            h_sim_comp.SetBinError(i, entry["br_sim_err"])
+            h_sim_comp.SetBinError(i, 0.0)  # No symmetric error bars from TH1
+
+            g_err_comp.SetPoint(i - 1, float(i), entry["br_sim"])
+            # width 0.35 on each side for the box
+            g_err_comp.SetPointError(i - 1, 0.35, 0.35, entry["br_sim_err_lo"], entry["br_sim_err_hi"])
 
         h_sim_comp.SetLineColor(ROOT.kAzure + 2)
         h_sim_comp.SetLineWidth(2)
@@ -1574,25 +1652,22 @@ def write_histograms_and_canvases(
         h_sim_comp.GetYaxis().SetTitle(f"Branching Ratio BR({sp_name} #rightarrow X) [%]")
         h_sim_comp.GetYaxis().SetTitleOffset(1.25)
 
-        # Cloned histogram for vertical hatched error band (E2)
-        h_err_comp = h_sim_comp.Clone(f"h_br_sim_err_{sp_name}")
-        h_err_comp.SetFillColor(ROOT.kAzure - 4)
-        h_err_comp.SetFillStyle(3007)  # vertical hatch
-        h_err_comp.SetLineColor(ROOT.kAzure + 2)
-        h_err_comp.SetLineWidth(1)
+        g_err_comp.SetFillColor(ROOT.kAzure - 4)
+        g_err_comp.SetFillStyle(3007)  # vertical hatch
+        g_err_comp.SetLineColor(ROOT.kAzure + 2)
+        g_err_comp.SetLineWidth(1)
 
-        # Build PDG error graph
-        pdg_points = [
-            (i, e["br_pdg"], e["br_pdg_err"])
-            for i, e in enumerate(selected, start=1)
-            if e["has_pdg"] and e["br_pdg"] is not None
-        ]
-        g_pdg_comp = ROOT.TGraphErrors(len(pdg_points))
+        # Build PDG asymmetric error graph (strictly bounded in [0%, 100%])
+        g_pdg_comp = ROOT.TGraphAsymmErrors(n_bins)
         g_pdg_comp.SetName(f"g_pdg_br_{sp_name}")
         g_pdg_comp.SetTitle(f"PDG World Average Reference ({sp_name})")
-        for pt_idx, (bin_idx, br_val, br_err) in enumerate(pdg_points):
-            g_pdg_comp.SetPoint(pt_idx, float(bin_idx), br_val)
-            g_pdg_comp.SetPointError(pt_idx, 0.25, br_err)
+        for i, entry in enumerate(all_candidates, start=1):
+            val_p = entry["br_pdg"]
+            err_p = entry["br_pdg_err"]
+            err_lo_p = min(val_p, err_p)
+            err_hi_p = min(100.0 - val_p, err_p)
+            g_pdg_comp.SetPoint(i - 1, float(i), val_p)
+            g_pdg_comp.SetPointError(i - 1, 0.25, 0.25, err_lo_p, err_hi_p)
 
         g_pdg_comp.SetMarkerStyle(20)
         g_pdg_comp.SetMarkerSize(1.2)
@@ -1600,10 +1675,17 @@ def write_histograms_and_canvases(
         g_pdg_comp.SetLineColor(ROOT.kRed + 1)
         g_pdg_comp.SetLineWidth(2)
 
-        # Compute dynamic Y range
-        max_sim = max([e["br_sim"] + e["br_sim_err"] for e in selected] + [0.0])
-        max_pdg = max([e["br_pdg"] + e["br_pdg_err"] for e in selected if e["has_pdg"] and e["br_pdg"] is not None] + [0.0])
-        y_max = max(max_sim, max_pdg, 5.0) * 1.35
+        # Compute dynamic Y range (never exceeding reasonable bounds)
+        max_sim = max([e["br_sim"] + e["br_sim_err_hi"] for e in all_candidates] + [0.0])
+        max_pdg = max([e["br_pdg"] + e["br_pdg_err"] for e in all_candidates] + [0.0])
+        overall_max = max(max_sim, max_pdg)
+        if overall_max > 70.0:
+            y_max = 110.0
+        elif overall_max > 30.0:
+            y_max = min(105.0, overall_max * 1.35)
+        else:
+            y_max = max(overall_max * 1.35, 10.0)
+
         h_sim_comp.SetMaximum(y_max)
         h_sim_comp.SetMinimum(0.0)
 
@@ -1613,33 +1695,33 @@ def write_histograms_and_canvases(
         c_pdg_sp.SetLeftMargin(0.12)
         c_pdg_sp.SetRightMargin(0.06)
         c_pdg_sp.SetTopMargin(0.08)
-        c_pdg_sp.SetBottomMargin(0.32)
+        c_pdg_sp.SetBottomMargin(0.34)
         c_pdg_sp.SetGridy()
 
         h_sim_comp.Draw("HIST")
-        h_err_comp.Draw("E2 same")
+        g_err_comp.Draw("2 same")
         h_sim_comp.Draw("HIST same")
-        if g_pdg_comp.GetN() > 0:
-            g_pdg_comp.Draw("P E1 same")
+        g_pdg_comp.Draw("P E1 same")
 
-        leg_pdg_sp = ROOT.TLegend(0.48, 0.72, 0.92, 0.88)
+        leg_pdg_sp = ROOT.TLegend(0.46, 0.72, 0.92, 0.88)
         leg_pdg_sp.SetBorderSize(1)
         leg_pdg_sp.SetFillColor(ROOT.kWhite)
         leg_pdg_sp.AddEntry(h_sim_comp, f"MC Simulation ({tot_sp_decays} decays total)", "l")
-        leg_pdg_sp.AddEntry(h_err_comp, "MC Simulation Stat Error (Vertical Hatch)", "f")
+        leg_pdg_sp.AddEntry(g_err_comp, "MC Stat Error (Clopper-Pearson 68% CL hatched #leq 100%)", "f")
         leg_pdg_sp.AddEntry(g_pdg_comp, "PDG World Average Reference (#pm 1#sigma)", "lep")
         leg_pdg_sp.Draw("same")
 
         c_pdg_sp.Write()
         pdg_comparison_canvases[abs_c] = c_pdg_sp
-        pdg_sp_drawables[abs_c] = (h_sim_comp, h_err_comp, g_pdg_comp, leg_pdg_sp)
-        keep_alive_pdg.extend([h_sim_comp, h_err_comp, g_pdg_comp, leg_pdg_sp, c_pdg_sp])
+        pdg_sp_drawables[abs_c] = (h_sim_comp, g_err_comp, g_pdg_comp, leg_pdg_sp)
+        keep_alive_pdg.extend([h_sim_comp, g_err_comp, g_pdg_comp, leg_pdg_sp, c_pdg_sp])
 
         # Also store into Species/<sp_name>/
         dir_sp = dir_species_root.GetDirectory(sp_name)
         if dir_sp:
             dir_sp.cd()
             h_sim_comp.Write(f"h_br_sim_vs_pdg_{sp_name}")
+            g_err_comp.Write(f"g_br_sim_err_{sp_name}")
             g_pdg_comp.Write(f"g_pdg_br_{sp_name}")
 
     # Summary 2x2 Canvas: All 4 Species Comparison
@@ -1654,15 +1736,14 @@ def write_histograms_and_canvases(
             pad.SetLeftMargin(0.12)
             pad.SetRightMargin(0.06)
             pad.SetTopMargin(0.08)
-            pad.SetBottomMargin(0.32)
+            pad.SetBottomMargin(0.34)
             pad.SetGridy()
 
-            h_sc, h_ec, g_pc, l_pc = pdg_sp_drawables[abs_c]
+            h_sc, g_ec, g_pc, l_pc = pdg_sp_drawables[abs_c]
             h_sc.Draw("HIST")
-            h_ec.Draw("E2 same")
+            g_ec.Draw("2 same")
             h_sc.Draw("HIST same")
-            if g_pc.GetN() > 0:
-                g_pc.Draw("P E1 same")
+            g_pc.Draw("P E1 same")
             l_pc.Draw("same")
 
         c_all_sp.Write()
@@ -1863,11 +1944,11 @@ def print_diagnostic_report(
 
     # 6. Simulation Branching Ratios vs PDG Reference Tables
     if pdg_data:
-        print("\n" + "=" * 86)
+        print("\n" + "=" * 94)
         print(" 6. SIMULATION BRANCHING RATIOS vs PDG WORLD AVERAGES")
-        print("=" * 86)
-        print(f" {'Species':<10s} {'Mode / Channel':<30s} {'MC Count':<10s} {'MC BR [%]':<20s} {'PDG Ref [%]':<18s}")
-        print("-" * 86)
+        print("=" * 94)
+        print(f" {'Species':<10s} {'Mode / Channel':<32s} {'MC Count':<10s} {'MC BR [%] (68% CL)':<24s} {'PDG Ref [%]':<18s}")
+        print("-" * 94)
         for abs_c in major_pdgs:
             sp_name = get_species_name(abs_c)
             sp_pdg = pdg_data.get(abs_c, {})
@@ -1879,24 +1960,37 @@ def print_diagnostic_report(
             for tup, cnt in sim_ch_map.items():
                 f = format_channel_formula(tup)
                 canon = canonicalize_channel_str(f)
+                canon_p = normalize_channel_photons(canon)
                 for lbl, info in modes_by_lbl.items():
-                    if canon in info["formulas"]:
+                    if canon in info["formulas"] or canon_p in info["formulas"]:
                         sim_by_pdg[lbl] += cnt
                         break
+
+            cnt_other = max(0, tot_d - sum(sim_by_pdg.values()))
+            sum_pdg_br = sum(info["br_pct"] for info in modes_by_lbl.values())
+            sum_pdg_var = sum(info["br_err_pct"] ** 2 for info in modes_by_lbl.values())
+            pdg_other_br = max(0.0, 100.0 - sum_pdg_br) if sum_pdg_br < 100.0 else 0.0
+            pdg_other_err = min(pdg_other_br, math.sqrt(sum_pdg_var)) if pdg_other_br > 0 else 0.0
 
             printed_sp = False
             for lbl, info in sorted(modes_by_lbl.items(), key=lambda x: (sim_by_pdg.get(x[0], 0) > 0, x[1]["br_pct"]), reverse=True):
                 cnt = sim_by_pdg.get(lbl, 0)
                 if cnt == 0 and info["br_pct"] < 3.0:
                     continue
-                br_sim = (100.0 * cnt / tot_d) if tot_d > 0 else 0.0
-                br_sim_err = (100.0 * math.sqrt(cnt) / tot_d) if (tot_d > 0 and cnt > 0) else 0.0
-                mc_str = f"{br_sim:5.2f}% +/- {br_sim_err:4.2f}%" if cnt > 0 else "  0.00%           "
+                br_sim, err_lo, err_hi = clopper_pearson_errors(cnt, tot_d, 0.6827)
+                mc_str = f"{br_sim:5.2f}% (-{err_lo:4.2f}/+{err_hi:4.2f}%)" if cnt > 0 else "  0.00%                 "
                 pdg_str = f"{info['br_pct']:5.2f}% +/- {info['br_err_pct']:4.2f}%"
                 sp_col = sp_name if not printed_sp else ""
                 printed_sp = True
-                print(f" {sp_col:<10s} {lbl:<30s} {cnt:<10d} {mc_str:<20s} {pdg_str:<18s}")
-        print("-" * 86)
+                print(f" {sp_col:<10s} {lbl:<32s} {cnt:<10d} {mc_str:<24s} {pdg_str:<18s}")
+
+            # Print "Other" category for all unlisted decay channels
+            br_oth, err_lo_oth, err_hi_oth = clopper_pearson_errors(cnt_other, tot_d, 0.6827)
+            mc_oth_str = f"{br_oth:5.2f}% (-{err_lo_oth:4.2f}/+{err_hi_oth:4.2f}%)" if cnt_other > 0 else "  0.00%                 "
+            pdg_oth_str = f"{pdg_other_br:5.2f}% +/- {pdg_other_err:4.2f}%"
+            sp_col = sp_name if not printed_sp else ""
+            print(f" {sp_col:<10s} {'Other':<32s} {cnt_other:<10d} {mc_oth_str:<24s} {pdg_oth_str:<18s}")
+        print("-" * 94)
 
     print("\n" + "=" * 86)
     print(" OVERALL DIAGNOSTIC VERDICT")

@@ -43,6 +43,8 @@ import os
 import sys
 import math
 import time
+import re
+import csv
 import argparse
 import subprocess
 from typing import Dict, List, Tuple, Set, Optional, Any
@@ -84,6 +86,10 @@ PDG_NAMES: Dict[int, str] = {
     -311: "anti_K0",
     321: "K+",
     -321: "K-",
+    313: "K*(892)0",
+    -313: "anti_K*(892)0",
+    323: "K*(892)+",
+    -323: "K*(892)-",
     221: "eta",
     331: "eta'",
     2112: "n",
@@ -220,18 +226,38 @@ def channel_slug(pdg_tuple: Tuple[int, ...]) -> str:
 
 
 NAME_TO_PDG: Dict[str, int] = {v: k for k, v in PDG_NAMES.items()}
+NAME_TO_PDG["anti-K*(892)0"] = -313
 SELF_CONJUGATE_PDGS: Set[int] = {22, 111, 130, 310, 221, 331}
 
 
+def expand_multiplicity_tokens(channel_str: str) -> str:
+    """
+    Expands multiplicity prefixes such as '2pi+' -> 'pi+ + pi+', '2pi0' -> 'pi0 + pi0'.
+    e.g. 'K- + 2pi+' -> 'K- + pi+ + pi+'
+         'K_S0 + pi+ + 2pi0' -> 'K_S0 + pi+ + pi0 + pi0'
+    """
+    norm_str = channel_str.replace("anti-", "anti_")
+    parts = [p.strip() for p in re.split(r"\s+\+\s+", norm_str.strip()) if p.strip()]
+    expanded = []
+    for p in parts:
+        m = re.match(r"^(\d+)([A-Za-z_\*\+\-\(\)\'][A-Za-z0-9_\*\+\-\(\)\']*)$", p)
+        if m:
+            count = int(m.group(1))
+            token = m.group(2)
+            expanded.extend([token] * count)
+        else:
+            expanded.append(p)
+    return " + ".join(sorted(expanded))
+
+
 def canonicalize_channel_str(channel_str: str) -> str:
-    """Sorts daughter particle names in a channel string to ensure consistent matching."""
-    parts = [p.strip() for p in channel_str.split(" + ")]
-    return " + ".join(sorted(parts))
+    """Sorts daughter particle names in a channel string to ensure consistent matching, expanding multiplicities."""
+    return expand_multiplicity_tokens(channel_str)
 
 
 def get_conjugate_channel_str(channel_str: str) -> str:
     """Computes the CP / charge-conjugate channel formula."""
-    parts = [p.strip() for p in channel_str.split(" + ")]
+    parts = [p.strip() for p in channel_str.split(" + ") if p.strip()]
     cc_parts = []
     for p in parts:
         pdg = NAME_TO_PDG.get(p)
@@ -239,7 +265,16 @@ def get_conjugate_channel_str(channel_str: str) -> str:
             cc_pdg = pdg if abs(pdg) in SELF_CONJUGATE_PDGS else -pdg
             cc_parts.append(PDG_NAMES.get(cc_pdg, p))
         else:
-            cc_parts.append(p)
+            if p.startswith("anti_"):
+                cc_parts.append(p[5:])
+            elif p.startswith("anti-"):
+                cc_parts.append(p[5:])
+            elif p.endswith("+"):
+                cc_parts.append(p[:-1] + "-")
+            elif p.endswith("-"):
+                cc_parts.append(p[:-1] + "+")
+            else:
+                cc_parts.append(p)
     return " + ".join(sorted(cc_parts))
 
 
@@ -249,7 +284,7 @@ def normalize_channel_photons(channel_str: str) -> str:
     e.g. 'K- + gamma + gamma + pi+' -> 'K- + pi+ + pi0'
          'gamma + gamma + gamma + gamma + pi+ + pi-' -> 'pi+ + pi- + 2pi0'
     """
-    parts = [p.strip() for p in channel_str.split(" + ")]
+    parts = [p.strip() for p in channel_str.split(" + ") if p.strip()]
     n_gamma = parts.count("gamma")
     if n_gamma >= 2:
         n_pi0 = n_gamma // 2
@@ -261,15 +296,19 @@ def normalize_channel_photons(channel_str: str) -> str:
     return channel_str
 
 
-def expand_neutral_kaons(channel_str: str) -> Set[str]:
+def expand_neutral_kaons(channel_str: str, has_ks_kl_split: bool = False) -> Set[str]:
     """
     Expands formulas containing neutral kaons so that simulated decays
     with either K_S0 (310) or K_L0 (130) or K0/anti_K0 match the corresponding PDG mode.
+    If has_ks_kl_split is True, K_S0 and K_L0 are kept distinct.
     """
-    parts = [p.strip() for p in channel_str.split(" + ")]
+    parts = [p.strip() for p in channel_str.split(" + ") if p.strip()]
     forms = {channel_str}
     if any(k in parts for k in ["K_S0", "K_L0", "K0", "anti_K0"]):
-        for target in ["K_S0", "K_L0"]:
+        targets = ["K0", "anti_K0"]
+        if not has_ks_kl_split:
+            targets.extend(["K_S0", "K_L0"])
+        for target in targets:
             new_parts = [target if p in ["K_S0", "K_L0", "K0", "anti_K0"] else p for p in parts]
             forms.add(" + ".join(sorted(new_parts)))
     return forms
@@ -333,7 +372,6 @@ def load_pdg_summary_tables(tables_dir: Optional[str]) -> Dict[int, Dict[str, An
     }
 
     result: Dict[int, Dict[str, Any]] = {}
-    import csv
 
     for fname, sp_pdg in mapping.items():
         fpath = os.path.join(tables_dir, fname)
@@ -343,42 +381,64 @@ def load_pdg_summary_tables(tables_dir: Optional[str]) -> Dict[int, Dict[str, An
         modes_by_label: Dict[str, Dict[str, Any]] = {}
         modes_list: List[PDGDecayMode] = []
 
-        with open(fpath, "r", encoding="utf-8") as f:
+        with open(fpath, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
-            for row in reader:
-                ch_raw = row.get("channel", "").strip()
-                if not ch_raw:
-                    continue
-                pdg_mode = row.get("pdg_mode", "").strip()
-                label = pdg_mode if pdg_mode else ch_raw
-                try:
-                    br_val = float(row.get("br", 0.0)) * 100.0
-                    br_err = float(row.get("br_err", 0.0)) * 100.0
-                except ValueError:
-                    continue
+            raw_rows = [r for r in reader if r.get("channel", "").strip()]
 
-                canon = canonicalize_channel_str(ch_raw)
-                cc = get_conjugate_channel_str(canon)
-                canon_p = normalize_channel_photons(canon)
-                cc_p = get_conjugate_channel_str(canon_p)
+        for row in raw_rows:
+            ch_raw = row.get("channel", "").strip()
+            if not ch_raw:
+                continue
+            pdg_mode = row.get("pdg_mode", "").strip() if row.get("pdg_mode") else ""
+            label = pdg_mode if pdg_mode else ch_raw
+            try:
+                br_val = float(row.get("br", 0.0)) * 100.0
+                br_err = float(row.get("br_err", 0.0)) * 100.0
+            except (ValueError, TypeError):
+                continue
 
-                m_obj = PDGDecayMode(canon, label, br_val, br_err, cc)
-                modes_list.append(m_obj)
+            canon = canonicalize_channel_str(ch_raw)
+            cc = get_conjugate_channel_str(canon)
+            canon_p = normalize_channel_photons(canon)
+            cc_p = get_conjugate_channel_str(canon_p)
 
-                base_forms = {canon, cc, canon_p, cc_p}
-                formulas_set = set()
-                for bf in base_forms:
-                    formulas_set.update(expand_neutral_kaons(bf))
+            m_obj = PDGDecayMode(canon, label, br_val, br_err, cc)
+            modes_list.append(m_obj)
 
-                if label not in modes_by_label:
-                    modes_by_label[label] = {
-                        "label": label,
-                        "formulas": formulas_set,
-                        "br_pct": br_val,
-                        "br_err_pct": br_err,
-                    }
-                else:
-                    modes_by_label[label]["formulas"].update(formulas_set)
+            base_forms = {canon, cc, canon_p, cc_p}
+            if "+" in pdg_mode:
+                pm_canon = canonicalize_channel_str(pdg_mode)
+                pm_cc = get_conjugate_channel_str(pm_canon)
+                base_forms.update({
+                    pm_canon, pm_cc,
+                    normalize_channel_photons(pm_canon),
+                    get_conjugate_channel_str(normalize_channel_photons(pm_canon)),
+                })
+
+            # Check if this channel has a KS vs KL split sibling in this table
+            is_ks_kl_split = False
+            if "K_S0" in ch_raw:
+                sibling = ch_raw.replace("K_S0", "K_L0")
+                if any(r.get("channel", "").strip() == sibling for r in raw_rows):
+                    is_ks_kl_split = True
+            elif "K_L0" in ch_raw:
+                sibling = ch_raw.replace("K_L0", "K_S0")
+                if any(r.get("channel", "").strip() == sibling for r in raw_rows):
+                    is_ks_kl_split = True
+
+            formulas_set = set()
+            for bf in base_forms:
+                formulas_set.update(expand_neutral_kaons(bf, has_ks_kl_split=is_ks_kl_split))
+
+            if label not in modes_by_label:
+                modes_by_label[label] = {
+                    "label": label,
+                    "formulas": formulas_set,
+                    "br_pct": br_val,
+                    "br_err_pct": br_err,
+                }
+            else:
+                modes_by_label[label]["formulas"].update(formulas_set)
 
         result[sp_pdg] = {
             "modes_by_label": modes_by_label,
@@ -669,7 +729,29 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
             if nu_ebin_idx >= 0:
                 local_data["cc_all_per_ebin"][nu_ebin_idx] += 1
 
-            # 2. Scan event for charm hadrons
+            # 2. Check if this event produces charm: without exception
+            has_charm_event = False
+            if tree_truth and hasattr(tree_cbmsim, "has_charm"):
+                try:
+                    has_charm_event = bool(tree_cbmsim.has_charm)
+                except Exception:
+                    has_charm_event = False
+            if not has_charm_event:
+                for trk in tracks:
+                    p = trk.GetPdgCode()
+                    if abs(p) == 4 or is_charm_hadron(p):
+                        has_charm_event = True
+                        break
+
+            if has_charm_event:
+                local_data["nu_cc_charm"] += 1
+                local_data["nu_e_cc_charm"].append(nu_energy)
+                if nu_ebin_idx >= 0:
+                    local_data["cc_charm_per_ebin"][nu_ebin_idx] += 1
+            else:
+                continue
+
+            # 3. Scan event for charm hadrons (for species fractions and decay channels)
             n_tracks = len(tracks)
             charm_hadrons_in_event: List[Tuple[int, int, int]] = []
 
@@ -682,18 +764,9 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
                         continue
                     charm_hadrons_in_event.append((i_trk, pdg, abs_pdg))
 
-            has_charm = (len(charm_hadrons_in_event) > 0)
-            if not has_charm:
-                continue
-
-            local_data["nu_cc_charm"] += 1
-            local_data["nu_e_cc_charm"].append(nu_energy)
-            if nu_ebin_idx >= 0:
-                local_data["cc_charm_per_ebin"][nu_ebin_idx] += 1
-
             nu_sign = 1 if nu_pdg > 0 else -1
 
-            # 3. Analyze each charm hadron, its energy, and its direct daughters
+            # 4. Analyze each charm hadron, its energy, and its direct daughters
             for i_charm, charm_pdg, abs_charm_pdg in charm_hadrons_in_event:
                 charm_trk = tracks[i_charm]
                 c_p = charm_trk.GetP()

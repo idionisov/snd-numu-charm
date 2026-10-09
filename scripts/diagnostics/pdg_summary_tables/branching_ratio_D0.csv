@@ -1,4 +1,4 @@
-channel,pdg_mode,br,br_err
+﻿channel,pdg_mode,br,br_err
 K- + pi+ + pi0,K- pi+ pi0,0.144,0.005
 K- + gamma + gamma + pi+,K- pi+ pi0,0.144,0.005
 K- + mu+ + nu_mu,K- mu+ nu_mu,0.03418,0.00019

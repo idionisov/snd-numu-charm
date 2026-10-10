@@ -299,19 +299,15 @@ class Snd2DEventDisplay:
                 self.detector_polylines[p][node_path] = poly
 
     def _draw_detectors(self, pad_x, pad_y):
-        """Draws baseline detector outlines into XZ and YZ pads."""
+        """Draws baseline detector outlines into XZ and YZ pads matching 2dEventDisplay.py."""
         pad_x.cd()
         for node_path, poly in self.detector_polylines["X"].items():
-            if "Bar" in node_path:
-                continue
             if poly.GetFillColor() != 0:
                 poly.DrawClone("f same")
             poly.DrawClone("same")
 
         pad_y.cd()
         for node_path, poly in self.detector_polylines["Y"].items():
-            if "Bar" in node_path:
-                continue
             if poly.GetFillColor() != 0:
                 poly.DrawClone("f same")
             poly.DrawClone("same")
@@ -804,31 +800,33 @@ class Snd2DEventDisplay:
                 g.Draw("P same")
                 scifi_markers.append(g)
 
-        # 3. MuFilter Fired Bars: QDC color coding or solid fill
+        # 3. MuFilter Fired Bars: QDC color coding or solid fill (matching 2dEventDisplay.py)
         nav = ROOT.gGeoManager.GetCurrentNavigator()
         filled_bars = []
+        min_sipm_mult = 1
         if hasattr(tree, "Digi_MuFilterHits"):
             for hit in tree.Digi_MuFilterHits:
                 if hasattr(hit, "isValid") and not hit.isValid():
                     continue
                 det_id = hit.GetDetectorID()
                 sys_id = hit.GetSystem()
+
+                # Veto and US require minimum sipm multiplicity (default 1)
+                sipm_mult = len(hit.GetAllSignals(False, False))
+                if sipm_mult < min_sipm_mult and (sys_id == 1 or sys_id == 2):
+                    continue
+
                 self.mufilter_mod.GetPosition(det_id, self._vec_a, self._vec_b)
                 cur_path = nav.GetPath()
 
-                # Calculate total QDC for this hit
+                # Calculate total QDC for this hit: channels with qdc >= 0
                 this_qdc = 0.0
                 ns = max(1, hit.GetnSides())
                 for side in range(ns):
                     for m in range(hit.GetnSiPMs()):
                         q = hit.GetSignal(m + side * hit.GetnSiPMs())
-                        if q > 0:
+                        if q >= 0:
                             this_qdc += q
-
-                # Threshold for drawing hit bars: set to -999.0 to show all bars as before (can be adjusted to 0.0 or higher in the future)
-                min_qdc_threshold = -999.0
-                if this_qdc <= min_qdc_threshold:
-                    continue
 
                 if self.color_by_qdc_and_density:
                     qdc_capped = min(this_qdc, self.max_qdc)

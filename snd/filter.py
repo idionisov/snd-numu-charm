@@ -240,7 +240,7 @@ def setup_truth_branches(trees: List[ROOT.TTree], active_tiers: Set[str]) -> Dic
             "has_charm_hadronic_downstream_muon"
         ])
         double_vars.extend([
-            "mc_weight", "raw_weight",
+            "mc_weight", "raw_weight", "mctruth_weight",
             "nu_e", "nu_p", "nu_px", "nu_py", "nu_pz", "nu_pt", "nu_eta", "nu_phi", "nu_theta",
             "vtx_x", "vtx_y", "vtx_z", "vtx_t",
             "q2", "bjorken_x", "inelasticity_y", "hadronic_w",
@@ -315,7 +315,7 @@ def setup_truth_branches(trees: List[ROOT.TTree], active_tiers: Set[str]) -> Dic
     return buffers
 
 
-def fill_truth_buffers(buffers: dict, info: Any, entry_idx: int, active_tiers: Set[str]):
+def fill_truth_buffers(buffers: dict, info: Any, entry_idx: int, active_tiers: Set[str], mctruth_weight: float = 1.0):
     """Populate truth buffers according to active tiers."""
     # 1. Universal Tier
     if "universal" in active_tiers:
@@ -375,6 +375,7 @@ def fill_truth_buffers(buffers: dict, info: Any, entry_idx: int, active_tiers: S
 
         buffers["mc_weight"][0] = float(info.mcWeight)
         buffers["raw_weight"][0] = float(info.rawWeight)
+        buffers["mctruth_weight"][0] = float(mctruth_weight)
         buffers["nu_e"][0] = float(info.nuE)
         buffers["nu_p"][0] = float(info.nuP)
         buffers["nu_px"][0] = float(info.nuPx)
@@ -1127,6 +1128,7 @@ def process_categorized_neutrino_file(
     cfg: Optional[dict] = None,
     max_entries: int = -1,
     create_symlinks: bool = True,
+    weight_fn: Optional[Callable[[Any, Any], float]] = None,
 ) -> Dict[str, Any]:
     """
     Process an SND@LHC neutrino simulation file and categorize all events:
@@ -1204,7 +1206,14 @@ def process_categorized_neutrino_file(
         else:
             info = processor.process(t_in.MCTrack)
 
-        fill_truth_buffers(truth_buffers, info, iev, all_tiers)
+        ev_weight = 1.0
+        if weight_fn is not None:
+            try:
+                ev_weight = float(weight_fn(t_in, info))
+            except Exception:
+                ev_weight = 1.0
+
+        fill_truth_buffers(truth_buffers, info, iev, all_tiers, mctruth_weight=ev_weight)
         out_tree.Fill()
         truth_tree.Fill()
 

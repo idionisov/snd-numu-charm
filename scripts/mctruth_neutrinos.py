@@ -120,6 +120,15 @@ def _init_worker(config_path: Optional[str]):
     _worker_processor = build_processor(_worker_cfg.get("processor", {}))
 
 
+def get_mctruth_weight(event: Any = None, info: Any = None) -> float:
+    """
+    Returns the Monte Carlo truth event weight.
+    For current productions, returns 1.0 for all events.
+    Can be extended in the future for production-specific weight extraction.
+    """
+    return 1.0
+
+
 def _run_worker_task(task_args: tuple) -> dict:
     """Worker task execution function for parallel partition processing."""
     part_str, in_file, out_file, max_entries, create_symlinks, config_path = task_args
@@ -137,6 +146,7 @@ def _run_worker_task(task_args: tuple) -> dict:
             cfg=_worker_cfg,
             max_entries=max_entries,
             create_symlinks=create_symlinks,
+            weight_fn=get_mctruth_weight,
         )
         res["elapsed"] = time.time() - t0
         res["partition"] = part_str
@@ -378,6 +388,7 @@ def main():
                 cfg=cfg,
                 max_entries=args.entries,
                 create_symlinks=do_symlink,
+                weight_fn=get_mctruth_weight,
             )
             res["elapsed"] = time.time() - t0
             res["partition"] = part_str

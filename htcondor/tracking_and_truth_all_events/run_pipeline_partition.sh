@@ -2,22 +2,24 @@
 set -eo pipefail
 
 # ==============================================================================
-# SND@LHC: HTCondor Chained Worker Script: Tracking -> MCTruth -> Event Displays
+# SND@LHC: HTCondor Chained Worker Script (All Events)
+# Tracking (All Events) -> MCTruth Extraction -> 2D Event Displays
 #
 # Pipeline per partition:
-#   1) Dimuon Tracking:    in.root  -> *_2MuTrks.root
-#   2) MCTruth Extraction: *_2MuTrks.root -> *_2MuTrks_truth.root
-#   3) Event Displays:     *_2MuTrks_truth.root -> displays_part<p>.root
+#   1) Tracking (All Events, nTracks=0): in.root -> *_2MuTrks.root
+#   2) MCTruth Extraction:               *_2MuTrks.root -> *_2MuTrks_truth.root
+#   3) Event Displays:                   *_2MuTrks_truth.root -> displays_part<p>.root
+#      (--mc-truth and --recoMuons enabled)
 #
 # Usage:
-#   run_pipeline_partition.sh <partition_id> [input_pattern] [track_pattern] [truth_pattern] [disp_pattern]
+#   run_pipeline_partition.sh <partition_id> [input_pattern] [track_pattern] [truth_pattern] [disp_pattern] [store_events]
 # ==============================================================================
 
 PARTITION="$1"
 
 if [ -z "$PARTITION" ]; then
     echo "ERROR: Missing required partition ID argument." >&2
-    echo "Usage: $0 <partition_id> [input_pattern] [track_pattern] [truth_pattern] [disp_pattern]" >&2
+    echo "Usage: $0 <partition_id> [input_pattern] [track_pattern] [truth_pattern] [disp_pattern] [store_events]" >&2
     exit 1
 fi
 
@@ -35,9 +37,6 @@ if [ -z "${SNDSW_ROOT}" ]; then
     elif [ -f "${REPO_DIR}/htcondor/tracking_and_truth/sndswEnv.sh" ]; then
         echo " ~ [1/6] Sourcing tracking_and_truth environment: ${REPO_DIR}/htcondor/tracking_and_truth/sndswEnv.sh"
         source "${REPO_DIR}/htcondor/tracking_and_truth/sndswEnv.sh"
-    elif [ -f "${REPO_DIR}/htcondor/tracking/sndswEnv.sh" ]; then
-        echo " ~ [1/6] Sourcing tracking static environment: ${REPO_DIR}/htcondor/tracking/sndswEnv.sh"
-        source "${REPO_DIR}/htcondor/tracking/sndswEnv.sh"
     elif [ -f "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh" ]; then
         echo " ~ [1/6] Sourcing CVMFS stack fallback: /cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
         source "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
@@ -51,23 +50,23 @@ echo " ~ [2/6] Repository root: ${REPO_DIR}"
 export PYTHONPATH="${REPO_DIR}:${PYTHONPATH}"
 export LD_LIBRARY_PATH="${REPO_DIR}/build/lib:${REPO_DIR}:${LD_LIBRARY_PATH}"
 
-# 3. Path patterns
-DEFAULT_INPUT="/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/%s/sndLHC.Genie-TGeant4_digCPP.root"
-DEFAULT_TRACK="/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks.root"
-DEFAULT_TRUTH="/eos/user/i/idioniso/snd-numu-charm/data/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks_truth.root"
-DEFAULT_DISP="/eos/user/i/idioniso/snd-numu-charm/event_displays/partitions/displays_part%s.root"
+# 3. Path patterns (defaults configured for 2022 nu14 volTarget production)
+DEFAULT_INPUT="/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/2mmRangeCut/sndlhc_15000fb-1_2022_down/nu14/volume_volTarget/%s/sndLHC.Genie-TGeant4_dig.root"
+DEFAULT_TRACK="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks.root"
+DEFAULT_TRUTH="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root"
+DEFAULT_DISP="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions/displays_part%s.root"
 
 INPUT_PATTERN="${2:-$DEFAULT_INPUT}"
 TRACK_PATTERN="${3:-$DEFAULT_TRACK}"
 TRUTH_PATTERN="${4:-$DEFAULT_TRUTH}"
 DISP_PATTERN="${5:-$DEFAULT_DISP}"
-STORE_EVENTS_ARG="${6:-}"
+STORE_EVENTS_ARG="${6:-all}"
 
-# Determine tracking event storage option
-if [ "$STORE_EVENTS_ARG" = "all" ] || [ "$STORE_EVENTS_ARG" = "--all-events" ] || [ "${ALL_EVENTS:-0}" = "1" ] || [ "${STORE_EVENTS:-}" = "all" ]; then
-    STORE_EVENTS_FLAG="--all-events"
-else
+# This worker defaults to keeping all events
+if [ "$STORE_EVENTS_ARG" = "two_tracks" ] || [ "$STORE_EVENTS_ARG" = "--two-tracks-only" ]; then
     STORE_EVENTS_FLAG="--two-tracks-only"
+else
+    STORE_EVENTS_FLAG="--all-events"
 fi
 
 # Determine skip flag based on FORCE
@@ -108,7 +107,7 @@ DISP_SCRIPT="${REPO_DIR}/scripts/generate_2DEventDisplays.py"
 CONFIG_FILE="${REPO_DIR}/config/mctruth_neutrinos_config.yaml"
 
 echo "======================================================================"
-echo "SND@LHC Chained Pipeline: Dimuon Tracking -> MCTruth -> Event Displays"
+echo "SND@LHC Chained Pipeline (All Events): Tracking -> MCTruth -> Displays"
 echo "  Date         : $(date)"
 echo "  Host         : $(hostname)"
 echo "  Partition    : ${PARTITION}"
@@ -124,8 +123,8 @@ echo "======================================================================"
 cd "${REPO_DIR}"
 
 if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
-    # 4. Step 1: Run Dimuon Tracking
-    echo " ~ [3/6] Step 1/3: Running dimuon tracking for partition ${PARTITION} (${STORE_EVENTS_FLAG})..."
+    # 4. Step 1: Run Tracking (All Events, nTracks=0)
+    echo " ~ [3/6] Step 1/3: Running tracking for partition ${PARTITION} (${STORE_EVENTS_FLAG})..."
     set +e
     "${PYTHON_BIN}" "${TRACK_SCRIPT}" \
         -i "${INPUT_PATTERN}" \
@@ -140,7 +139,7 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
 
     # 0 or 143 (SIGTERM atexit handler in FairRoot) is considered normal success
     if [ $TRACK_EXIT -ne 0 ] && [ $TRACK_EXIT -ne 143 ]; then
-        echo "ERROR: Dimuon tracking failed for partition ${PARTITION} with exit code ${TRACK_EXIT}." >&2
+        echo "ERROR: Tracking failed for partition ${PARTITION} with exit code ${TRACK_EXIT}." >&2
         exit $TRACK_EXIT
     fi
 
@@ -150,8 +149,8 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
     fi
     echo " ~ Tracking output verified: ${TRACK_FILE}"
 
-    # 5. Step 2: Run MCTruth Extraction on tracked dimuon events
-    echo " ~ [4/6] Step 2/3: Running MCTruth extraction on tracked dimuon events..."
+    # 5. Step 2: Run MCTruth Extraction
+    echo " ~ [4/6] Step 2/3: Running MCTruth extraction..."
     "${PYTHON_BIN}" "${TRUTH_SCRIPT}" \
         -i "${TRACK_PATTERN}" \
         -o "${TRUTH_PATTERN}" \
@@ -176,7 +175,7 @@ if [ ! -f "${TRUTH_FILE}" ]; then
 fi
 echo " ~ Truth input verified: ${TRUTH_FILE}"
 
-# 6. Step 3: Run 2D Event Display Generation
+# 6. Step 3: Run 2D Event Display Generation (--mc-truth and --recoMuons enabled)
 echo " ~ [5/6] Step 3/3: Generating 2D Event Displays for partition ${PARTITION}..."
 if [ "${FORCE:-0}" != "1" ] && [ "${FORCE_DISPLAYS:-0}" != "1" ] && [ -f "${DISP_FILE}" ] && [ $(stat -c%s "${DISP_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
     echo " ~ Event display file already exists and is non-empty: ${DISP_FILE} (skipping)"

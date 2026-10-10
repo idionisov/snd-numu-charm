@@ -1309,10 +1309,8 @@ class Snd2DEventDisplay:
         canvas._keep_alive.extend(legend_objs_1)
         canvas._keep_alive.extend(legend_objs_2)
 
-        # Embed custom ROOT colors into canvas primitives so JSROOT (VS Code) and clean ROOT sessions preserve Viridis palette and transparency
+        # Keep DefinedColors(1) so ROOT streaming captures custom colors
         ROOT.TColor.DefinedColors(1)
-        if not canvas.GetListOfPrimitives().FindObject("ListOfColors"):
-            canvas.GetListOfPrimitives().Add(ROOT.gROOT.GetListOfColors())
 
         canvas.Update()
         return canvas

@@ -7,17 +7,67 @@ This directory runs the complete end-to-end 3-step chained pipeline per partitio
 [Raw Genie-TGeant4 MC Partition]
                │
                ▼ Step 1: run_dimuon_reco.py --all-events (-t dimuon_DS --nTracks 0 -ht)
-[sndLHC.Genie-TGeant4_dig_2MuTrks.root]  (Contains all events)
+[sndLHC.Genie-TGeant4_dig_2MuTrks.root]  (Keeps all events)
                │
                ▼ Step 2: mctruth_neutrinos.py
-[sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root] (Contains truth tree + mctruth_weight)
+[sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root] (Extracts truth tree + mctruth_weight)
                │
                ▼ Step 3: generate_2DEventDisplays.py (--mc-truth --recoMuons)
 [event_displays/partitions/displays_part<p>.root]
                │
-               ▼ Merge: merge_displays_nu14_2022.sh (scripts/merge_event_displays.py)
-[event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_displays.root]  <-- Master ROOT File
+               ▼ Merge: merge_displays_nu14_2022.sh / merge_displays_old_100fb_2022.sh
+[event_displays/..._displays.root]  <-- Master ROOT File
 ```
+
+---
+
+## Presets Supported
+
+### 1. 2022 $\nu_\mu$ ($15000\text{ fb}^{-1}$) Production (`nu14_2022`, 1000 Partitions)
+- Dataset: `sndlhc_15000fb-1_2022_down/nu14/volume_volTarget` (partitions 1..1000)
+- **Submit**:
+  ```bash
+  ./htcondor/tracking_and_truth_all_events/submit_nu14_2022.sh
+  ```
+- **Status**:
+  ```bash
+  ./htcondor/tracking_and_truth_all_events/status_nu14_2022.sh
+  ```
+- **Merge Displays**:
+  ```bash
+  ./htcondor/tracking_and_truth_all_events/merge_displays_nu14_2022.sh
+  ```
+
+### 2. Older $100\text{ fb}^{-1}$ Production (`old_100fb_2022`, 401 Partitions)
+- Dataset: `sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000` (partitions 0..400)
+- **Submit**:
+  ```bash
+  ./htcondor/tracking_and_truth_all_events/submit_old_100fb_2022.sh
+  ```
+- **Status**:
+  ```bash
+  ./htcondor/tracking_and_truth_all_events/status_old_100fb_2022.sh
+  ```
+- **Merge Displays**:
+  ```bash
+  ./htcondor/tracking_and_truth_all_events/merge_displays_old_100fb_2022.sh
+  ```
+
+---
+
+## Running Locally in Parallel (Alternative to HTCondor)
+
+To run all events locally across worker threads on an interactive node:
+
+- **2022 $\nu_\mu$ ($15000\text{ fb}^{-1}$)**:
+  ```bash
+  ./scripts/run_pipeline_parallel.py --preset nu14_2022 -j 10 --force --all-events
+  ```
+
+- **Older $100\text{ fb}^{-1}$ Production**:
+  ```bash
+  ./scripts/run_pipeline_parallel.py --preset old_100fb_2022 -j 10 --force --all-events
+  ```
 
 ---
 
@@ -29,34 +79,6 @@ This directory runs the complete end-to-end 3-step chained pipeline per partitio
   2. Truth extraction (`mctruth_neutrinos.py`)
   3. 2D Event Display generation (`generate_2DEventDisplays.py --mc-truth --recoMuons`)
 - **`args_nu14_volTarget_1000.txt`**: Partitions 1..1000 for the $15000\text{ fb}^{-1}$ production.
+- **`args_old_100fb_400.txt`**: Partitions 0..400 for the older $100\text{ fb}^{-1}$ production.
 - **`sndswEnv.sh`**: Frozen static environment variables (`LD_LIBRARY_PATH`, `PYTHONPATH`, `ROOTSYS`, etc.).
-- **`submit_nu14_2022.sh`** (or `submit.sh`): Submit all 1000 jobs to HTCondor from an `lxplus` node.
-- **`status_nu14_2022.sh`** (or `status.sh`): Live monitoring reporting progress percentages for all stages.
-- **`merge_displays_nu14_2022.sh`** (or `merge_displays.sh`): Merge partition display files into the master display file.
 - **`out/`**, **`err/`**, **`log/`**: HTCondor log directories.
-
----
-
-## Quick Start (from `lxplus`)
-
-### 1. Submit All 1000 Jobs
-```bash
-./htcondor/tracking_and_truth_all_events/submit.sh
-```
-*(Or directly: `condor_submit htcondor/tracking_and_truth_all_events/pipeline.sub`)*
-
-### 2. Monitor Progress
-```bash
-./htcondor/tracking_and_truth_all_events/status.sh
-```
-
-### 3. Merge Event Displays into Master File
-```bash
-./htcondor/tracking_and_truth_all_events/merge_displays.sh
-```
-
-Outputs:
-- Tracked files: `/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/<partition>/sndLHC.Genie-TGeant4_dig_2MuTrks.root`
-- Truth files: `/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/<partition>/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root`
-- Partition Displays: `/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions/displays_part<p>.root`
-- Master Displays: `/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_displays.root`

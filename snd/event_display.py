@@ -838,6 +838,7 @@ class Snd2DEventDisplay:
                     if cur_path in self.detector_polylines[p]:
                         orig_poly = self.detector_polylines[p][cur_path]
                         fpoly = ROOT.TPolyLine(orig_poly)
+                        fpoly.SetFillStyle(1001)
                         fpoly.SetFillColor(bar_color)
                         fpoly.SetLineColor(bar_color)
                         fpoly.SetLineWidth(bar_thick)
@@ -1308,6 +1309,11 @@ class Snd2DEventDisplay:
         canvas._keep_alive.extend(legend_objs_1)
         canvas._keep_alive.extend(legend_objs_2)
 
+        # Embed custom ROOT colors into canvas primitives so JSROOT (VS Code) and clean ROOT sessions preserve Viridis palette and transparency
+        ROOT.TColor.DefinedColors(1)
+        if not canvas.GetListOfPrimitives().FindObject("ListOfColors"):
+            canvas.GetListOfPrimitives().Add(ROOT.gROOT.GetListOfColors())
+
         canvas.Update()
         return canvas
 
@@ -1340,6 +1346,7 @@ class Snd2DEventDisplay:
             show_mc_truth=show_mc_truth,
             draw_reco_tracks=draw_reco_tracks,
         )
+        ROOT.TColor.DefinedColors(1)
         canvas.Write(name)
         return canvas
 

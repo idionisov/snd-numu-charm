@@ -96,6 +96,7 @@ def copy_tcanvases_recursive(src_dir, dest_dir) -> None:
             obj = key.ReadObj()
             if obj and not (hasattr(obj, "IsZombie") and obj.IsZombie()):
                 dest_dir.cd()
+                ROOT.TColor.DefinedColors(1)
                 obj.Write(key.GetName(), ROOT.TObject.kOverwrite)
         elif "TDirectory" in cls_name:
             sub_src = key.ReadObj()
@@ -371,6 +372,7 @@ def process_single_file_worker(args_tuple):
 
             target_tdir = get_or_create_tdirectory(ftemp, target_parts)
             target_tdir.cd()
+            ROOT.TColor.DefinedColors(1)
             canvas.Write(canvas_name)
 
             result["saved_displays"] += 1
@@ -387,6 +389,8 @@ def process_single_file_worker(args_tuple):
                 img_path = os.path.join(sub_img_dir, f"{canvas_name}.png")
                 canvas.Print(img_path)
 
+        ftemp.cd()
+        ROOT.gROOT.GetListOfColors().Write("ListOfColors", ROOT.TObject.kSingleKey)
         ftemp.Write()
         ftemp.Close()
         fin.Close()
@@ -740,6 +744,8 @@ def main():
                 total_other += res["saved_other"]
 
         # Flush and close single output ROOT file
+        fout.cd()
+        ROOT.gROOT.GetListOfColors().Write("ListOfColors", ROOT.TObject.kSingleKey)
         fout.Write()
         fout.Close()
 

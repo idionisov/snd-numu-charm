@@ -15,8 +15,7 @@ executable              = $(base_dir)/run_pipeline_partition.sh
 arguments               = $(partition) $(input_pattern) $(track_pattern) $(truth_pattern) $(disp_pattern)
 
 flavour                 = $(flavour:longlunch)
-default_args            = $(base_dir)/args_partitions.txt
-args_file               = $(args_file:$(default_args))
+args_file               = $(args_file:$(base_dir)/args_partitions.txt)
 
 input_pattern           = $(input_pattern:/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/%s/sndLHC.Genie-TGeant4_digCPP.root)
 track_pattern           = $(track_pattern:/eos/user/i/idioniso/snd-numu-charm/data/old_sndlhc_100fb-1_2022_down_volTarget/%s/sndLHC.Genie-TGeant4_digCPP_2MuTrks.root)

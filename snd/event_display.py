@@ -236,7 +236,7 @@ class Snd2DEventDisplay:
         for i in range(7, 10):
             self.nodes[f"volMuFilter_1/volFeBlock_{i}"] = ROOT.kGreen - 6
 
-        self.pass_nodes = {"Block", "Wall"}
+        self.pass_nodes = {"Block", "Wall", "FeTarget"}
         self.x_nodes = {"UpstreamBar", "VetoBar", "hor"}
         self.proj_idx = {"X": 0, "Y": 1}
 
@@ -295,6 +295,8 @@ class Snd2DEventDisplay:
                 # Fill iron blocks and walls with alpha 0.5 matching original display
                 if any(pn in node_path for pn in self.pass_nodes):
                     poly.SetFillColorAlpha(color, 0.5)
+                else:
+                    poly.SetFillStyle(0)
 
                 self.detector_polylines[p][node_path] = poly
 
@@ -302,23 +304,23 @@ class Snd2DEventDisplay:
         """Draws baseline detector outlines into XZ and YZ pads matching 2dEventDisplay.py."""
         pad_x.cd()
         for node_path, poly in self.detector_polylines["X"].items():
-            if poly.GetFillColor() != 0:
+            if any(pn in node_path for pn in self.pass_nodes):
                 poly.DrawClone("f same")
             poly.DrawClone("same")
 
         pad_y.cd()
         for node_path, poly in self.detector_polylines["Y"].items():
-            if poly.GetFillColor() != 0:
+            if any(pn in node_path for pn in self.pass_nodes):
                 poly.DrawClone("f same")
             poly.DrawClone("same")
 
     def _draw_logo_and_info(self, pad, pad_num: int, run_number: int, event_number: int):
-        """Draws the official SND@LHC logo and Run/Event text matching EventDisplay_Task."""
+        """Draws the official SND@LHC logo and Run/Event text matching 2dEventDisplay.py:1241-1275."""
         pad.cd()
         drawn_objs = []
 
         if self.draw_logo and self.logo_path:
-            pad_logo = ROOT.TPad(f"logo_{pad_num}", f"logo_{pad_num}", 0.08, 0.09, 0.17, 0.27)
+            pad_logo = ROOT.TPad(f"logo_{pad_num}", f"logo_{pad_num}", 0.1, 0.1, 0.2, 0.3)
             pad_logo.SetBorderSize(0)
             pad_logo.SetFillStyle(4000)
             pad_logo.SetFillColorAlpha(0, 0)
@@ -332,7 +334,7 @@ class Snd2DEventDisplay:
             pad.cd()
 
         if self.draw_text:
-            pad_text = ROOT.TPad(f"info_{pad_num}", f"info_{pad_num}", 0.18, 0.09, 0.46, 0.27)
+            pad_text = ROOT.TPad(f"info_{pad_num}", f"info_{pad_num}", 0.19, 0.1, 0.6, 0.3)
             pad_text.SetBorderSize(0)
             pad_text.SetFillStyle(4000)
             pad_text.SetFillColorAlpha(0, 0)
@@ -341,9 +343,9 @@ class Snd2DEventDisplay:
             text_info = ROOT.TLatex()
             text_info.SetTextAlign(11)
             text_info.SetTextFont(42)
-            text_info.SetTextSize(0.14)
-            text_info.DrawLatex(0.0, 0.60, "SND@LHC Experiment, CERN")
-            text_info.DrawLatex(0.0, 0.30, f"Run / Event: {run_number} / {event_number}")
+            text_info.SetTextSize(0.15)
+            text_info.DrawLatex(0.0, 0.6, "SND@LHC Experiment, CERN")
+            text_info.DrawLatex(0.0, 0.4, f"Run / Event: {run_number} / {event_number}")
             drawn_objs.extend([pad_text, text_info])
             pad.cd()
 
@@ -358,7 +360,7 @@ class Snd2DEventDisplay:
         drawn_objs = []
         n_legend_points = 5
 
-        pad_leg = ROOT.TPad(f"density_qdc_legend_{pad.GetName()}", "density_qdc_legend", 0.48, 0.09, 0.96, 0.27)
+        pad_leg = ROOT.TPad(f"legend_{pad.GetName()}", "legend", 0.4, 0.15, 0.4 + 0.27, 0.15 + 0.25)
         pad_leg.SetBorderSize(0)
         pad_leg.SetFillStyle(4000)
         pad_leg.Draw()
@@ -367,7 +369,7 @@ class Snd2DEventDisplay:
         text_leg = ROOT.TLatex()
         text_leg.SetTextAlign(11)
         text_leg.SetTextFont(42)
-        text_leg.SetTextSize(0.14)
+        text_leg.SetTextSize(0.15)
 
         palette = ROOT.TColor.GetPalette()
         n_pal = len(palette)
@@ -379,29 +381,23 @@ class Snd2DEventDisplay:
             marker_x = (i + 0.15) * (1.0 / (n_legend_points + 2.0))
 
             if i < (n_legend_points - 1):
-                text_leg.DrawLatex(x_pos, 0.58, f"{dens_val}")
-                text_leg.DrawLatex(x_pos, 0.22, f"{qdc_val}")
+                text_leg.DrawLatex(x_pos, 0.2, f"{dens_val}")
+                text_leg.DrawLatex(x_pos, 0.0, f"{qdc_val}")
             else:
-                text_leg.DrawLatex(x_pos, 0.58, f"{dens_val} SciFi hits/cm")
-                text_leg.DrawLatex(x_pos, 0.22, f"{qdc_val} QDC units")
+                text_leg.DrawLatex(x_pos, 0.2, f"{dens_val} SciFi hits/cm")
+                text_leg.DrawLatex(x_pos, 0.0, f"{qdc_val} QDC units")
 
-            # SciFi Density Ellipse
-            scifi_color_idx = int(float(i) / (n_legend_points - 1) * (n_pal - 1))
-            el = ROOT.TEllipse(marker_x, 0.64, 0.05 / 4.0, 0.07)
-            el.SetFillStyle(1001)
+            # SciFi Density Ellipse matching 2dEventDisplay.py:285-290
+            scifi_color_idx = int(float(dens_val) / self.max_density * (n_pal - 1))
+            el = ROOT.TEllipse(marker_x, 0.26, 0.05 / 4.0, 0.05)
             el.SetFillColor(palette[scifi_color_idx])
-            el.SetLineColor(ROOT.kBlack)
-            el.SetLineWidth(1)
             el.Draw("same")
             drawn_objs.append(el)
 
-            # MuFilter QDC Box
-            qdc_color_idx = int(float(i) / (n_legend_points - 1) * (n_pal - 1))
-            box = ROOT.TBox(marker_x - 0.05 / 4.0, 0.28 - 0.06, marker_x + 0.05 / 4.0, 0.28 + 0.06)
-            box.SetFillStyle(1001)
+            # MuFilter QDC Box matching 2dEventDisplay.py:292-297
+            qdc_color_idx = int(float(qdc_val) / self.max_qdc * (n_pal - 1))
+            box = ROOT.TBox(marker_x - 0.05 / 4.0, 0.06 - 0.05, marker_x + 0.05 / 4.0, 0.06 + 0.05)
             box.SetFillColor(palette[qdc_color_idx])
-            box.SetLineColor(ROOT.kBlack)
-            box.SetLineWidth(1)
             box.Draw("same")
             drawn_objs.append(box)
 
@@ -717,8 +713,8 @@ class Snd2DEventDisplay:
         else:
             ev_id = event_idx
 
-        # Canvas matching original nx=1200, ny=1600
-        canvas = ROOT.TCanvas(canvas_name, canvas_title, 1200, 1600)
+        # Canvas matching 2dEventDisplay.py nx=1200, ny=1016
+        canvas = ROOT.TCanvas(canvas_name, canvas_title, 1200, 1016)
         canvas.Divide(1, 2)
 
         palette = ROOT.TColor.GetPalette()
@@ -784,7 +780,7 @@ class Snd2DEventDisplay:
                     dens = densities[idx]
                     c_idx = int(float(dens) / self.max_density * (n_pal - 1))
                     col = palette[c_idx]
-                    el = ROOT.TEllipse(z, coord, 1.2, 1.2)
+                    el = ROOT.TEllipse(z, coord, 1.5, 1.5)
                     el.SetFillStyle(1001)
                     el.SetFillColor(col)
                     el.SetLineWidth(0)

@@ -162,6 +162,8 @@ def main():
         else:
             empty_skipped += 1
 
+    fout.cd()
+    ROOT.gROOT.GetListOfColors().Write("ListOfColors", ROOT.TObject.kSingleKey)
     fout.Write()
     fout.Close()
 

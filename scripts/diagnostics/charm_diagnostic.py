@@ -1460,6 +1460,8 @@ def write_histograms_and_canvases(
         print(f"[Error] Failed to open {output_path} for writing.")
         return
 
+    ROOT.gStyle.SetOptStat(0)
+
     pdg_data = load_pdg_summary_tables(pdg_tables_dir)
 
     import array

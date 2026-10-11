@@ -120,7 +120,44 @@ $$R_\infty^{\text{W, inc}} = \frac{0.65(0.03127) + 0.35(0.02001)}{0.65(0.28852) 
 
 ---
 
-## 5. Why Does the Isoscalar Dashed Line Exceed the Historical $\sim 0.088$ Value?
+## 5. Why Do Neutrinos and Antineutrinos Deviate Differently from Isoscalar Predictions?
+
+When transitioning from a symmetric isoscalar target ($N = Z$) to a neutron-rich nucleus like Tungsten ($N \approx 1.5\,Z$), the charm production ratio shifts in **opposite directions** for neutrinos and antineutrinos:
+
+$$\text{Neutrino } (\nu_\mu): \quad R_\infty^{\text{iso}} \approx 11.16\% \;\longrightarrow\; R_\infty^{\text{W}} \approx 10.84\% \quad (\mathbf{-2.9\%\text{ relative shift}})$$
+$$\text{Antineutrino } (\bar{\nu}_\mu): \quad R_\infty^{\text{iso}} \approx 14.82\% \;\longrightarrow\; R_\infty^{\text{W}} \approx 15.39\% \quad (\mathbf{+3.9\%\text{ relative shift}})$$
+
+This opposing behavior is entirely governed by the interplay between **target isospin composition** and **weak interaction chiral selection rules**:
+
+### 5.1 Flavor Densities in Neutron-Rich Tungsten
+Natural tungsten has $f_n = 59.75\%$ and $f_p = 40.25\%$. By isospin symmetry, a neutron contains valence $d$-quarks where a proton contains $u$-quarks:
+- The target $d$-density increases: $d_{\text{target}}^{\text{W}} = 0.2576$ (up $+6.2\%$ from $0.2425$ in an isoscalar target).
+- The target $u$-density decreases: $u_{\text{target}}^{\text{W}} = 0.2274$ (down $-6.2\%$ from $0.2425$ in an isoscalar target).
+- The strange sea ($s = \bar{s}$) and light antiquark sea ($\bar{u} \approx \bar{d}$) are isoscalar and unaffected by nuclear neutron excess.
+
+### 5.2 Why $R_{\text{charm}}(\nu_\mu)$ Shifts Downward in Tungsten
+1. **Charm Production**: Proceeding via $W^+ + d \to c$, it is Cabibbo-suppressed ($|V_{cd}|^2 \approx 0.0506$). The dominant charm channel is $W^+ + s \to c$ ($|V_{cs}|^2 \approx 0.9476$).
+2. **Total CC Interaction**: Dominated by $W^+ + d \to u$, which is Cabibbo-favored ($|V_{ud}|^2 \approx 0.949$).
+3. **The Ratio**:
+   $$R(\nu_\mu) \sim \frac{|V_{cd}|^2 d_{\text{target}} + |V_{cs}|^2 s}{d_{\text{target}} + s + \frac{1}{3}\bar{q}}$$
+   Adding neutrons increases $d_{\text{target}}$. Because $d_{\text{target}}$ enters the denominator with full unit weight ($1.0$) but enters the numerator multiplied only by $|V_{cd}|^2 \approx 0.05$, **the total CC cross section grows faster than charm production**. Consequently, $R(\nu_\mu)$ decreases slightly in tungsten.
+
+### 5.3 Why $R_{\text{charm}}(\bar{\nu}_\mu)$ Shifts Upward in Tungsten
+1. **Charm Production**: Proceeding via $W^- + \bar{d} \to \bar{c}$ and $W^- + \bar{s} \to \bar{c}$, it originates strictly from the **sea antiquarks** ($\bar{d}, \bar{s}$). Since the sea is isoscalar, the charm production numerator does not change with neutron excess!
+2. **Total CC Interaction**: Dominated by $W^- + u \to d$ off valence $u$-quarks, suppressed by the $(1-y)^2$ helicity factor ($\int (1-y)^2 dy = 1/3$).
+3. **The Ratio**:
+   $$R(\bar{\nu}_\mu) \sim \frac{|V_{cd}|^2 \bar{q} + |V_{cs}|^2 s}{\frac{1}{3}u_{\text{target}} + \bar{q} + s}$$
+   Because tungsten has fewer protons ($f_p \approx 40.2\%$), the valence $u$-quark density $u_{\text{target}}$ is **depleted**. Since $u_{\text{target}}$ only appears in the denominator, the denominator shrinks while the numerator remains constant. Consequently, $R(\bar{\nu}_\mu)$ increases in tungsten.
+
+### 5.4 Dedicated Isoscalar Baseline per Canvas
+To prevent confusing cross-comparisons (such as comparing antineutrino tungsten data against a neutrino isoscalar line), each canvas plots its **exact matching isoscalar baseline**:
+- `c_charm_rate_vs_energy`: Compares Tungsten Inclusive ($R_\infty \approx 11.73\%$) against Isoscalar Inclusive ($R_\infty \approx 12.05\%$).
+- `c_charm_rate_vs_energy_nu_only`: Compares Tungsten $\nu_\mu$ ($R_\infty \approx 10.84\%$) against Isoscalar $\nu_\mu$ ($R_\infty \approx 11.16\%$).
+- `c_charm_rate_vs_energy_antinu_only`: Compares Tungsten $\bar{\nu}_\mu$ ($R_\infty \approx 15.39\%$) against Isoscalar $\bar{\nu}_\mu$ ($R_\infty \approx 14.82\%$).
+
+---
+
+## 6. Why Does the Isoscalar Dashed Line Exceed the Historical $\sim 0.088$ Value?
 
 In earlier literature (e.g. CDHS 1982, CCFR 1995), the charm fraction was quoted as peaking around $8 - 9\%$. 
 The reason the modern isoscalar curve plateaus at $\sim 0.111$ (and reaches $\sim 0.108$ at $1\text{ TeV}$) stems from:

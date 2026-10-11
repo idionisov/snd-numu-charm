@@ -1842,17 +1842,39 @@ def write_histograms_and_canvases(
         band_color=ROOT.kRed - 7,
     )
 
-    # 4. Isoscalar Reference nu_mu
-    f_sr_iso, _, _ = create_slow_rescaling_model(
-        name="f_slow_rescaling_isoscalar",
+    # 4. Isoscalar References (matching each beam category)
+    f_sr_iso_inc, _, _ = create_slow_rescaling_model(
+        name="f_slow_rescaling_isoscalar_inclusive",
+        e_min=0.0,
+        e_max=e_max_model,
+        target="isoscalar",
+        nu_type="inclusive",
+        line_color=ROOT.kGray + 2,
+    )
+    f_sr_iso_inc.SetLineStyle(7)
+    f_sr_iso_inc.SetLineWidth(2)
+
+    f_sr_iso_nu, _, _ = create_slow_rescaling_model(
+        name="f_slow_rescaling_isoscalar_nu",
         e_min=0.0,
         e_max=e_max_model,
         target="isoscalar",
         nu_type="nu",
         line_color=ROOT.kGray + 2,
     )
-    f_sr_iso.SetLineStyle(7)
-    f_sr_iso.SetLineWidth(2)
+    f_sr_iso_nu.SetLineStyle(7)
+    f_sr_iso_nu.SetLineWidth(2)
+
+    f_sr_iso_antinu, _, _ = create_slow_rescaling_model(
+        name="f_slow_rescaling_isoscalar_antinu",
+        e_min=0.0,
+        e_max=e_max_model,
+        target="isoscalar",
+        nu_type="antinu",
+        line_color=ROOT.kGray + 2,
+    )
+    f_sr_iso_antinu.SetLineStyle(7)
+    f_sr_iso_antinu.SetLineWidth(2)
 
     # Calculate data points
     g_charm_rate_mc = ROOT.TGraphAsymmErrors(n_nu_ebins)
@@ -1933,7 +1955,7 @@ def write_histograms_and_canvases(
 
     g_sr_w_inc_outer.Draw("3 same")
     g_sr_w_inc_inner.Draw("3 same")
-    f_sr_iso.Draw("same")
+    f_sr_iso_inc.Draw("same")
     f_sr_w_inc.Draw("same")
     g_charm_rate_mc.Draw("P E1 same")
 
@@ -1945,7 +1967,7 @@ def write_histograms_and_canvases(
     leg_inc.AddEntry(f_sr_w_inc, "Slow Rescaling (W, #nu+#bar{#nu})", "l")
     leg_inc.AddEntry(g_sr_w_inc_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
     leg_inc.AddEntry(g_sr_w_inc_outer, "+ High-E QCD / Sea Evolution", "f")
-    leg_inc.AddEntry(f_sr_iso, "Slow Rescaling (Isoscalar N=Z)", "l")
+    leg_inc.AddEntry(f_sr_iso_inc, "Slow Rescaling (Isoscalar N=Z)", "l")
     leg_inc.Draw("same")
     c_rate_inc.Write()
 
@@ -1965,7 +1987,7 @@ def write_histograms_and_canvases(
 
     g_sr_w_nu_outer.Draw("3 same")
     g_sr_w_nu_inner.Draw("3 same")
-    f_sr_iso.Draw("same")
+    f_sr_iso_nu.Draw("same")
     f_sr_w_nu.Draw("same")
     g_charm_rate_mc_nu.Draw("P E1 same")
 
@@ -1977,7 +1999,7 @@ def write_histograms_and_canvases(
     leg_nu.AddEntry(f_sr_w_nu, "Slow Rescaling (W, #nu_{#mu})", "l")
     leg_nu.AddEntry(g_sr_w_nu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
     leg_nu.AddEntry(g_sr_w_nu_outer, "+ High-E QCD / Sea Evolution", "f")
-    leg_nu.AddEntry(f_sr_iso, "Slow Rescaling (Isoscalar N=Z)", "l")
+    leg_nu.AddEntry(f_sr_iso_nu, "Slow Rescaling (Isoscalar N=Z)", "l")
     leg_nu.Draw("same")
     c_rate_nu.Write()
 
@@ -1998,7 +2020,7 @@ def write_histograms_and_canvases(
 
     g_sr_w_antinu_outer.Draw("3 same")
     g_sr_w_antinu_inner.Draw("3 same")
-    f_sr_iso.Draw("same")
+    f_sr_iso_antinu.Draw("same")
     f_sr_w_antinu.Draw("same")
     g_charm_rate_mc_antinu.Draw("P E1 same")
 
@@ -2010,7 +2032,7 @@ def write_histograms_and_canvases(
     leg_antinu.AddEntry(f_sr_w_antinu, "Slow Rescaling (W, #bar{#nu}_{#mu})", "l")
     leg_antinu.AddEntry(g_sr_w_antinu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
     leg_antinu.AddEntry(g_sr_w_antinu_outer, "+ High-E QCD / Sea Evolution", "f")
-    leg_antinu.AddEntry(f_sr_iso, "Slow Rescaling (Isoscalar N=Z)", "l")
+    leg_antinu.AddEntry(f_sr_iso_antinu, "Slow Rescaling (Isoscalar N=Z)", "l")
     leg_antinu.Draw("same")
     c_rate_antinu.Write()
 
@@ -2019,7 +2041,9 @@ def write_histograms_and_canvases(
     f_sr_w_inc.Write("f_slow_rescaling_w_inclusive")
     f_sr_w_nu.Write("f_slow_rescaling_w_nu")
     f_sr_w_antinu.Write("f_slow_rescaling_w_antinu")
-    f_sr_iso.Write("f_slow_rescaling_isoscalar")
+    f_sr_iso_inc.Write("f_slow_rescaling_isoscalar_inclusive")
+    f_sr_iso_nu.Write("f_slow_rescaling_isoscalar_nu")
+    f_sr_iso_antinu.Write("f_slow_rescaling_isoscalar_antinu")
     g_sr_w_inc_inner.Write("g_slow_rescaling_w_inclusive_1sigma_inner_band")
     g_sr_w_inc_outer.Write("g_slow_rescaling_w_inclusive_1sigma_outer_band")
     g_sr_w_nu_inner.Write("g_slow_rescaling_w_nu_1sigma_inner_band")

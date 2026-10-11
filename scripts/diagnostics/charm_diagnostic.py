@@ -731,46 +731,67 @@ def create_slow_rescaling_model(
     f_sr.SetLineWidth(3)
     f_sr.SetLineStyle(1)
 
-    # Build 1-sigma uncertainty band
-    n_pts = 300
-    g_band = ROOT.TGraphErrors(n_pts)
-    g_band.SetName(f"{name}_1sigma_band")
-    g_band.SetTitle(f"Slow Rescaling 1#sigma Uncertainty Belt;E_{{#nu}} [GeV];R_{{charm}}")
-
     # Base PDF/CKM and mass uncertainty
     d_ethresh_mc = (m_p + m_c) / m_p
     sigma_rinf_base = 0.08 * r_inf
     sigma_ethresh = d_ethresh_mc * sigma_m_c
 
+    # Build 1-sigma uncertainty bands:
+    # 1. Inner band: base threshold mass & leading-order PDF/CKM uncertainty
+    # 2. Outer band: includes high-energy QCD scale & strange sea evolution deviation
+    n_pts = 300
+    g_band_inner = ROOT.TGraphErrors(n_pts)
+    g_band_inner.SetName(f"{name}_1sigma_inner_band")
+    g_band_inner.SetTitle(f"Slow Rescaling Base 1#sigma Uncertainty Belt;E_{{#nu}} [GeV];R_{{charm}}")
+
+    g_band_outer = ROOT.TGraphErrors(n_pts)
+    g_band_outer.SetName(f"{name}_1sigma_outer_band")
+    g_band_outer.SetTitle(f"Slow Rescaling 1#sigma with High-E Evolution;E_{{#nu}} [GeV];R_{{charm}}")
+
     x_vals = [e_thresh + (e_max - e_thresh) * (i / float(n_pts - 1))**1.5 for i in range(n_pts)]
     for i, x in enumerate(x_vals):
         if x <= e_thresh:
             y = 0.0
-            sigma_y = 0.0
+            sigma_y_inner = 0.0
+            sigma_y_outer = 0.0
         else:
             kin_factor = ((1.0 - e_thresh / x)**alpha) * (x / (x + e_scale))
             y = r_inf * kin_factor
             dy_dethresh = r_inf * alpha * ((1.0 - e_thresh / x)**(alpha - 1.0)) * (-1.0 / (x + e_scale))
             sigma_kin = abs(dy_dethresh * sigma_ethresh)
 
-            # Energy-dependent high-energy QCD scale & PDF strange sea evolution uncertainty:
+            # Inner base uncertainty
+            sigma_r_base = kin_factor * sigma_rinf_base
+            sigma_y_inner = math.sqrt(sigma_r_base**2 + sigma_kin**2)
+
+            # Outer band with energy-dependent high-energy QCD scale & strange sea evolution:
             # Grows logarithmically with Q^2 ~ 2 m_p E_nu x to reflect DGLAP scaling violations
             # and deviations between leading-order slow rescaling and full high-energy DIS simulation.
             rel_high_e_unc = 0.22 * math.log(max(1.0, x / 40.0)) / math.log(1000.0 / 40.0)
             tot_rel_rinf = math.sqrt((sigma_rinf_base / r_inf)**2 + rel_high_e_unc**2)
-            sigma_r = kin_factor * (r_inf * tot_rel_rinf)
+            sigma_r_outer = kin_factor * (r_inf * tot_rel_rinf)
+            sigma_y_outer = math.sqrt(sigma_r_outer**2 + sigma_kin**2)
 
-            sigma_y = math.sqrt(sigma_r**2 + sigma_kin**2)
+        g_band_inner.SetPoint(i, x, y)
+        g_band_inner.SetPointError(i, 0.0, sigma_y_inner)
 
-        g_band.SetPoint(i, x, y)
-        g_band.SetPointError(i, 0.0, sigma_y)
+        g_band_outer.SetPoint(i, x, y)
+        g_band_outer.SetPointError(i, 0.0, sigma_y_outer)
 
-    g_band.SetFillColorAlpha(band_color, 0.35)
-    g_band.SetFillStyle(1001)
-    g_band.SetLineColor(line_color)
-    g_band.SetLineWidth(1)
+    # Style outer band (lighter nuance, expanding at high E)
+    g_band_outer.SetFillColorAlpha(band_color, 0.20)
+    g_band_outer.SetFillStyle(1001)
+    g_band_outer.SetLineColor(line_color)
+    g_band_outer.SetLineWidth(1)
+    g_band_outer.SetLineStyle(3)
 
-    return f_sr, g_band
+    # Style inner band (deeper nuance for base leading-order kinematics)
+    g_band_inner.SetFillColorAlpha(band_color, 0.45)
+    g_band_inner.SetFillStyle(1001)
+    g_band_inner.SetLineColor(line_color)
+    g_band_inner.SetLineWidth(1)
+
+    return f_sr, g_band_inner, g_band_outer
 
 
 def create_slow_rescaling_function(
@@ -1781,7 +1802,7 @@ def write_histograms_and_canvases(
     e_max_model = max(1000.0, nu_bin_edges[-1])
 
     # 1. Tungsten Target nu_mu
-    f_sr_w_nu, g_sr_w_nu_band = create_slow_rescaling_model(
+    f_sr_w_nu, g_sr_w_nu_inner, g_sr_w_nu_outer = create_slow_rescaling_model(
         name="f_slow_rescaling_w_nu",
         e_min=0.0,
         e_max=e_max_model,
@@ -1792,7 +1813,7 @@ def write_histograms_and_canvases(
     )
 
     # 2. Tungsten Target anti_nu_mu
-    f_sr_w_antinu, g_sr_w_antinu_band = create_slow_rescaling_model(
+    f_sr_w_antinu, g_sr_w_antinu_inner, g_sr_w_antinu_outer = create_slow_rescaling_model(
         name="f_slow_rescaling_w_antinu",
         e_min=0.0,
         e_max=e_max_model,
@@ -1803,7 +1824,7 @@ def write_histograms_and_canvases(
     )
 
     # 3. Tungsten Target Inclusive (flux-averaged)
-    f_sr_w_inc, g_sr_w_inc_band = create_slow_rescaling_model(
+    f_sr_w_inc, g_sr_w_inc_inner, g_sr_w_inc_outer = create_slow_rescaling_model(
         name="f_slow_rescaling_w_inclusive",
         e_min=0.0,
         e_max=e_max_model,
@@ -1814,7 +1835,7 @@ def write_histograms_and_canvases(
     )
 
     # 4. Isoscalar Reference nu_mu
-    f_sr_iso, _ = create_slow_rescaling_model(
+    f_sr_iso, _, _ = create_slow_rescaling_model(
         name="f_slow_rescaling_isoscalar",
         e_min=0.0,
         e_max=e_max_model,
@@ -1902,18 +1923,20 @@ def write_histograms_and_canvases(
     h_frame_inc.SetTitle("Charm Production Rate: Inclusive (#nu_{#mu} + #bar{#nu}_{#mu});E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
     h_frame_inc.GetYaxis().SetTitleOffset(1.25)
 
-    g_sr_w_inc_band.Draw("3 same")
+    g_sr_w_inc_outer.Draw("3 same")
+    g_sr_w_inc_inner.Draw("3 same")
     f_sr_iso.Draw("same")
     f_sr_w_inc.Draw("same")
     g_charm_rate_mc.Draw("P E1 same")
 
-    leg_inc = ROOT.TLegend(0.50, 0.70, 0.92, 0.89)
+    leg_inc = ROOT.TLegend(0.48, 0.66, 0.92, 0.89)
     leg_inc.SetBorderSize(1)
     leg_inc.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_inc.SetTextSize(0.026)
+    leg_inc.SetTextSize(0.024)
     leg_inc.AddEntry(g_charm_rate_mc, "MC Inclusive (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
     leg_inc.AddEntry(f_sr_w_inc, "Slow Rescaling (W, #nu+#bar{#nu})", "l")
-    leg_inc.AddEntry(g_sr_w_inc_band, "Slow Rescaling 1#sigma Belt (W)", "f")
+    leg_inc.AddEntry(g_sr_w_inc_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
+    leg_inc.AddEntry(g_sr_w_inc_outer, "+ High-E QCD / Sea Evolution", "f")
     leg_inc.AddEntry(f_sr_iso, "Slow Rescaling (Isoscalar N=Z)", "l")
     leg_inc.Draw("same")
     c_rate_inc.Write()
@@ -1932,18 +1955,20 @@ def write_histograms_and_canvases(
     h_frame_nu.SetTitle("Charm Production Rate: #nu_{#mu} CC;E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
     h_frame_nu.GetYaxis().SetTitleOffset(1.25)
 
-    g_sr_w_nu_band.Draw("3 same")
+    g_sr_w_nu_outer.Draw("3 same")
+    g_sr_w_nu_inner.Draw("3 same")
     f_sr_iso.Draw("same")
     f_sr_w_nu.Draw("same")
     g_charm_rate_mc_nu.Draw("P E1 same")
 
-    leg_nu = ROOT.TLegend(0.50, 0.70, 0.92, 0.89)
+    leg_nu = ROOT.TLegend(0.48, 0.66, 0.92, 0.89)
     leg_nu.SetBorderSize(1)
     leg_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_nu.SetTextSize(0.026)
+    leg_nu.SetTextSize(0.024)
     leg_nu.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
     leg_nu.AddEntry(f_sr_w_nu, "Slow Rescaling (W, #nu_{#mu})", "l")
-    leg_nu.AddEntry(g_sr_w_nu_band, "Slow Rescaling 1#sigma Belt (W)", "f")
+    leg_nu.AddEntry(g_sr_w_nu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
+    leg_nu.AddEntry(g_sr_w_nu_outer, "+ High-E QCD / Sea Evolution", "f")
     leg_nu.AddEntry(f_sr_iso, "Slow Rescaling (Isoscalar N=Z)", "l")
     leg_nu.Draw("same")
     c_rate_nu.Write()
@@ -1963,18 +1988,20 @@ def write_histograms_and_canvases(
     h_frame_antinu.SetTitle("Charm Production Rate: #bar{#nu}_{#mu} CC;E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
     h_frame_antinu.GetYaxis().SetTitleOffset(1.25)
 
-    g_sr_w_antinu_band.Draw("3 same")
+    g_sr_w_antinu_outer.Draw("3 same")
+    g_sr_w_antinu_inner.Draw("3 same")
     f_sr_iso.Draw("same")
     f_sr_w_antinu.Draw("same")
     g_charm_rate_mc_antinu.Draw("P E1 same")
 
-    leg_antinu = ROOT.TLegend(0.50, 0.70, 0.92, 0.89)
+    leg_antinu = ROOT.TLegend(0.48, 0.66, 0.92, 0.89)
     leg_antinu.SetBorderSize(1)
     leg_antinu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_antinu.SetTextSize(0.026)
+    leg_antinu.SetTextSize(0.024)
     leg_antinu.AddEntry(g_charm_rate_mc_antinu, "MC #bar{#nu}_{#mu} CC", "lep")
     leg_antinu.AddEntry(f_sr_w_antinu, "Slow Rescaling (W, #bar{#nu}_{#mu})", "l")
-    leg_antinu.AddEntry(g_sr_w_antinu_band, "Slow Rescaling 1#sigma Belt (W)", "f")
+    leg_antinu.AddEntry(g_sr_w_antinu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
+    leg_antinu.AddEntry(g_sr_w_antinu_outer, "+ High-E QCD / Sea Evolution", "f")
     leg_antinu.AddEntry(f_sr_iso, "Slow Rescaling (Isoscalar N=Z)", "l")
     leg_antinu.Draw("same")
     c_rate_antinu.Write()
@@ -1985,9 +2012,12 @@ def write_histograms_and_canvases(
     f_sr_w_nu.Write("f_slow_rescaling_w_nu")
     f_sr_w_antinu.Write("f_slow_rescaling_w_antinu")
     f_sr_iso.Write("f_slow_rescaling_isoscalar")
-    g_sr_w_inc_band.Write("g_slow_rescaling_w_inclusive_1sigma_band")
-    g_sr_w_nu_band.Write("g_slow_rescaling_w_nu_1sigma_band")
-    g_sr_w_antinu_band.Write("g_slow_rescaling_w_antinu_1sigma_band")
+    g_sr_w_inc_inner.Write("g_slow_rescaling_w_inclusive_1sigma_inner_band")
+    g_sr_w_inc_outer.Write("g_slow_rescaling_w_inclusive_1sigma_outer_band")
+    g_sr_w_nu_inner.Write("g_slow_rescaling_w_nu_1sigma_inner_band")
+    g_sr_w_nu_outer.Write("g_slow_rescaling_w_nu_1sigma_outer_band")
+    g_sr_w_antinu_inner.Write("g_slow_rescaling_w_antinu_1sigma_inner_band")
+    g_sr_w_antinu_outer.Write("g_slow_rescaling_w_antinu_1sigma_outer_band")
     g_charm_rate_mc.Write("g_charm_rate_mc")
     g_charm_rate_mc_nu.Write("g_charm_rate_mc_nu")
     g_charm_rate_mc_antinu.Write("g_charm_rate_mc_antinu")
@@ -2330,7 +2360,148 @@ def write_histograms_and_canvases(
         if export_png_dir:
             c_pdg_sp.SaveAs(os.path.join(export_png_dir, f"c_branching_ratios_vs_pdg_{sp_name}.png"))
 
-    # Summary 2x2 Canvas: All 4 Species Comparison
+    # Companion Canvases: Absolute Decay Counts (MC observed yields vs PDG expected counts N_sample * BR)
+    pdg_count_comparison_canvases: Dict[int, ROOT.TCanvas] = {}
+    pdg_count_sp_drawables: Dict[int, Tuple[ROOT.TH1D, ROOT.TGraphAsymmErrors, ROOT.TGraphAsymmErrors, ROOT.TLegend]] = {}
+
+    for abs_c in species_order:
+        sp_name = get_species_name(abs_c)
+        sp_modes = pdg_data.get(abs_c, {}).get("modes_list", []) if pdg_data else []
+        if not sp_modes:
+            continue
+
+        w_tot = data.get("species_weight_sum", Counter()).get(abs_c, 0.0)
+        w2_tot = data.get("species_weight_sq_sum", Counter()).get(abs_c, 0.0)
+        n_tot = data.get("species_decay_count", Counter()).get(abs_c, 0)
+        if w_tot <= 0.0:
+            w_tot = float(data.get("total_decays_by_species", Counter()).get(abs_c, 0))
+            w2_tot = w_tot
+            n_tot = int(w_tot)
+
+        all_candidates_cnt: List[Dict[str, Any]] = []
+
+        for m_obj in sp_modes:
+            lbl = m_obj.pdg_mode
+            w_sum = data.get("inclusive_mode_w", {}).get(abs_c, Counter()).get(lbl, 0.0)
+            w2y2_sum = data.get("inclusive_mode_w2y2", {}).get(abs_c, Counter()).get(lbl, 0.0)
+            w2y_sum = data.get("inclusive_mode_w2y", {}).get(abs_c, Counter()).get(lbl, 0.0)
+            raw_cnt = data.get("inclusive_mode_raw_count", {}).get(abs_c, Counter()).get(lbl, 0)
+
+            br_sim, err_lo, err_hi = calculate_weighted_yield_and_error(
+                w_sum, w2y2_sum, w2y_sum, w_tot, w2_tot
+            )
+            # Scale yield error (in %) to absolute count error
+            cnt_err_lo = (err_lo / 100.0) * w_tot
+            cnt_err_hi = (err_hi / 100.0) * w_tot
+
+            exp_cnt = w_tot * (m_obj.br_pct / 100.0)
+            exp_err_lo = w_tot * (m_obj.br_err_low_pct / 100.0)
+            exp_err_hi = w_tot * (m_obj.br_err_up_pct / 100.0)
+
+            all_candidates_cnt.append({
+                "label": lbl,
+                "cnt_sim": w_sum,
+                "cnt_sim_err_lo": cnt_err_lo,
+                "cnt_sim_err_hi": cnt_err_hi,
+                "exp_cnt": exp_cnt,
+                "exp_cnt_err_lo": exp_err_lo,
+                "exp_cnt_err_hi": exp_err_hi,
+                "raw_cnt": raw_cnt,
+            })
+
+        n_bins = len(all_candidates_cnt)
+        if n_bins == 0:
+            continue
+
+        h_cnt_comp = ROOT.TH1D(
+            f"h_cnt_sim_{sp_name}",
+            f"{sp_name} Inclusive Decay Yields: MC vs PDG Expected;Inclusive Decay Mode;Number of Decays N_{{i}}",
+            n_bins, 0.5, n_bins + 0.5
+        )
+        g_cnt_err_comp = ROOT.TGraphAsymmErrors(n_bins)
+        g_cnt_err_comp.SetName(f"g_cnt_sim_err_{sp_name}")
+        g_cnt_err_comp.SetTitle(f"MC Simulation Stat Error (#pm 1#sigma Weighted)")
+
+        for i, entry in enumerate(all_candidates_cnt, start=1):
+            h_cnt_comp.GetXaxis().SetBinLabel(i, entry["label"])
+            h_cnt_comp.SetBinContent(i, entry["cnt_sim"])
+            h_cnt_comp.SetBinError(i, 0.0)
+
+            g_cnt_err_comp.SetPoint(i - 1, float(i), entry["cnt_sim"])
+            g_cnt_err_comp.SetPointError(i - 1, 0.35, 0.35, entry["cnt_sim_err_lo"], entry["cnt_sim_err_hi"])
+
+        h_cnt_comp.SetLineColor(ROOT.kAzure + 2)
+        h_cnt_comp.SetLineWidth(2)
+        h_cnt_comp.GetXaxis().LabelsOption("v")
+        h_cnt_comp.GetXaxis().SetLabelSize(0.033)
+        h_cnt_comp.GetYaxis().SetTitle("Number of Decays N_{i}")
+        h_cnt_comp.GetYaxis().SetTitleOffset(1.25)
+
+        g_cnt_err_comp.SetFillColor(ROOT.kAzure - 4)
+        g_cnt_err_comp.SetFillStyle(3007)
+        g_cnt_err_comp.SetLineColor(ROOT.kAzure + 2)
+        g_cnt_err_comp.SetLineWidth(1)
+
+        g_pdg_cnt_comp = ROOT.TGraphAsymmErrors(n_bins)
+        g_pdg_cnt_comp.SetName(f"g_pdg_cnt_{sp_name}")
+        g_pdg_cnt_comp.SetTitle(f"PDG Expected Yield ({sp_name})")
+        for i, entry in enumerate(all_candidates_cnt, start=1):
+            g_pdg_cnt_comp.SetPoint(i - 1, float(i), entry["exp_cnt"])
+            g_pdg_cnt_comp.SetPointError(i - 1, 0.25, 0.25, entry["exp_cnt_err_lo"], entry["exp_cnt_err_hi"])
+
+        g_pdg_cnt_comp.SetMarkerStyle(20)
+        g_pdg_cnt_comp.SetMarkerSize(1.2)
+        g_pdg_cnt_comp.SetMarkerColor(ROOT.kRed + 1)
+        g_pdg_cnt_comp.SetLineColor(ROOT.kRed + 1)
+        g_pdg_cnt_comp.SetLineWidth(2)
+
+        max_sim_cnt = max([e["cnt_sim"] + e["cnt_sim_err_hi"] for e in all_candidates_cnt] + [0.0])
+        max_pdg_cnt = max([e["exp_cnt"] + e["exp_cnt_err_hi"] for e in all_candidates_cnt] + [0.0])
+        overall_max_cnt = max(max_sim_cnt, max_pdg_cnt)
+        y_max_cnt = max(overall_max_cnt * 1.55, 10.0)
+
+        h_cnt_comp.SetMaximum(y_max_cnt)
+        h_cnt_comp.SetMinimum(0.0)
+        h_cnt_comp.SetStats(0)
+
+        dir_canvases.cd()
+        c_pdg_cnt_sp = ROOT.TCanvas(f"c_decay_counts_vs_pdg_{sp_name}", f"{sp_name} Inclusive Decay Yields vs PDG Expected", 1150, 750)
+        c_pdg_cnt_sp.SetLeftMargin(0.12)
+        c_pdg_cnt_sp.SetRightMargin(0.06)
+        c_pdg_cnt_sp.SetTopMargin(0.08)
+        c_pdg_cnt_sp.SetBottomMargin(0.34)
+        c_pdg_cnt_sp.SetGridy()
+
+        h_cnt_comp.Draw("HIST")
+        g_cnt_err_comp.Draw("2 same")
+        h_cnt_comp.Draw("HIST same")
+        g_pdg_cnt_comp.Draw("P E1 same")
+
+        leg_pdg_cnt = ROOT.TLegend(0.48, 0.75, 0.92, 0.90)
+        leg_pdg_cnt.SetBorderSize(1)
+        leg_pdg_cnt.SetFillColorAlpha(ROOT.kWhite, 0.85)
+        leg_pdg_cnt.AddEntry(h_cnt_comp, f"MC Simulation ({w_tot:.1f} ev)", "l")
+        leg_pdg_cnt.AddEntry(g_cnt_err_comp, "MC Stat (#pm 1#sigma)", "f")
+        leg_pdg_cnt.AddEntry(g_pdg_cnt_comp, "PDG Expected (N_{ev} #times #Gamma_{i}/#Gamma)", "lep")
+        leg_pdg_cnt.Draw("same")
+
+        c_pdg_cnt_sp.Write()
+        pdg_count_comparison_canvases[abs_c] = c_pdg_cnt_sp
+        pdg_count_sp_drawables[abs_c] = (h_cnt_comp, g_cnt_err_comp, g_pdg_cnt_comp, leg_pdg_cnt)
+        keep_alive_pdg.extend([h_cnt_comp, g_cnt_err_comp, g_pdg_cnt_comp, leg_pdg_cnt, c_pdg_cnt_sp])
+
+        dir_sp = dir_species_root.GetDirectory(sp_name)
+        if dir_sp:
+            dir_sp.cd()
+            h_cnt_comp.Write(f"h_cnt_sim_vs_pdg_{sp_name}")
+            g_cnt_err_comp.Write(f"g_cnt_sim_err_{sp_name}")
+            g_pdg_cnt_comp.Write(f"g_pdg_cnt_{sp_name}")
+
+        dir_canvases.cd()
+        if export_png_dir:
+            c_pdg_cnt_sp.SaveAs(os.path.join(export_png_dir, f"c_decay_counts_vs_pdg_{sp_name}.png"))
+
+    # Summary 2x2 Canvas: All 4 Species Branching Ratios vs PDG
     if len(pdg_comparison_canvases) > 0:
         dir_canvases.cd()
         c_all_sp = ROOT.TCanvas("c_branching_ratios_vs_pdg_all_species", "All Charmed Hadron Branching Ratios vs PDG", 1400, 1000)
@@ -2354,6 +2525,35 @@ def write_histograms_and_canvases(
 
         c_all_sp.Write()
         keep_alive_pdg.append(c_all_sp)
+        if export_png_dir:
+            c_all_sp.SaveAs(os.path.join(export_png_dir, "c_branching_ratios_vs_pdg_all_species.png"))
+
+    # Summary 2x2 Canvas: All 4 Species Absolute Decay Counts vs PDG Expected
+    if len(pdg_count_comparison_canvases) > 0:
+        dir_canvases.cd()
+        c_all_cnt_sp = ROOT.TCanvas("c_decay_counts_vs_pdg_all_species", "All Charmed Hadron Decay Counts vs PDG Expected", 1400, 1000)
+        c_all_cnt_sp.Divide(2, 2)
+        for pad_idx, abs_c in enumerate(species_order, start=1):
+            if abs_c not in pdg_count_sp_drawables:
+                continue
+            pad = c_all_cnt_sp.cd(pad_idx)
+            pad.SetLeftMargin(0.12)
+            pad.SetRightMargin(0.06)
+            pad.SetTopMargin(0.08)
+            pad.SetBottomMargin(0.34)
+            pad.SetGridy()
+
+            h_cc, g_cec, g_cpc, l_cpc = pdg_count_sp_drawables[abs_c]
+            h_cc.Draw("HIST")
+            g_cec.Draw("2 same")
+            h_cc.Draw("HIST same")
+            g_cpc.Draw("P E1 same")
+            l_cpc.Draw("same")
+
+        c_all_cnt_sp.Write()
+        keep_alive_pdg.append(c_all_cnt_sp)
+        if export_png_dir:
+            c_all_cnt_sp.SaveAs(os.path.join(export_png_dir, "c_decay_counts_vs_pdg_all_species.png"))
 
     # --- Canvas 7: Reconstructed Track Multiplicity and Dimuon Tracking Efficiency ---
     if any(c > 0 for c in data.get("reco_tracks_cc_all", Counter()).values()):
@@ -2504,7 +2704,7 @@ def print_diagnostic_report(
     print(f" {'E_nu Bin [GeV]':<20s} {'Total Nu_mu CC':<16s} {'Charm Count':<14s} {'MC Rate [%]':<20s} {'Slow Rescaling':<20s}")
     print("-" * 92)
 
-    f_sr_eval, g_sr_eval_band = create_slow_rescaling_model()
+    f_sr_eval, g_sr_eval_band, _ = create_slow_rescaling_model()
 
     for i in range(n_nu_ebins):
         e_low, e_high = nu_bin_edges[i], nu_bin_edges[i + 1]

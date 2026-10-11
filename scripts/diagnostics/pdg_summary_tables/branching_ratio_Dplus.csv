@@ -1,22 +1,22 @@
-channel,pdg_mode,br,br_err
-anti_K0 + e+ + nu_e,anti-K0 e+ nu_e,0.0881,0.0007
-anti_K0 + mu+ + nu_mu,anti-K0 mu+ nu_mu,0.0868,0.0010
-K- + pi+ + e+ + nu_e,K- pi+ e+ nu_e,0.0400,0.0017
-anti_K*(892)0 + e+ + nu_e,K- pi+ e+ nu_e,0.0400,0.0017
-K- + pi+ + mu+ + nu_mu,K- pi+ mu+ nu_mu,0.0362,0.0033
-anti-K*(892)0 + mu+ + nu_mu,K- pi+ mu+ nu_mu,0.0362,0.0033
-anti_K0 + pi+,anti-K0 pi+,0.0301,0.0006
-K_S0 + pi+,anti-K0 pi+,0.0301,0.0006
-K_L0 + pi+,anti-K0 pi+,0.0301,0.0006
-K- + 2pi+,K- 2pi+,0.0931,0.0014
-K_S0 + pi+ + pi0,anti-K0 pi+ pi0,0.0731,0.0020
-anti_K0 + pi+ + pi0,anti-K0 pi+ pi0,0.0731,0.0020
-K- + 2pi+ + pi0,K- 2pi+ pi0,0.0635,0.0008
-K_S0 + 2pi+ + pi-,anti-K0 2pi+ pi-,0.0308,0.0008
-anti_K0 + 2pi+ + pi-,anti-K0 2pi+ pi-,0.0308,0.0008
-K_S0 + pi+ + 2pi0,anti-K0 pi+ 2pi0,0.0289,0.0009
-anti_K0 + pi+ + 2pi0,anti-K0 pi+ 2pi0,0.0289,0.0009
-K_S0 + 2pi+ + pi- + pi0,anti-K0 2pi+ pi- pi0,0.0153,0.0008
-anti_K0 + 2pi+ + pi- + pi0,anti-K0 2pi+ pi- pi0,0.0153,0.0008
-2pi+ + pi- + pi0,2pi+ pi- pi0,0.0165,0.0003
-2pi+ + pi- + 2pi0,2pi+ pi- 2pi0,0.0107,0.0005
+﻿pdg_mode,Gamma_i_vs_Gamma,Gamma_i_vs_Gamma_err_up,Gamma_i_vs_Gamma_err_low
+e+ anything,0.1607,0.0030,0.0030
+mu+ anything,0.1760,0.0320,0.0320
+K- anything,0.2570,0.0140,0.0140
+K_S0 anything,0.3310,0.0040,0.0040
+K+ anything,0.0590,0.0080,0.0080
+Kstar(892)- anything,0.0600,0.0500,0.0500
+anti-Kstar(892)0 anything,0.2300,0.0500,0.0500
+Kstar(892)0 anything,0.0000,0.6600,0.0000
+eta anything,0.0630,0.0070,0.0070
+eta' anything,0.0104,0.0018,0.0018
+phi anything,0.0112,0.0004,0.0004
+pi+ pi+ pi- anything,0.1525,0.0020,0.0020
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,,
+,,

@@ -104,12 +104,14 @@ PDG_NAMES: Dict[int, str] = {
     -323: "K*(892)-",
     221: "eta",
     331: "eta'",
+    333: "phi",
+    223: "omega",
     2112: "n",
     -2112: "anti_n",
     2212: "p",
     -2212: "anti_p",
-    3122: "Lambda0",
-    -3122: "anti_Lambda0",
+    3122: "Lambda",
+    -3122: "anti_Lambda",
     3222: "Sigma+",
     -3222: "anti_Sigma-",
     3212: "Sigma0",
@@ -238,8 +240,24 @@ def channel_slug(pdg_tuple: Tuple[int, ...]) -> str:
 
 
 NAME_TO_PDG: Dict[str, int] = {v: k for k, v in PDG_NAMES.items()}
-NAME_TO_PDG["anti-K*(892)0"] = -313
-SELF_CONJUGATE_PDGS: Set[int] = {22, 111, 130, 310, 221, 331}
+NAME_TO_PDG.update({
+    "phi": 333,
+    "omega": 223,
+    "Lambda": 3122,
+    "anti-Lambda": -3122,
+    "Lambda0": 3122,
+    "anti_Lambda0": -3122,
+    "Kstar(892)0": 313,
+    "anti-Kstar(892)0": -313,
+    "anti_Kstar(892)0": -313,
+    "Kstar(892)+": 323,
+    "Kstar(892)-": -323,
+    "K*(892)0": 313,
+    "anti-K*(892)0": -313,
+    "K*(892)+": 323,
+    "K*(892)-": -323,
+})
+SELF_CONJUGATE_PDGS: Set[int] = {22, 111, 130, 310, 221, 331, 223, 333}
 
 
 def expand_multiplicity_tokens(channel_str: str) -> str:
@@ -344,31 +362,133 @@ def clopper_pearson_errors(k: int, n: int, cl: float = 0.6827) -> Tuple[float, f
     return val, err_low, err_high
 
 
+def parse_inclusive_mode_particles(mode_str: str) -> Dict[str, int]:
+    """
+    Parses an inclusive mode specification (e.g. 'pi0 anything', '2pi+ pi- anything', 'K_S0 K- anything')
+    into a dictionary of required particle names and multiplicities.
+    """
+    clean = re.sub(r"\s+anything$", "", mode_str.strip())
+    tokens = [t.strip() for t in clean.split() if t.strip()]
+    req: Dict[str, int] = {}
+    for tok in tokens:
+        m = re.match(r"^(\d+)([A-Za-z0-9_\*\+\-\(\)\']+)$", tok)
+        if m:
+            cnt = int(m.group(1))
+            name = m.group(2)
+        else:
+            cnt = 1
+            name = tok
+        req[name] = req.get(name, 0) + cnt
+    return req
+
+
+def count_inclusive_multiplicity(
+    daughter_pdgs: List[int],
+    charm_pdg: int,
+    req_particles: Dict[str, int],
+) -> int:
+    """
+    Evaluates how many times an inclusive mode's required daughter set
+    is present among the direct decay daughters of a charm hadron.
+    Handles CP-conjugation for anti-charm hadrons (charm_pdg < 0).
+    For single-particle modes (e.g. 'pi0 anything'), a decay with 2 pi0 returns multiplicity 2.
+    For multi-particle modes (e.g. '2pi+ pi- anything' or 'K+ K- anything'),
+    returns the number of disjoint combinations of the required daughter set.
+    """
+    if not daughter_pdgs or not req_particles:
+        return 0
+
+    counts = Counter(daughter_pdgs)
+    # If neutral pions decayed to pairs of photons in MCTrack, pair photons into pi0
+    if counts.get(22, 0) >= 2 and counts.get(111, 0) == 0:
+        counts[111] += counts[22] // 2
+
+    is_anti = (charm_pdg < 0)
+
+    if len(req_particles) == 1:
+        p_name, count_needed = next(iter(req_particles.items()))
+        base_pdg = NAME_TO_PDG.get(p_name)
+        if base_pdg is None:
+            return 0
+        if is_anti and abs(base_pdg) not in SELF_CONJUGATE_PDGS:
+            target_pdg = -base_pdg
+        else:
+            target_pdg = base_pdg
+        avail = counts.get(target_pdg, 0)
+        return avail // count_needed
+
+    occ_list = []
+    for p_name, count_needed in req_particles.items():
+        base_pdg = NAME_TO_PDG.get(p_name)
+        if base_pdg is None:
+            return 0
+        if is_anti and abs(base_pdg) not in SELF_CONJUGATE_PDGS:
+            target_pdg = -base_pdg
+        else:
+            target_pdg = base_pdg
+        avail = counts.get(target_pdg, 0)
+        occ_list.append(avail // count_needed)
+
+    return min(occ_list) if occ_list else 0
+
+
+def calculate_weighted_yield_and_error(
+    w_sum: float,
+    w2y2_sum: float,
+    w2y_sum: float,
+    w_tot: float,
+    w2_tot: float,
+) -> Tuple[float, float, float]:
+    """
+    Computes weighted inclusive yield and standard error of the mean:
+      Y = W_m / W_tot
+      Var(Y) = (sum w^2 y^2 - 2 * Y * sum w^2 y + Y^2 * sum w^2) / (W_tot^2)
+    Returns (yield_pct, err_low_pct, err_high_pct).
+    If W_m == 0 (no observed events), returns (0.0, 0.0, upper_limit_pct)
+    using 1-sigma Poisson upper limit (1.15 * sqrt(w2_tot) / w_tot * 100%).
+    """
+    if w_tot <= 0.0:
+        return 0.0, 0.0, 0.0
+
+    y_val = w_sum / w_tot
+    if w_sum <= 0.0:
+        err_up = 1.15 * math.sqrt(w2_tot) / w_tot
+        return 0.0, 0.0, err_up * 100.0
+
+    var_y = (w2y2_sum - 2.0 * y_val * w2y_sum + (y_val ** 2) * w2_tot) / (w_tot ** 2)
+    sigma = math.sqrt(max(0.0, var_y))
+    val_pct = y_val * 100.0
+    err_pct = sigma * 100.0
+    err_low_pct = min(val_pct, err_pct)
+    err_high_pct = err_pct
+    return val_pct, err_low_pct, err_high_pct
+
+
 class PDGDecayMode:
-    """Represents a decay channel reference from PDG summary tables."""
-    def __init__(self, channel: str, pdg_mode: str, br_pct: float, br_err_pct: float, cc_channel: str):
-        self.channel = channel
+    """Represents an inclusive decay channel reference from PDG summary tables."""
+    def __init__(self, pdg_mode: str, br_pct: float, br_err_up_pct: float, br_err_low_pct: float, req_particles: Dict[str, int]):
         self.pdg_mode = pdg_mode
         self.br_pct = br_pct
-        self.br_err_pct = br_err_pct
-        self.cc_channel = cc_channel
+        self.br_err_up_pct = br_err_up_pct
+        self.br_err_low_pct = br_err_low_pct
+        self.req_particles = req_particles
 
     def __repr__(self) -> str:
-        return f"<PDGDecayMode {self.pdg_mode}: {self.br_pct:.3f}% +/- {self.br_err_pct:.3f}%>"
+        return f"<PDGDecayMode {self.pdg_mode}: {self.br_pct:.3f}% (+{self.br_err_up_pct:.3f}/-{self.br_err_low_pct:.3f}%)>"
 
 
 def load_pdg_summary_tables(tables_dir: Optional[str]) -> Dict[int, Dict[str, Any]]:
     """
-    Loads PDG reference decay tables from CSV files in tables_dir.
+    Loads PDG inclusive decay reference tables from CSV files in tables_dir.
     Maps:
       branching_ratio_D0.csv -> 421 (D0)
       branching_ratio_Dplus.csv -> 411 (D+)
-      branching_ratio_Ds.csv -> 431 (Ds)
+      branching_ratio_DsPlus.csv / branching_ratio_Ds.csv -> 431 (Ds)
       branching_ratio_Lambda_c.csv -> 4122 (Lambda_c)
     Returns:
       {
         species_pdg: {
-            "modes_by_label": {label: {"label": str, "formulas": set, "br_pct": float, "br_err_pct": float}},
+            "modes_by_label": {pdg_mode: PDGDecayMode},
             "modes_list": [PDGDecayMode, ...],
         }
       }
@@ -379,6 +499,7 @@ def load_pdg_summary_tables(tables_dir: Optional[str]) -> Dict[int, Dict[str, An
     mapping = {
         "branching_ratio_D0.csv": 421,
         "branching_ratio_Dplus.csv": 411,
+        "branching_ratio_DsPlus.csv": 431,
         "branching_ratio_Ds.csv": 431,
         "branching_ratio_Lambda_c.csv": 4122,
     }
@@ -386,71 +507,32 @@ def load_pdg_summary_tables(tables_dir: Optional[str]) -> Dict[int, Dict[str, An
     result: Dict[int, Dict[str, Any]] = {}
 
     for fname, sp_pdg in mapping.items():
+        if sp_pdg in result:
+            continue
         fpath = os.path.join(tables_dir, fname)
         if not os.path.isfile(fpath):
             continue
 
-        modes_by_label: Dict[str, Dict[str, Any]] = {}
+        modes_by_label: Dict[str, PDGDecayMode] = {}
         modes_list: List[PDGDecayMode] = []
 
         with open(fpath, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
-            raw_rows = [r for r in reader if r.get("channel", "").strip()]
+            for row in reader:
+                mode_str = row.get("pdg_mode", "").strip()
+                if not mode_str:
+                    continue
+                try:
+                    br_val = float(row.get("Gamma_i_vs_Gamma", 0.0)) * 100.0
+                    err_up = float(row.get("Gamma_i_vs_Gamma_err_up", 0.0)) * 100.0
+                    err_lo = float(row.get("Gamma_i_vs_Gamma_err_low", 0.0)) * 100.0
+                except (ValueError, TypeError):
+                    continue
 
-        for row in raw_rows:
-            ch_raw = row.get("channel", "").strip()
-            if not ch_raw:
-                continue
-            pdg_mode = row.get("pdg_mode", "").strip() if row.get("pdg_mode") else ""
-            label = pdg_mode if pdg_mode else ch_raw
-            try:
-                br_val = float(row.get("br", 0.0)) * 100.0
-                br_err = float(row.get("br_err", 0.0)) * 100.0
-            except (ValueError, TypeError):
-                continue
-
-            canon = canonicalize_channel_str(ch_raw)
-            cc = get_conjugate_channel_str(canon)
-            canon_p = normalize_channel_photons(canon)
-            cc_p = get_conjugate_channel_str(canon_p)
-
-            m_obj = PDGDecayMode(canon, label, br_val, br_err, cc)
-            modes_list.append(m_obj)
-
-            base_forms = {canon, cc, canon_p, cc_p}
-            if "+" in pdg_mode:
-                pm_canon = canonicalize_channel_str(pdg_mode)
-                pm_cc = get_conjugate_channel_str(pm_canon)
-                base_forms.update({
-                    pm_canon, pm_cc,
-                    normalize_channel_photons(pm_canon),
-                    get_conjugate_channel_str(normalize_channel_photons(pm_canon)),
-                })
-
-            # Check if this channel has a KS vs KL split sibling in this table
-            is_ks_kl_split = False
-            if "K_S0" in ch_raw:
-                sibling = ch_raw.replace("K_S0", "K_L0")
-                if any(r.get("channel", "").strip() == sibling for r in raw_rows):
-                    is_ks_kl_split = True
-            elif "K_L0" in ch_raw:
-                sibling = ch_raw.replace("K_L0", "K_S0")
-                if any(r.get("channel", "").strip() == sibling for r in raw_rows):
-                    is_ks_kl_split = True
-
-            formulas_set = set()
-            for bf in base_forms:
-                formulas_set.update(expand_neutral_kaons(bf, has_ks_kl_split=is_ks_kl_split))
-
-            if label not in modes_by_label:
-                modes_by_label[label] = {
-                    "label": label,
-                    "formulas": formulas_set,
-                    "br_pct": br_val,
-                    "br_err_pct": br_err,
-                }
-            else:
-                modes_by_label[label]["formulas"].update(formulas_set)
+                req_parts = parse_inclusive_mode_particles(mode_str)
+                m_obj = PDGDecayMode(mode_str, br_val, err_up, err_lo, req_parts)
+                modes_list.append(m_obj)
+                modes_by_label[mode_str] = m_obj
 
         result[sp_pdg] = {
             "modes_by_label": modes_by_label,
@@ -531,8 +613,14 @@ def fast_resolve_files(
                         key=lambda x: [int(c) if c.isdigit() else c for c in os.path.dirname(x).split("/")]
                     )
                     if ready_only:
-                        lines = [f for f in lines if is_partition_ready(f)]
-                    if max_files > 0:
+                        ready_lines = []
+                        for f in lines:
+                            if is_partition_ready(f):
+                                ready_lines.append(f)
+                                if max_files > 0 and len(ready_lines) >= max_files:
+                                    break
+                        lines = ready_lines
+                    elif max_files > 0:
                         lines = lines[:max_files]
                     return lines
         except Exception:
@@ -664,6 +752,7 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
         ground_state_only,
         numu_cc_only,
         max_events_chunk,
+        pdg_inclusive_modes,
     ) = args_tuple
 
     import ROOT
@@ -698,6 +787,14 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
         "semi_muonic_counts": Counter(),
         "semi_electronic_counts": Counter(),
         "total_decays_by_species": Counter(),
+        # Inclusive decay mode tracking per species: abs_pdg -> Counter
+        "species_weight_sum": Counter(),       # abs_pdg -> float (sum w)
+        "species_weight_sq_sum": Counter(),    # abs_pdg -> float (sum w^2)
+        "species_decay_count": Counter(),      # abs_pdg -> int
+        "inclusive_mode_w": {},                # abs_pdg -> Counter(mode_name -> float)
+        "inclusive_mode_w2y2": {},             # abs_pdg -> Counter(mode_name -> float)
+        "inclusive_mode_w2y": {},              # abs_pdg -> Counter(mode_name -> float)
+        "inclusive_mode_raw_count": {},        # abs_pdg -> Counter(mode_name -> int)
         # Kinematics
         "ctau_values_um": {},                       # abs_pdg -> list of c*tau values
         "decay_dist_mm": {},                        # abs_pdg -> list of L values
@@ -752,6 +849,17 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
         if tree_truth and not tree_truth.IsZombie():
             tree_cbmsim.AddFriend(tree_truth)
 
+        try:
+            tree_cbmsim.SetBranchStatus("*", 0)
+            for bname in [
+                "MCTrack*", "mc_weight*", "raw_weight*", "mctruth_weight*",
+                "is_cc*", "has_charm*", "Reco_MuonTracks*",
+                "dimuon_in_ds_acceptance*", "has_candidate*",
+            ]:
+                tree_cbmsim.SetBranchStatus(bname, 1)
+        except Exception:
+            pass
+
         local_data["files_processed"] += 1
 
         for iev in range(n_entries):
@@ -761,6 +869,18 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
             local_data["total_events"] += 1
 
             tree_cbmsim.GetEntry(iev)
+            mc_weight = 1.0
+            if hasattr(tree_cbmsim, "mc_weight"):
+                try:
+                    mc_weight = float(tree_cbmsim.mc_weight)
+                except Exception:
+                    mc_weight = 1.0
+            elif tree_truth and hasattr(tree_truth, "mc_weight"):
+                try:
+                    mc_weight = float(tree_truth.mc_weight)
+                except Exception:
+                    mc_weight = 1.0
+
             tracks = getattr(tree_cbmsim, "MCTrack", None)
             if not tracks or len(tracks) < 1:
                 continue
@@ -913,6 +1033,29 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
 
                 if daughters:
                     local_data["total_decays_by_species"][abs_charm_pdg] += 1
+                    local_data["species_weight_sum"][abs_charm_pdg] += mc_weight
+                    local_data["species_weight_sq_sum"][abs_charm_pdg] += mc_weight * mc_weight
+                    local_data["species_decay_count"][abs_charm_pdg] += 1
+
+                    # Evaluate inclusive decay modes from PDG table
+                    sp_modes = pdg_inclusive_modes.get(abs_charm_pdg, {}).get("modes_list", [])
+                    if sp_modes:
+                        if abs_charm_pdg not in local_data["inclusive_mode_w"]:
+                            local_data["inclusive_mode_w"][abs_charm_pdg] = Counter()
+                            local_data["inclusive_mode_w2y2"][abs_charm_pdg] = Counter()
+                            local_data["inclusive_mode_w2y"][abs_charm_pdg] = Counter()
+                            local_data["inclusive_mode_raw_count"][abs_charm_pdg] = Counter()
+
+                        for m_obj in sp_modes:
+                            m_name = m_obj.pdg_mode if hasattr(m_obj, "pdg_mode") else m_obj["pdg_mode"]
+                            req_p = m_obj.req_particles if hasattr(m_obj, "req_particles") else m_obj["req_particles"]
+                            mult = count_inclusive_multiplicity(daughters, charm_pdg, req_p)
+                            if mult > 0:
+                                local_data["inclusive_mode_w"][abs_charm_pdg][m_name] += mult * mc_weight
+                                local_data["inclusive_mode_w2y2"][abs_charm_pdg][m_name] += ((mult * mc_weight) ** 2)
+                                local_data["inclusive_mode_w2y"][abs_charm_pdg][m_name] += (mc_weight ** 2) * mult
+                                local_data["inclusive_mode_raw_count"][abs_charm_pdg][m_name] += mult
+
                     ch_tuple = tuple(sorted(daughters))
 
                     if abs_charm_pdg not in local_data["decay_channels_by_species"]:
@@ -997,6 +1140,13 @@ def merge_worker_results(
         "semi_muonic_counts": Counter(),
         "semi_electronic_counts": Counter(),
         "total_decays_by_species": Counter(),
+        "species_weight_sum": Counter(),
+        "species_weight_sq_sum": Counter(),
+        "species_decay_count": Counter(),
+        "inclusive_mode_w": {},
+        "inclusive_mode_w2y2": {},
+        "inclusive_mode_w2y": {},
+        "inclusive_mode_raw_count": {},
         "ctau_values_um": {},
         "decay_dist_mm": {},
         "fragmentation_z": [],
@@ -1011,6 +1161,21 @@ def merge_worker_results(
     }
 
     for r in results:
+        merged["species_weight_sum"].update(r.get("species_weight_sum", Counter()))
+        merged["species_weight_sq_sum"].update(r.get("species_weight_sq_sum", Counter()))
+        merged["species_decay_count"].update(r.get("species_decay_count", Counter()))
+
+        for abs_c in r.get("inclusive_mode_w", {}):
+            if abs_c not in merged["inclusive_mode_w"]:
+                merged["inclusive_mode_w"][abs_c] = Counter()
+                merged["inclusive_mode_w2y2"][abs_c] = Counter()
+                merged["inclusive_mode_w2y"][abs_c] = Counter()
+                merged["inclusive_mode_raw_count"][abs_c] = Counter()
+            merged["inclusive_mode_w"][abs_c].update(r["inclusive_mode_w"][abs_c])
+            merged["inclusive_mode_w2y2"][abs_c].update(r["inclusive_mode_w2y2"][abs_c])
+            merged["inclusive_mode_w2y"][abs_c].update(r["inclusive_mode_w2y"][abs_c])
+            merged["inclusive_mode_raw_count"][abs_c].update(r["inclusive_mode_raw_count"][abs_c])
+
         merged["nu_e_cc_all"].extend(r["nu_e_cc_all"])
         merged["nu_e_cc_charm"].extend(r["nu_e_cc_charm"])
         merged["charm_e_all"].extend(r["charm_e_all"])
@@ -1736,24 +1901,25 @@ def write_histograms_and_canvases(
         dir_pdg_ref.cd()
         for abs_c in sorted(pdg_data.keys()):
             sp_name = get_species_name(abs_c)
-            m_by_lbl = pdg_data[abs_c]["modes_by_label"]
-            n_m = len(m_by_lbl)
+            sp_modes = pdg_data[abs_c].get("modes_list", [])
+            n_m = len(sp_modes)
             if n_m == 0:
                 continue
             h_pdg_ref = ROOT.TH1D(
                 f"h_pdg_branching_ratio_{sp_name}",
-                f"PDG World Average Reference ({sp_name});Decay Mode;Branching Ratio [%]",
+                f"PDG World Average Reference ({sp_name});Inclusive Decay Mode;Inclusive Branching Fraction #Gamma_{{i}} / #Gamma [%]",
                 n_m, 0.5, n_m + 0.5
             )
-            g_pdg_ref = ROOT.TGraphErrors(n_m)
+            g_pdg_ref = ROOT.TGraphAsymmErrors(n_m)
             g_pdg_ref.SetName(f"g_pdg_branching_ratio_{sp_name}")
             g_pdg_ref.SetTitle(f"PDG World Average Reference ({sp_name})")
-            for idx, (lbl, info) in enumerate(m_by_lbl.items(), start=1):
+            for idx, m_obj in enumerate(sp_modes, start=1):
+                lbl = m_obj.pdg_mode
                 h_pdg_ref.GetXaxis().SetBinLabel(idx, lbl)
-                h_pdg_ref.SetBinContent(idx, info["br_pct"])
-                h_pdg_ref.SetBinError(idx, info["br_err_pct"])
-                g_pdg_ref.SetPoint(idx - 1, float(idx), info["br_pct"])
-                g_pdg_ref.SetPointError(idx - 1, 0.25, info["br_err_pct"])
+                h_pdg_ref.SetBinContent(idx, m_obj.br_pct)
+                h_pdg_ref.SetBinError(idx, 0.5 * (m_obj.br_err_up_pct + m_obj.br_err_low_pct))
+                g_pdg_ref.SetPoint(idx - 1, float(idx), m_obj.br_pct)
+                g_pdg_ref.SetPointError(idx - 1, 0.25, 0.25, m_obj.br_err_low_pct, m_obj.br_err_up_pct)
             g_pdg_ref.SetMarkerStyle(20)
             g_pdg_ref.SetMarkerSize(1.2)
             g_pdg_ref.SetMarkerColor(ROOT.kRed + 1)
@@ -1769,116 +1935,81 @@ def write_histograms_and_canvases(
 
     for abs_c in species_order:
         sp_name = get_species_name(abs_c)
-        sim_ch_map = data["decay_channels_by_species"].get(abs_c, Counter())
-        tot_sp_decays = data["total_decays_by_species"].get(abs_c, sum(sim_ch_map.values()))
+        sp_modes = pdg_data.get(abs_c, {}).get("modes_list", []) if pdg_data else []
+        if not sp_modes:
+            continue
 
-        sp_pdg_info = pdg_data.get(abs_c, {})
-        modes_by_label = sp_pdg_info.get("modes_by_label", {})
+        w_tot = data.get("species_weight_sum", Counter()).get(abs_c, 0.0)
+        w2_tot = data.get("species_weight_sq_sum", Counter()).get(abs_c, 0.0)
+        n_tot = data.get("species_decay_count", Counter()).get(abs_c, 0)
+        if w_tot <= 0.0:
+            w_tot = float(data.get("total_decays_by_species", Counter()).get(abs_c, 0))
+            w2_tot = w_tot
+            n_tot = int(w_tot)
 
-        # Map simulation counts to PDG modes if formulas match
-        matched_sim = set()
-        sim_by_pdg_label: Dict[str, int] = {lbl: 0 for lbl in modes_by_label}
-
-        for tup, cnt in sim_ch_map.items():
-            formula = format_channel_formula(tup)
-            canon = canonicalize_channel_str(formula)
-            canon_p = normalize_channel_photons(canon)
-            for lbl, info in modes_by_label.items():
-                if canon in info["formulas"] or canon_p in info["formulas"]:
-                    sim_by_pdg_label[lbl] += cnt
-                    matched_sim.add(tup)
-                    break
-
-        # Calculate counts for Other category
-        cnt_other = max(0, tot_sp_decays - sum(sim_by_pdg_label.values()))
-
-        # PDG remainder for Other category
-        sum_pdg_br = sum(info["br_pct"] for info in modes_by_label.values())
-        sum_pdg_var = sum(info["br_err_pct"] ** 2 for info in modes_by_label.values())
-        pdg_other_br = max(0.0, 100.0 - sum_pdg_br) if sum_pdg_br < 100.0 else 0.0
-        pdg_other_err = min(pdg_other_br, math.sqrt(sum_pdg_var)) if pdg_other_br > 0 else 0.0
-
-        # Build list of modes: listed PDG modes sorted by PDG BR (descending), then "Other"
         all_candidates: List[Dict[str, Any]] = []
 
-        # Sort PDG modes descending by PDG BR
-        sorted_pdg_labels = sorted(
-            modes_by_label.keys(),
-            key=lambda lbl: modes_by_label[lbl]["br_pct"],
-            reverse=True,
-        )
+        for m_obj in sp_modes:
+            lbl = m_obj.pdg_mode
+            w_sum = data.get("inclusive_mode_w", {}).get(abs_c, Counter()).get(lbl, 0.0)
+            w2y2_sum = data.get("inclusive_mode_w2y2", {}).get(abs_c, Counter()).get(lbl, 0.0)
+            w2y_sum = data.get("inclusive_mode_w2y", {}).get(abs_c, Counter()).get(lbl, 0.0)
+            raw_cnt = data.get("inclusive_mode_raw_count", {}).get(abs_c, Counter()).get(lbl, 0)
 
-        for lbl in sorted_pdg_labels:
-            info = modes_by_label[lbl]
-            cnt = sim_by_pdg_label.get(lbl, 0)
-            br_sim, err_lo, err_hi = clopper_pearson_errors(cnt, tot_sp_decays, 0.6827)
+            br_sim, err_lo, err_hi = calculate_weighted_yield_and_error(
+                w_sum, w2y2_sum, w2y_sum, w_tot, w2_tot
+            )
             all_candidates.append({
                 "label": lbl,
                 "br_sim": br_sim,
                 "br_sim_err_lo": err_lo,
                 "br_sim_err_hi": err_hi,
-                "br_pdg": info["br_pct"],
-                "br_pdg_err": info["br_err_pct"],
-                "cnt_sim": cnt,
+                "br_pdg": m_obj.br_pct,
+                "br_pdg_err_up": m_obj.br_err_up_pct,
+                "br_pdg_err_lo": m_obj.br_err_low_pct,
+                "w_sum": w_sum,
+                "raw_cnt": raw_cnt,
             })
 
-        # Append single "Other" category for all unlisted decay channels
-        br_other, err_lo_other, err_hi_other = clopper_pearson_errors(cnt_other, tot_sp_decays, 0.6827)
-        all_candidates.append({
-            "label": "Other",
-            "br_sim": br_other,
-            "br_sim_err_lo": err_lo_other,
-            "br_sim_err_hi": err_hi_other,
-            "br_pdg": pdg_other_br,
-            "br_pdg_err": pdg_other_err,
-            "cnt_sim": cnt_other,
-        })
-
         n_bins = len(all_candidates)
+        if n_bins == 0:
+            continue
 
-        # Build simulation histogram with bin values
         h_sim_comp = ROOT.TH1D(
             f"h_br_sim_{sp_name}",
-            f"{sp_name} Branching Ratios: MC Simulation vs PDG Reference;Decay Channel;Branching Ratio [%]",
+            f"{sp_name} Inclusive Branching Fractions: MC Simulation vs PDG Reference;Inclusive Decay Mode;Inclusive Branching Fraction #Gamma_{{i}} / #Gamma [%]",
             n_bins, 0.5, n_bins + 0.5
         )
-        # TGraphAsymmErrors for vertical hatched error band with Clopper-Pearson bounds
         g_err_comp = ROOT.TGraphAsymmErrors(n_bins)
         g_err_comp.SetName(f"g_br_sim_err_{sp_name}")
-        g_err_comp.SetTitle(f"MC Simulation Stat Error (Clopper-Pearson 68% CL)")
+        g_err_comp.SetTitle(f"MC Simulation Stat Error (#pm 1#sigma Weighted)")
 
         for i, entry in enumerate(all_candidates, start=1):
             h_sim_comp.GetXaxis().SetBinLabel(i, entry["label"])
             h_sim_comp.SetBinContent(i, entry["br_sim"])
-            h_sim_comp.SetBinError(i, 0.0)  # No symmetric error bars from TH1
+            h_sim_comp.SetBinError(i, 0.0)
 
             g_err_comp.SetPoint(i - 1, float(i), entry["br_sim"])
-            # width 0.35 on each side for the box
             g_err_comp.SetPointError(i - 1, 0.35, 0.35, entry["br_sim_err_lo"], entry["br_sim_err_hi"])
 
         h_sim_comp.SetLineColor(ROOT.kAzure + 2)
         h_sim_comp.SetLineWidth(2)
         h_sim_comp.GetXaxis().LabelsOption("v")
         h_sim_comp.GetXaxis().SetLabelSize(0.033)
-        h_sim_comp.GetYaxis().SetTitle(f"Branching Ratio BR({sp_name} #rightarrow X) [%]")
+        h_sim_comp.GetYaxis().SetTitle(f"Inclusive Branching Fraction #Gamma_{{i}} / #Gamma [%]")
         h_sim_comp.GetYaxis().SetTitleOffset(1.25)
 
         g_err_comp.SetFillColor(ROOT.kAzure - 4)
-        g_err_comp.SetFillStyle(3007)  # vertical hatch
+        g_err_comp.SetFillStyle(3007)
         g_err_comp.SetLineColor(ROOT.kAzure + 2)
         g_err_comp.SetLineWidth(1)
 
-        # Build PDG asymmetric error graph (strictly bounded in [0%, 100%])
         g_pdg_comp = ROOT.TGraphAsymmErrors(n_bins)
         g_pdg_comp.SetName(f"g_pdg_br_{sp_name}")
         g_pdg_comp.SetTitle(f"PDG World Average Reference ({sp_name})")
         for i, entry in enumerate(all_candidates, start=1):
-            val_p = entry["br_pdg"]
-            err_p = entry["br_pdg_err"]
-            err_lo_p = min(val_p, err_p)
-            err_hi_p = min(100.0 - val_p, err_p)
-            g_pdg_comp.SetPoint(i - 1, float(i), val_p)
-            g_pdg_comp.SetPointError(i - 1, 0.25, 0.25, err_lo_p, err_hi_p)
+            g_pdg_comp.SetPoint(i - 1, float(i), entry["br_pdg"])
+            g_pdg_comp.SetPointError(i - 1, 0.25, 0.25, entry["br_pdg_err_lo"], entry["br_pdg_err_up"])
 
         g_pdg_comp.SetMarkerStyle(20)
         g_pdg_comp.SetMarkerSize(1.2)
@@ -1886,23 +2017,16 @@ def write_histograms_and_canvases(
         g_pdg_comp.SetLineColor(ROOT.kRed + 1)
         g_pdg_comp.SetLineWidth(2)
 
-        # Compute dynamic Y range (never exceeding reasonable bounds)
         max_sim = max([e["br_sim"] + e["br_sim_err_hi"] for e in all_candidates] + [0.0])
-        max_pdg = max([e["br_pdg"] + e["br_pdg_err"] for e in all_candidates] + [0.0])
+        max_pdg = max([e["br_pdg"] + e["br_pdg_err_up"] for e in all_candidates] + [0.0])
         overall_max = max(max_sim, max_pdg)
-        if overall_max > 70.0:
-            y_max = 110.0
-        elif overall_max > 30.0:
-            y_max = min(105.0, overall_max * 1.35)
-        else:
-            y_max = max(overall_max * 1.35, 10.0)
+        y_max = max(overall_max * 1.35, 15.0)
 
         h_sim_comp.SetMaximum(y_max)
         h_sim_comp.SetMinimum(0.0)
 
-        # Draw individual species canvas
         dir_canvases.cd()
-        c_pdg_sp = ROOT.TCanvas(f"c_branching_ratios_vs_pdg_{sp_name}", f"{sp_name} Branching Ratios vs PDG Reference", 1150, 750)
+        c_pdg_sp = ROOT.TCanvas(f"c_branching_ratios_vs_pdg_{sp_name}", f"{sp_name} Inclusive Branching Fractions vs PDG Reference", 1150, 750)
         c_pdg_sp.SetLeftMargin(0.12)
         c_pdg_sp.SetRightMargin(0.06)
         c_pdg_sp.SetTopMargin(0.08)
@@ -1917,9 +2041,9 @@ def write_histograms_and_canvases(
         leg_pdg_sp = ROOT.TLegend(0.46, 0.72, 0.92, 0.88)
         leg_pdg_sp.SetBorderSize(1)
         leg_pdg_sp.SetFillColor(ROOT.kWhite)
-        leg_pdg_sp.AddEntry(h_sim_comp, f"MC Simulation ({tot_sp_decays} decays total)", "l")
-        leg_pdg_sp.AddEntry(g_err_comp, "MC Stat Error (Clopper-Pearson 68% CL hatched #leq 100%)", "f")
-        leg_pdg_sp.AddEntry(g_pdg_comp, "PDG World Average Reference (#pm 1#sigma)", "lep")
+        leg_pdg_sp.AddEntry(h_sim_comp, f"MC Simulation ({w_tot:.1f} weighted decays)", "l")
+        leg_pdg_sp.AddEntry(g_err_comp, "MC Stat Error (#pm 1#sigma weighted error)", "f")
+        leg_pdg_sp.AddEntry(g_pdg_comp, "PDG World Average Reference (#Gamma_{i} / #Gamma)", "lep")
         leg_pdg_sp.Draw("same")
 
         c_pdg_sp.Write()
@@ -1927,13 +2051,16 @@ def write_histograms_and_canvases(
         pdg_sp_drawables[abs_c] = (h_sim_comp, g_err_comp, g_pdg_comp, leg_pdg_sp)
         keep_alive_pdg.extend([h_sim_comp, g_err_comp, g_pdg_comp, leg_pdg_sp, c_pdg_sp])
 
-        # Also store into Species/<sp_name>/
         dir_sp = dir_species_root.GetDirectory(sp_name)
         if dir_sp:
             dir_sp.cd()
             h_sim_comp.Write(f"h_br_sim_vs_pdg_{sp_name}")
             g_err_comp.Write(f"g_br_sim_err_{sp_name}")
             g_pdg_comp.Write(f"g_pdg_br_{sp_name}")
+
+        dir_canvases.cd()
+        if export_png_dir:
+            c_pdg_sp.SaveAs(os.path.join(export_png_dir, f"c_branching_ratios_vs_pdg_{sp_name}.png"))
 
     # Summary 2x2 Canvas: All 4 Species Comparison
     if len(pdg_comparison_canvases) > 0:
@@ -2253,61 +2380,53 @@ def print_diagnostic_report(
         else:
             print(f"    >>> STATUS: [PASS] Branching modes, semi-leptonic rates, and lifetimes look consistent.")
 
-    # 6. Simulation Branching Ratios vs PDG Reference Tables
+    # 6. Simulation Inclusive Branching Fractions vs PDG Reference Tables
     if pdg_data:
-        print("\n" + "=" * 94)
-        print(" 6. SIMULATION BRANCHING RATIOS vs PDG WORLD AVERAGES")
-        print("=" * 94)
-        print(f" {'Species':<10s} {'Mode / Channel':<32s} {'MC Count':<10s} {'MC BR [%] (68% CL)':<24s} {'PDG Ref [%]':<18s}")
-        print("-" * 94)
+        print("\n" + "=" * 105)
+        print(" 6. INCLUSIVE DECAY BRANCHING FRACTIONS vs PDG WORLD AVERAGES")
+        print("=" * 105)
+        print(f" {'Species':<10s} {'Inclusive Mode':<30s} {'MC Yield (W)':<14s} {'MC Gamma_i/Gamma [%] (Stat)':<28s} {'PDG Ref [%]':<20s}")
+        print("-" * 105)
         for abs_c in major_pdgs:
             sp_name = get_species_name(abs_c)
-            sp_pdg = pdg_data.get(abs_c, {})
-            modes_by_lbl = sp_pdg.get("modes_by_label", {})
-            tot_d = data["total_decays_by_species"].get(abs_c, 0)
-            sim_ch_map = data["decay_channels_by_species"].get(abs_c, Counter())
+            sp_modes = pdg_data.get(abs_c, {}).get("modes_list", [])
+            if not sp_modes:
+                continue
 
-            sim_by_pdg = {lbl: 0 for lbl in modes_by_lbl}
-            for tup, cnt in sim_ch_map.items():
-                f = format_channel_formula(tup)
-                canon = canonicalize_channel_str(f)
-                canon_p = normalize_channel_photons(canon)
-                for lbl, info in modes_by_lbl.items():
-                    if canon in info["formulas"] or canon_p in info["formulas"]:
-                        sim_by_pdg[lbl] += cnt
-                        break
-
-            cnt_other = max(0, tot_d - sum(sim_by_pdg.values()))
-            sum_pdg_br = sum(info["br_pct"] for info in modes_by_lbl.values())
-            sum_pdg_var = sum(info["br_err_pct"] ** 2 for info in modes_by_lbl.values())
-            pdg_other_br = max(0.0, 100.0 - sum_pdg_br) if sum_pdg_br < 100.0 else 0.0
-            pdg_other_err = min(pdg_other_br, math.sqrt(sum_pdg_var)) if pdg_other_br > 0 else 0.0
+            w_tot = data.get("species_weight_sum", Counter()).get(abs_c, 0.0)
+            w2_tot = data.get("species_weight_sq_sum", Counter()).get(abs_c, 0.0)
+            n_tot = data.get("species_decay_count", Counter()).get(abs_c, 0)
+            if w_tot <= 0.0:
+                w_tot = float(data.get("total_decays_by_species", Counter()).get(abs_c, 0))
+                w2_tot = w_tot
+                n_tot = int(w_tot)
 
             printed_sp = False
-            for lbl, info in sorted(modes_by_lbl.items(), key=lambda x: (sim_by_pdg.get(x[0], 0) > 0, x[1]["br_pct"]), reverse=True):
-                cnt = sim_by_pdg.get(lbl, 0)
-                if cnt == 0 and info["br_pct"] < 3.0:
-                    continue
-                br_sim, err_lo, err_hi = clopper_pearson_errors(cnt, tot_d, 0.6827)
-                mc_str = f"{br_sim:5.2f}% (-{err_lo:4.2f}/+{err_hi:4.2f}%)" if cnt > 0 else "  0.00%                 "
-                pdg_str = f"{info['br_pct']:5.2f}% +/- {info['br_err_pct']:4.2f}%"
+            for m_obj in sp_modes:
+                lbl = m_obj.pdg_mode
+                w_sum = data.get("inclusive_mode_w", {}).get(abs_c, Counter()).get(lbl, 0.0)
+                w2y2_sum = data.get("inclusive_mode_w2y2", {}).get(abs_c, Counter()).get(lbl, 0.0)
+                w2y_sum = data.get("inclusive_mode_w2y", {}).get(abs_c, Counter()).get(lbl, 0.0)
+
+                val_pct, err_lo, err_hi = calculate_weighted_yield_and_error(
+                    w_sum, w2y2_sum, w2y_sum, w_tot, w2_tot
+                )
+
+                mc_str = f"{val_pct:6.2f}% +/- {err_hi:5.2f}%" if w_sum > 0 else f" < {err_hi:5.2f}% (68% CL)"
+                pdg_up = m_obj.br_err_up_pct
+                pdg_lo = m_obj.br_err_low_pct
+                if abs(pdg_up - pdg_lo) < 1e-4:
+                    pdg_str = f"{m_obj.br_pct:6.2f}% +/- {pdg_up:5.2f}%"
+                else:
+                    pdg_str = f"{m_obj.br_pct:6.2f}% (+{pdg_up:4.2f}/-{pdg_lo:4.2f}%)"
+
                 sp_col = sp_name if not printed_sp else ""
                 printed_sp = True
-                print(f" {sp_col:<10s} {lbl:<32s} {cnt:<10d} {mc_str:<24s} {pdg_str:<18s}")
+                print(f" {sp_col:<10s} {lbl:<30s} {w_sum:<14.1f} {mc_str:<28s} {pdg_str:<20s}")
 
-            # Print "Other" category for all unlisted decay channels
-            br_oth, err_lo_oth, err_hi_oth = clopper_pearson_errors(cnt_other, tot_d, 0.6827)
-            mc_oth_str = f"{br_oth:5.2f}% (-{err_lo_oth:4.2f}/+{err_hi_oth:4.2f}%)" if cnt_other > 0 else "  0.00%                 "
-            pdg_oth_str = f"{pdg_other_br:5.2f}% +/- {pdg_other_err:4.2f}%"
-            sp_col = sp_name if not printed_sp else ""
-            print(f" {sp_col:<10s} {'Other':<32s} {cnt_other:<10d} {mc_oth_str:<24s} {pdg_oth_str:<18s}")
-
-            # Print Total Sum confirming disjoint partition
-            tot_mc_br = (100.0 * (sum(sim_by_pdg.values()) + cnt_other) / tot_d) if tot_d > 0 else 0.0
-            tot_pdg_br = sum_pdg_br + pdg_other_br
-            print(f" {'':<10s} {'[SUM OF DISJOINT MODES]':<32s} {tot_d:<10d} {tot_mc_br:5.2f}% (100% disjoint)   {tot_pdg_br:5.2f}% +/- 0.00%   ")
-            print(f" {'':<10s} {'-' * 82}")
-        print("-" * 94)
+            print(f" {'':<10s} {'Total sample decays:':<30s} {w_tot:<14.1f} (N={n_tot} unweighted decays)")
+            print(f" {'':<10s} {'-' * 93}")
+        print("-" * 105)
 
     # 7. Reconstruction Multiplicity & Dimuon Selection Efficiency
     if any(c > 0 for c in data.get("reco_tracks_cc_all", Counter()).values()):
@@ -2530,6 +2649,8 @@ def main():
     if args.max_events > 0:
         max_events_per_worker = int(math.ceil(args.max_events / float(len(file_chunks))))
 
+    pdg_data = load_pdg_summary_tables(args.pdg_tables_dir)
+
     tasks = [
         (
             chunk,
@@ -2539,6 +2660,7 @@ def main():
             args.ground_state_only,
             args.numu_cc_only,
             max_events_per_worker,
+            pdg_data,
         )
         for chunk in file_chunks
     ]

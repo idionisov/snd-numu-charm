@@ -1,2 +1,6 @@
-channel,pdg_mode,br,br_err
-K- + p + pi+,p K- pi+,0.0628,0.0032
+﻿pdg_mode,Gamma_i_vs_Gamma,Gamma_i_vs_Gamma_err_up,Gamma_i_vs_Gamma_err_low
+e+ anything,0.040599999999999997,0.0013,0.0013
+p anything,0.5,0.16,0.16
+n anything,0.32600000000000001,0.016,0.016
+Lambda anything,0.38200000000000001,0.029000000000000001,0.024
+K_S0 anything,0.109,0.0022000000000000001,0.0022000000000000001

@@ -758,7 +758,8 @@ def create_slow_rescaling_model(
         g_band.SetPoint(i, x, y)
         g_band.SetPointError(i, 0.0, sigma_y)
 
-    g_band.SetFillColorAlpha(band_color, 0.30)
+    g_band.SetFillColorAlpha(band_color, 0.35)
+    g_band.SetFillStyle(1001)
     g_band.SetLineColor(line_color)
     g_band.SetLineWidth(1)
 
@@ -1780,7 +1781,7 @@ def write_histograms_and_canvases(
         target="tungsten",
         nu_type="nu",
         line_color=ROOT.kBlue + 1,
-        band_color=ROOT.kBlue - 9,
+        band_color=ROOT.kAzure - 4,
     )
 
     # 2. Tungsten Target anti_nu_mu

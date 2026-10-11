@@ -1769,102 +1769,7 @@ def write_histograms_and_canvases(
     dir_canvases = fout.mkdir("Canvases")
     dir_canvases.cd()
 
-    # --- Canvas 1: Charm Production Rate vs E_nu (MC vs Slow Rescaling Model) ---
-    c_rate = ROOT.TCanvas("c_charm_rate_vs_energy", "Charm Production Rate vs Neutrino Energy", 950, 700)
-    c_rate.SetLeftMargin(0.12)
-    c_rate.SetRightMargin(0.06)
-    c_rate.SetTopMargin(0.08)
-    c_rate.SetBottomMargin(0.12)
-    c_rate.SetGrid()
-
-    y_max_frame = max(0.28, h_charm_rate_ebins.GetMaximum() * 1.50)
-    h_rate_frame = c_rate.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), y_max_frame)
-    h_rate_frame.SetTitle("Charm Production Rate vs E_{#nu}: MC Simulation vs Slow Rescaling Model;E_{#nu} [GeV];R_{charm} = #sigma(#nu_{#mu} N #rightarrow c X) / #sigma_{CC}(#nu_{#mu} N #rightarrow X)")
-    h_rate_frame.GetYaxis().SetTitleOffset(1.3)
-
-    # MC data points with Clopper-Pearson asymmetric binomial errors
-    # MC data points: Inclusive, pure nu_mu, and pure anti_nu_mu
-    g_charm_rate_mc = ROOT.TGraphAsymmErrors(n_nu_ebins)
-    g_charm_rate_mc.SetName("g_charm_rate_mc")
-    g_charm_rate_mc.SetTitle("MC Inclusive (#nu_{#mu} + #bar{#nu}_{#mu}) Charm Production Rate")
-
-    g_charm_rate_mc_nu = ROOT.TGraphAsymmErrors(n_nu_ebins)
-    g_charm_rate_mc_nu.SetName("g_charm_rate_mc_nu")
-    g_charm_rate_mc_nu.SetTitle("MC #nu_{#mu} Charm Production Rate")
-
-    g_charm_rate_mc_antinu = ROOT.TGraphAsymmErrors(n_nu_ebins)
-    g_charm_rate_mc_antinu.SetName("g_charm_rate_mc_antinu")
-    g_charm_rate_mc_antinu.SetTitle("MC #bar{#nu}_{#mu} Charm Production Rate")
-
-    for i_b in range(n_nu_ebins):
-        x_center = 0.5 * (nu_bin_edges[i_b] + nu_bin_edges[i_b + 1])
-        x_err = 0.5 * (nu_bin_edges[i_b + 1] - nu_bin_edges[i_b])
-
-        # Inclusive
-        n_cc = data["cc_all_per_ebin"][i_b]
-        n_c = data["cc_charm_per_ebin"][i_b]
-        val_pct, err_lo_pct, err_hi_pct = clopper_pearson_errors(n_c, n_cc, 0.6827)
-        val = val_pct / 100.0
-        err_lo = err_lo_pct / 100.0
-        err_hi = err_hi_pct / 100.0
-        g_charm_rate_mc.SetPoint(i_b, x_center, val)
-        g_charm_rate_mc.SetPointError(i_b, x_err, x_err, err_lo, err_hi)
-        h_charm_rate_ebins.SetBinContent(i_b + 1, val)
-        h_charm_rate_ebins.SetBinError(i_b + 1, max(err_lo, err_hi))
-
-        # pure nu_mu
-        n_cc_nu = data.get("cc_all_nu_per_ebin", [0] * n_nu_ebins)[i_b]
-        n_c_nu = data.get("cc_charm_nu_per_ebin", [0] * n_nu_ebins)[i_b]
-        val_pct_nu, lo_nu, hi_nu = clopper_pearson_errors(n_c_nu, n_cc_nu, 0.6827)
-        g_charm_rate_mc_nu.SetPoint(i_b, x_center, val_pct_nu / 100.0)
-        g_charm_rate_mc_nu.SetPointError(i_b, x_err, x_err, lo_nu / 100.0, hi_nu / 100.0)
-
-        # pure anti_nu_mu
-        n_cc_an = data.get("cc_all_antinu_per_ebin", [0] * n_nu_ebins)[i_b]
-        n_c_an = data.get("cc_charm_antinu_per_ebin", [0] * n_nu_ebins)[i_b]
-        val_pct_an, lo_an, hi_an = clopper_pearson_errors(n_c_an, n_cc_an, 0.6827)
-        g_charm_rate_mc_antinu.SetPoint(i_b, x_center, val_pct_an / 100.0)
-        g_charm_rate_mc_antinu.SetPointError(i_b, x_err, x_err, lo_an / 100.0, hi_an / 100.0)
-
-    g_charm_rate_mc.SetMarkerStyle(20)
-    g_charm_rate_mc.SetMarkerSize(1.2)
-    g_charm_rate_mc.SetMarkerColor(ROOT.kBlack)
-    g_charm_rate_mc.SetLineColor(ROOT.kBlack)
-    g_charm_rate_mc.SetLineWidth(2)
-
-    g_charm_rate_mc_nu.SetMarkerStyle(21)
-    g_charm_rate_mc_nu.SetMarkerSize(1.1)
-    g_charm_rate_mc_nu.SetMarkerColor(ROOT.kBlue + 2)
-    g_charm_rate_mc_nu.SetLineColor(ROOT.kBlue + 2)
-    g_charm_rate_mc_nu.SetLineWidth(2)
-
-    g_charm_rate_mc_antinu.SetMarkerStyle(22)
-    g_charm_rate_mc_antinu.SetMarkerSize(1.2)
-    g_charm_rate_mc_antinu.SetMarkerColor(ROOT.kMagenta + 2)
-    g_charm_rate_mc_antinu.SetLineColor(ROOT.kMagenta + 2)
-    g_charm_rate_mc_antinu.SetLineWidth(2)
-
-    # Reconstructed Di-Muon Stream Rate (>= 2 reco tracks)
-    has_2trks_data = any(c > 0 for c in data.get("charm_ge2trks_per_ebin", []))
-    g_charm_rate_2trks = ROOT.TGraphAsymmErrors(n_nu_ebins)
-    g_charm_rate_2trks.SetName("g_charm_rate_2trks")
-    g_charm_rate_2trks.SetTitle("MC Di-Muon Reconstructed Stream (>=2 tracks)")
-    if has_2trks_data:
-        for i_b in range(n_nu_ebins):
-            n_cc = data["cc_all_per_ebin"][i_b]
-            n_c2 = data.get("charm_ge2trks_per_ebin", [0] * n_nu_ebins)[i_b]
-            x_center = 0.5 * (nu_bin_edges[i_b] + nu_bin_edges[i_b + 1])
-            x_err = 0.5 * (nu_bin_edges[i_b + 1] - nu_bin_edges[i_b])
-            val_pct, err_lo_pct, err_hi_pct = clopper_pearson_errors(n_c2, n_cc, 0.6827)
-            g_charm_rate_2trks.SetPoint(i_b, x_center, val_pct / 100.0)
-            g_charm_rate_2trks.SetPointError(i_b, x_err, x_err, err_lo_pct / 100.0, err_hi_pct / 100.0)
-        g_charm_rate_2trks.SetMarkerStyle(25)
-        g_charm_rate_2trks.SetMarkerSize(1.1)
-        g_charm_rate_2trks.SetMarkerColor(ROOT.kAzure + 2)
-        g_charm_rate_2trks.SetLineColor(ROOT.kAzure + 2)
-        g_charm_rate_2trks.SetLineWidth(2)
-
-    # Slow Rescaling Model: Tungsten Target (nu_mu, anti_nu_mu, and Isoscalar reference)
+    # Common theoretical reference curves
     e_max_model = max(1000.0, nu_bin_edges[-1])
 
     # 1. Tungsten Target nu_mu
@@ -1912,54 +1817,159 @@ def write_histograms_and_canvases(
     f_sr_iso.SetLineStyle(7)
     f_sr_iso.SetLineWidth(2)
 
-    # Draw theory bands and lines
+    # Calculate data points
+    g_charm_rate_mc = ROOT.TGraphAsymmErrors(n_nu_ebins)
+    g_charm_rate_mc.SetName("g_charm_rate_mc")
+    g_charm_rate_mc.SetTitle("MC Inclusive (#nu_{#mu} + #bar{#nu}_{#mu})")
+
+    g_charm_rate_mc_nu = ROOT.TGraphAsymmErrors(n_nu_ebins)
+    g_charm_rate_mc_nu.SetName("g_charm_rate_mc_nu")
+    g_charm_rate_mc_nu.SetTitle("MC #nu_{#mu} CC")
+
+    g_charm_rate_mc_antinu = ROOT.TGraphAsymmErrors(n_nu_ebins)
+    g_charm_rate_mc_antinu.SetName("g_charm_rate_mc_antinu")
+    g_charm_rate_mc_antinu.SetTitle("MC #bar{#nu}_{#mu} CC")
+
+    for i_b in range(n_nu_ebins):
+        x_center = 0.5 * (nu_bin_edges[i_b] + nu_bin_edges[i_b + 1])
+        x_err = 0.5 * (nu_bin_edges[i_b + 1] - nu_bin_edges[i_b])
+
+        # Inclusive
+        n_cc = data["cc_all_per_ebin"][i_b]
+        n_c = data["cc_charm_per_ebin"][i_b]
+        val_pct, err_lo_pct, err_hi_pct = clopper_pearson_errors(n_c, n_cc, 0.6827)
+        val = val_pct / 100.0
+        err_lo = err_lo_pct / 100.0
+        err_hi = err_hi_pct / 100.0
+        g_charm_rate_mc.SetPoint(i_b, x_center, val)
+        g_charm_rate_mc.SetPointError(i_b, x_err, x_err, err_lo, err_hi)
+        h_charm_rate_ebins.SetBinContent(i_b + 1, val)
+        h_charm_rate_ebins.SetBinError(i_b + 1, max(err_lo, err_hi))
+
+        # pure nu_mu
+        n_cc_nu = data.get("cc_all_nu_per_ebin", [0] * n_nu_ebins)[i_b]
+        n_c_nu = data.get("cc_charm_nu_per_ebin", [0] * n_nu_ebins)[i_b]
+        val_pct_nu, lo_nu, hi_nu = clopper_pearson_errors(n_c_nu, n_cc_nu, 0.6827)
+        g_charm_rate_mc_nu.SetPoint(i_b, x_center, val_pct_nu / 100.0)
+        g_charm_rate_mc_nu.SetPointError(i_b, x_err, x_err, lo_nu / 100.0, hi_nu / 100.0)
+
+        # pure anti_nu_mu
+        n_cc_an = data.get("cc_all_antinu_per_ebin", [0] * n_nu_ebins)[i_b]
+        n_c_an = data.get("cc_charm_antinu_per_ebin", [0] * n_nu_ebins)[i_b]
+        val_pct_an, lo_an, hi_an = clopper_pearson_errors(n_c_an, n_cc_an, 0.6827)
+        g_charm_rate_mc_antinu.SetPoint(i_b, x_center, val_pct_an / 100.0)
+        g_charm_rate_mc_antinu.SetPointError(i_b, x_err, x_err, lo_an / 100.0, hi_an / 100.0)
+
+    g_charm_rate_mc.SetMarkerStyle(20)
+    g_charm_rate_mc.SetMarkerSize(1.2)
+    g_charm_rate_mc.SetMarkerColor(ROOT.kBlack)
+    g_charm_rate_mc.SetLineColor(ROOT.kBlack)
+    g_charm_rate_mc.SetLineWidth(2)
+
+    g_charm_rate_mc_nu.SetMarkerStyle(20)
+    g_charm_rate_mc_nu.SetMarkerSize(1.2)
+    g_charm_rate_mc_nu.SetMarkerColor(ROOT.kBlue + 2)
+    g_charm_rate_mc_nu.SetLineColor(ROOT.kBlue + 2)
+    g_charm_rate_mc_nu.SetLineWidth(2)
+
+    g_charm_rate_mc_antinu.SetMarkerStyle(20)
+    g_charm_rate_mc_antinu.SetMarkerSize(1.2)
+    g_charm_rate_mc_antinu.SetMarkerColor(ROOT.kMagenta + 2)
+    g_charm_rate_mc_antinu.SetLineColor(ROOT.kMagenta + 2)
+    g_charm_rate_mc_antinu.SetLineWidth(2)
+
+    y_max_frame = max(0.28, h_charm_rate_ebins.GetMaximum() * 1.50)
+
+    # -------------------------------------------------------------------------
+    # Canvas 1a: Inclusive (nu_mu + anti_nu_mu)
+    # -------------------------------------------------------------------------
+    c_rate_inc = ROOT.TCanvas("c_charm_rate_vs_energy", "Charm Production Rate vs Neutrino Energy (Inclusive)", 950, 700)
+    c_rate_inc.SetLeftMargin(0.12)
+    c_rate_inc.SetRightMargin(0.06)
+    c_rate_inc.SetTopMargin(0.08)
+    c_rate_inc.SetBottomMargin(0.12)
+    c_rate_inc.SetGrid()
+
+    h_frame_inc = c_rate_inc.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), y_max_frame)
+    h_frame_inc.SetTitle("Charm Production Rate: Inclusive (#nu_{#mu} + #bar{#nu}_{#mu});E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
+    h_frame_inc.GetYaxis().SetTitleOffset(1.25)
+
     g_sr_w_inc_band.Draw("3 same")
     f_sr_iso.Draw("same")
-    f_sr_w_nu.Draw("same")
-    f_sr_w_antinu.Draw("same")
     f_sr_w_inc.Draw("same")
-
-    # Draw data points
-    has_nu_data = any(c > 0 for c in data.get("cc_all_nu_per_ebin", []))
-    has_antinu_data = any(c > 0 for c in data.get("cc_all_antinu_per_ebin", []))
-
-    if has_nu_data and has_antinu_data:
-        g_charm_rate_mc_nu.Draw("P E1 same")
-        g_charm_rate_mc_antinu.Draw("P E1 same")
     g_charm_rate_mc.Draw("P E1 same")
 
-    if has_2trks_data:
-        g_charm_rate_2trks.Draw("P E1 same")
+    leg_inc = ROOT.TLegend(0.50, 0.70, 0.92, 0.89)
+    leg_inc.SetBorderSize(1)
+    leg_inc.SetFillColorAlpha(ROOT.kWhite, 0.92)
+    leg_inc.SetTextSize(0.026)
+    leg_inc.AddEntry(g_charm_rate_mc, "MC Inclusive (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
+    leg_inc.AddEntry(f_sr_w_inc, "Slow Rescaling (W, #nu+#bar{#nu})", "l")
+    leg_inc.AddEntry(g_sr_w_inc_band, "Slow Rescaling 1#sigma Belt (W)", "f")
+    leg_inc.AddEntry(f_sr_iso, "Slow Rescaling (Isoscalar N=Z)", "l")
+    leg_inc.Draw("same")
+    c_rate_inc.Write()
 
-    leg_rate = ROOT.TLegend(0.46, 0.64, 0.92, 0.89)
-    leg_rate.SetBorderSize(1)
-    leg_rate.SetFillStyle(1001)
-    leg_rate.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_rate.SetTextSize(0.024)
-    leg_rate.AddEntry(g_charm_rate_mc, "MC Inclusive (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
-    leg_rate.AddEntry(f_sr_w_inc, "Slow Rescaling (W, #nu+#bar{#nu} avg)", "l")
-    if has_nu_data:
-        leg_rate.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
-        leg_rate.AddEntry(f_sr_w_nu, "Slow Rescaling (W, pure #nu_{#mu})", "l")
-    if has_antinu_data:
-        leg_rate.AddEntry(g_charm_rate_mc_antinu, "MC #bar{#nu}_{#mu} CC", "lep")
-        leg_rate.AddEntry(f_sr_w_antinu, "Slow Rescaling (W, pure #bar{#nu}_{#mu})", "l")
-    leg_rate.AddEntry(f_sr_iso, "Slow Rescaling (Isoscalar N=Z, #nu_{#mu})", "l")
-    leg_rate.AddEntry(g_sr_w_inc_band, "Slow Rescaling 1#sigma Uncertainty (W)", "f")
-    if has_2trks_data:
-        leg_rate.AddEntry(g_charm_rate_2trks, "MC #geq 2 reco tracks (dimuon stream)", "lep")
-    leg_rate.Draw("same")
+    # -------------------------------------------------------------------------
+    # Canvas 1b: Neutrino Only (nu_mu)
+    # -------------------------------------------------------------------------
+    c_rate_nu = ROOT.TCanvas("c_charm_rate_vs_energy_nu_only", "Charm Production Rate vs Neutrino Energy (nu_mu)", 950, 700)
+    c_rate_nu.SetLeftMargin(0.12)
+    c_rate_nu.SetRightMargin(0.06)
+    c_rate_nu.SetTopMargin(0.08)
+    c_rate_nu.SetBottomMargin(0.12)
+    c_rate_nu.SetGrid()
 
-    pave_rate_note = ROOT.TPaveText(0.46, 0.48, 0.92, 0.62, "NDC")
-    pave_rate_note.SetBorderSize(1)
-    pave_rate_note.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    pave_rate_note.SetTextAlign(12)
-    pave_rate_note.SetTextSize(0.022)
-    pave_rate_note.AddText("#bf{Nuclear Target & Flavour Corrections:}")
-    pave_rate_note.AddText("Tungsten target (f_{n} #approx 0.60) enhances #nu_{#mu} charm via valence d quarks.")
-    pave_rate_note.AddText("#bar{#nu}_{#mu} CC has higher ratio due to (1-y)^{2} valence suppression.")
-    pave_rate_note.Draw("same")
-    c_rate.Write()
+    h_frame_nu = c_rate_nu.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), y_max_frame)
+    h_frame_nu.SetTitle("Charm Production Rate: #nu_{#mu} CC;E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
+    h_frame_nu.GetYaxis().SetTitleOffset(1.25)
+
+    g_sr_w_nu_band.Draw("3 same")
+    f_sr_iso.Draw("same")
+    f_sr_w_nu.Draw("same")
+    g_charm_rate_mc_nu.Draw("P E1 same")
+
+    leg_nu = ROOT.TLegend(0.50, 0.70, 0.92, 0.89)
+    leg_nu.SetBorderSize(1)
+    leg_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
+    leg_nu.SetTextSize(0.026)
+    leg_nu.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
+    leg_nu.AddEntry(f_sr_w_nu, "Slow Rescaling (W, #nu_{#mu})", "l")
+    leg_nu.AddEntry(g_sr_w_nu_band, "Slow Rescaling 1#sigma Belt (W)", "f")
+    leg_nu.AddEntry(f_sr_iso, "Slow Rescaling (Isoscalar N=Z)", "l")
+    leg_nu.Draw("same")
+    c_rate_nu.Write()
+
+    # -------------------------------------------------------------------------
+    # Canvas 1c: Antineutrino Only (anti_nu_mu)
+    # -------------------------------------------------------------------------
+    c_rate_antinu = ROOT.TCanvas("c_charm_rate_vs_energy_antinu_only", "Charm Production Rate vs Neutrino Energy (anti_nu_mu)", 950, 700)
+    c_rate_antinu.SetLeftMargin(0.12)
+    c_rate_antinu.SetRightMargin(0.06)
+    c_rate_antinu.SetTopMargin(0.08)
+    c_rate_antinu.SetBottomMargin(0.12)
+    c_rate_antinu.SetGrid()
+
+    y_max_antinu = max(0.35, y_max_frame * 1.25)
+    h_frame_antinu = c_rate_antinu.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), y_max_antinu)
+    h_frame_antinu.SetTitle("Charm Production Rate: #bar{#nu}_{#mu} CC;E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
+    h_frame_antinu.GetYaxis().SetTitleOffset(1.25)
+
+    g_sr_w_antinu_band.Draw("3 same")
+    f_sr_iso.Draw("same")
+    f_sr_w_antinu.Draw("same")
+    g_charm_rate_mc_antinu.Draw("P E1 same")
+
+    leg_antinu = ROOT.TLegend(0.50, 0.70, 0.92, 0.89)
+    leg_antinu.SetBorderSize(1)
+    leg_antinu.SetFillColorAlpha(ROOT.kWhite, 0.92)
+    leg_antinu.SetTextSize(0.026)
+    leg_antinu.AddEntry(g_charm_rate_mc_antinu, "MC #bar{#nu}_{#mu} CC", "lep")
+    leg_antinu.AddEntry(f_sr_w_antinu, "Slow Rescaling (W, #bar{#nu}_{#mu})", "l")
+    leg_antinu.AddEntry(g_sr_w_antinu_band, "Slow Rescaling 1#sigma Belt (W)", "f")
+    leg_antinu.AddEntry(f_sr_iso, "Slow Rescaling (Isoscalar N=Z)", "l")
+    leg_antinu.Draw("same")
+    c_rate_antinu.Write()
 
     # Also store into Summary directory
     dir_summary.cd()
@@ -1967,12 +1977,12 @@ def write_histograms_and_canvases(
     f_sr_w_nu.Write("f_slow_rescaling_w_nu")
     f_sr_w_antinu.Write("f_slow_rescaling_w_antinu")
     f_sr_iso.Write("f_slow_rescaling_isoscalar")
-    g_sr_w_inc_band.Write("g_slow_rescaling_1sigma_band")
+    g_sr_w_inc_band.Write("g_slow_rescaling_w_inclusive_1sigma_band")
+    g_sr_w_nu_band.Write("g_slow_rescaling_w_nu_1sigma_band")
+    g_sr_w_antinu_band.Write("g_slow_rescaling_w_antinu_1sigma_band")
     g_charm_rate_mc.Write("g_charm_rate_mc")
     g_charm_rate_mc_nu.Write("g_charm_rate_mc_nu")
     g_charm_rate_mc_antinu.Write("g_charm_rate_mc_antinu")
-    if has_2trks_data:
-        g_charm_rate_2trks.Write("g_charm_rate_2trks")
     dir_canvases.cd()
 
     # --- Canvas 2: Overlaid Energy Spectra (Inclusive CC vs Charm CC vs Charm Hadron) ---
@@ -2273,6 +2283,7 @@ def write_histograms_and_canvases(
 
         h_sim_comp.SetMaximum(y_max)
         h_sim_comp.SetMinimum(0.0)
+        h_sim_comp.SetStats(0)
 
         dir_canvases.cd()
         c_pdg_sp = ROOT.TCanvas(f"c_branching_ratios_vs_pdg_{sp_name}", f"{sp_name} Inclusive Branching Fractions vs PDG Reference", 1150, 750)
@@ -2287,12 +2298,12 @@ def write_histograms_and_canvases(
         h_sim_comp.Draw("HIST same")
         g_pdg_comp.Draw("P E1 same")
 
-        leg_pdg_sp = ROOT.TLegend(0.46, 0.72, 0.92, 0.88)
+        leg_pdg_sp = ROOT.TLegend(0.52, 0.74, 0.92, 0.88)
         leg_pdg_sp.SetBorderSize(1)
         leg_pdg_sp.SetFillColor(ROOT.kWhite)
-        leg_pdg_sp.AddEntry(h_sim_comp, f"MC Simulation ({w_tot:.1f} weighted decays)", "l")
-        leg_pdg_sp.AddEntry(g_err_comp, "MC Stat Error (#pm 1#sigma weighted error)", "f")
-        leg_pdg_sp.AddEntry(g_pdg_comp, "PDG World Average Reference (#Gamma_{i} / #Gamma)", "lep")
+        leg_pdg_sp.AddEntry(h_sim_comp, f"MC Simulation ({w_tot:.1f} ev)", "l")
+        leg_pdg_sp.AddEntry(g_err_comp, "MC Stat (#pm 1#sigma)", "f")
+        leg_pdg_sp.AddEntry(g_pdg_comp, "PDG reference (#Gamma_{i} / #Gamma)", "lep")
         leg_pdg_sp.Draw("same")
 
         c_pdg_sp.Write()

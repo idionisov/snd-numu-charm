@@ -235,6 +235,24 @@ f_sr, g_band_inner, g_band_outer = create_slow_rescaling_model(
 ```
 
 Three dedicated canvases are generated:
-1. `c_charm_rate_vs_energy`: Inclusive $\nu_\mu + \bar{\nu}_\mu$ CC rate on Tungsten, compared against MC inclusive, with the Isoscalar dashed reference line.
-2. `c_charm_rate_vs_energy_nu_only`: Pure $\nu_\mu$ CC rate on Tungsten, compared against MC $\nu_\mu$ CC.
-3. `c_charm_rate_vs_energy_antinu_only`: Pure $\bar{\nu}_\mu$ CC rate on Tungsten, compared against MC $\bar{\nu}_\mu$ CC.
+1. `c_charm_rate_vs_energy`: Inclusive $\nu_\mu + \bar{\nu}_\mu$ CC rate on Tungsten, compared against MC inclusive, with the Isoscalar dashed reference line and CHORUS measurement.
+2. `c_charm_rate_vs_energy_nu_only`: Pure $\nu_\mu$ CC rate on Tungsten, compared against MC $\nu_\mu$ CC, with the Isoscalar dashed reference line and CHORUS measurement.
+3. `c_charm_rate_vs_energy_antinu_only`: Pure $\bar{\nu}_\mu$ CC rate on Tungsten, compared against MC $\bar{\nu}_\mu$ CC, with the matching $\bar{\nu}_\mu$ Isoscalar dashed reference line.
+
+---
+
+## 8. External Experimental Comparison: CHORUS Measurement
+
+To anchor the slow rescaling threshold turn-on against real experimental data, the diagnostic plots overlay the published measurements from the **CHORUS Collaboration** (*New J. Phys.* 13 (2011) 093002, arXiv:1107.0613):
+- **Beam**: CERN SPS West Area Neutrino Facility (WANF), wide-band $\nu_\mu$ beam ($\langle E_\nu \rangle \approx 27\text{ GeV}$, covering $10 - 200\text{ GeV}$).
+- **Target**: Nuclear emulsion ($\langle Z/A \rangle \approx 0.467$).
+- **Marker**: Black open squares ($\Box$), consistent with Figure 4 of the CHORUS publication.
+
+### 8.1 Nuclear Target Comparison: Emulsion vs Tungsten
+| Target | $\langle Z/A \rangle$ ($f_p$) | $f_n$ | Predicted $R_\infty(\nu_\mu)$ |
+| :--- | :--- | :--- | :--- |
+| **Isoscalar ($N=Z$)** | $0.5000$ | $0.5000$ | $11.16\%$ |
+| **CHORUS Emulsion** | $0.4670$ | $0.5330$ | $11.05\%$ |
+| **SND@LHC Tungsten** | $0.4025$ | $0.5975$ | $10.84\%$ |
+
+Because nuclear emulsion sits between an isoscalar target and Tungsten, the difference in the predicted slow rescaling curve between Emulsion and Tungsten is minuscule ($\Delta R_\infty \approx 0.2\%$). The CHORUS data points cleanly delineate the threshold region ($E_\nu < 150\text{ GeV}$), showing excellent agreement with the slow rescaling turn-on kinematics ($E_{\text{scale}} \approx 28\text{ GeV}$, $\alpha \approx 1.15$), while SND@LHC probes the higher-energy DIS evolution ($E_\nu > 150\text{ GeV}$ up to $1.5\text{ TeV}$).

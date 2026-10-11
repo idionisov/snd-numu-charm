@@ -1876,6 +1876,34 @@ def write_histograms_and_canvases(
     f_sr_iso_antinu.SetLineStyle(7)
     f_sr_iso_antinu.SetLineWidth(2)
 
+    # Load CHORUS external measurement (New J. Phys. 13 (2011) 093002, Emulsion target, nu_mu CC)
+    g_chorus = None
+    chorus_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "measurements", "chorus_sigmaCharmDivSigmaCC_vs_Enu.csv")
+    if os.path.exists(chorus_csv_path):
+        try:
+            chorus_pts = []
+            with open(chorus_csv_path, "r") as f_ch:
+                for line in f_ch:
+                    line = line.strip()
+                    if not line or line.startswith("#") or line.startswith("E_nu"):
+                        continue
+                    parts = [float(p.strip()) for p in line.split(",")]
+                    chorus_pts.append(parts)
+            if chorus_pts:
+                g_chorus = ROOT.TGraphErrors(len(chorus_pts))
+                g_chorus.SetName("g_chorus_measurement")
+                g_chorus.SetTitle("CHORUS (Emulsion target, #nu_{#mu})")
+                for idx_ch, (enu, enu_err, val, val_err) in enumerate(chorus_pts):
+                    g_chorus.SetPoint(idx_ch, enu, val)
+                    g_chorus.SetPointError(idx_ch, enu_err, val_err)
+                g_chorus.SetMarkerStyle(25)  # Open square
+                g_chorus.SetMarkerSize(1.2)
+                g_chorus.SetMarkerColor(ROOT.kBlack)
+                g_chorus.SetLineColor(ROOT.kBlack)
+                g_chorus.SetLineWidth(2)
+        except Exception as e_ch:
+            print(f"[Warning] Failed to load CHORUS measurement: {e_ch}")
+
     # Calculate data points
     g_charm_rate_mc = ROOT.TGraphAsymmErrors(n_nu_ebins)
     g_charm_rate_mc.SetName("g_charm_rate_mc")
@@ -1958,12 +1986,16 @@ def write_histograms_and_canvases(
     f_sr_iso_inc.Draw("same")
     f_sr_w_inc.Draw("same")
     g_charm_rate_mc.Draw("P E1 same")
+    if g_chorus:
+        g_chorus.Draw("P E1 same")
 
-    leg_inc = ROOT.TLegend(0.48, 0.66, 0.92, 0.89)
+    leg_inc = ROOT.TLegend(0.46, 0.62, 0.92, 0.89)
     leg_inc.SetBorderSize(1)
     leg_inc.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_inc.SetTextSize(0.024)
+    leg_inc.SetTextSize(0.023)
     leg_inc.AddEntry(g_charm_rate_mc, "MC Inclusive (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
+    if g_chorus:
+        leg_inc.AddEntry(g_chorus, "CHORUS (Emulsion target, #nu_{#mu})", "lep")
     leg_inc.AddEntry(f_sr_w_inc, "Slow Rescaling (W, #nu+#bar{#nu})", "l")
     leg_inc.AddEntry(g_sr_w_inc_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
     leg_inc.AddEntry(g_sr_w_inc_outer, "+ High-E QCD / Sea Evolution", "f")
@@ -1990,12 +2022,16 @@ def write_histograms_and_canvases(
     f_sr_iso_nu.Draw("same")
     f_sr_w_nu.Draw("same")
     g_charm_rate_mc_nu.Draw("P E1 same")
+    if g_chorus:
+        g_chorus.Draw("P E1 same")
 
-    leg_nu = ROOT.TLegend(0.48, 0.66, 0.92, 0.89)
+    leg_nu = ROOT.TLegend(0.46, 0.62, 0.92, 0.89)
     leg_nu.SetBorderSize(1)
     leg_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_nu.SetTextSize(0.024)
+    leg_nu.SetTextSize(0.023)
     leg_nu.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
+    if g_chorus:
+        leg_nu.AddEntry(g_chorus, "CHORUS (Emulsion target, #nu_{#mu})", "lep")
     leg_nu.AddEntry(f_sr_w_nu, "Slow Rescaling (W, #nu_{#mu})", "l")
     leg_nu.AddEntry(g_sr_w_nu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
     leg_nu.AddEntry(g_sr_w_nu_outer, "+ High-E QCD / Sea Evolution", "f")
@@ -2038,6 +2074,8 @@ def write_histograms_and_canvases(
 
     # Also store into Summary directory
     dir_summary.cd()
+    if g_chorus:
+        g_chorus.Write("g_chorus_measurement")
     f_sr_w_inc.Write("f_slow_rescaling_w_inclusive")
     f_sr_w_nu.Write("f_slow_rescaling_w_nu")
     f_sr_w_antinu.Write("f_slow_rescaling_w_antinu")

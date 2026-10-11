@@ -168,17 +168,16 @@ The inner band represents fundamental parametric uncertainties in the leading-or
    $$\sigma_{\text{inner}}(E_\nu) = \sqrt{\sigma_{R,\text{base}}^2(E_\nu) + \sigma_{\text{kin}}^2(E_\nu)}$$
    - Formatted in ROOT with `SetFillColorAlpha(band_color, 0.45)` and `SetFillStyle(1001)`.
 
-### 6.2 Tier 2: Outer Belt (High-Energy QCD & Strange Sea Evolution)
-As neutrino energy reaches several hundreds of GeV up to $1.5\text{ TeV}$, leading-order slow rescaling is subject to additional QCD effects:
-1. **DGLAP $Q^2$ Evolution**: In DIS, $Q^2 \sim 2 M_N E_\nu x y$. At TeV energies, $Q^2$ reaches hundreds of $\text{GeV}^2$. DGLAP evolution causes gluon splitting ($g \to s\bar{s}$ and $g \to c\bar{c}$), leading to growth in the strange sea and non-zero charm sea contributions at high $Q^2$.
-2. **Next-to-Leading-Order (NLO/NNLO) Corrections**: Gluon-initiated charm production ($W^+ g \to c \bar{s}$) opens up at $\mathcal{O}(\alpha_s)$.
-3. **Parametrization of the High-$E_\nu$ Deviation**:
-   The relative uncertainty expands logarithmically with energy from the low-energy anchor $E_0 = 40\text{ GeV}$ up to $E_{\text{max}} = 1000\text{ GeV}$:
-   $$\delta_{\text{high-E}}(E_\nu) = 0.22 \cdot \frac{\ln\left[\max(1, E_\nu / 40\text{ GeV})\right]}{\ln(1000 / 40)}$$
-   Combining in quadrature with the base PDF uncertainty:
-   $$\left(\frac{\sigma_{R,\text{outer}}}{R_\infty}\right) = \sqrt{\left(\frac{\sigma_{R,\text{base}}}{R_\infty}\right)^2 + \delta_{\text{high-E}}^2(E_\nu)}$$
-   $$\sigma_{\text{outer}}(E_\nu) = \sqrt{\left[\text{kin\_factor}(E_\nu) \cdot R_\infty \cdot \left(\frac{\sigma_{R,\text{outer}}}{R_\infty}\right)\right]^2 + \sigma_{\text{kin}}^2(E_\nu)}$$
-   - Formatted in ROOT with `SetFillColorAlpha(band_color, 0.20)`, `SetFillStyle(1001)`, and a dashed boundary `SetLineStyle(3)`.
+### 6.2 Tier 2: Outer Belt (Asymmetric High-Energy QCD & Strange Sea Evolution)
+As neutrino energy reaches several hundreds of GeV up to $1.5\text{ TeV}$, leading-order slow rescaling is subject to additional QCD effects that **asymmetrically enhance** the charm cross-section ratio rather than suppressing it:
+1. **Boson-Gluon Fusion ($W^+ g \to c\bar{s}$)**: At $\mathcal{O}(\alpha_s)$, gluon-initiated charm production opens up. Because the gluon density $g(x, Q^2)$ grows steeply at small $x$, this acts as a strictly positive additive contribution that is absent from LO $2 \to 2$ scattering.
+2. **DGLAP $Q^2$ Strange Sea Enhancement**: Under DGLAP evolution, $Q^2$ grows with $E_\nu$ ($Q^2 \sim 2 M_N E_\nu x y$). Gluons split into $s\bar{s}$ pairs ($g \to s\bar{s}$), enhancing the effective strange sea fraction at DIS scales. Because charm production from strange quarks is Cabibbo-favored ($|V_{cs}|^2 \approx 0.95$), this disproportionately enhances the charm numerator over the total CC denominator.
+3. **Physical Asymmetry**:
+   - **Downward bound ($-\Delta R$)**: Constrained to the symmetric Tier 1 baseline (charm mass and base PDF/CKM uncertainty $\sim 8\%$). The ratio cannot drop significantly below LO at high energies because sea quarks and gluons grow while valence quarks decrease.
+   - **Upward bound ($+\Delta R$)**: Expands logarithmically with energy from $E_0 = 40\text{ GeV}$ up to $1\text{ TeV}$ to cover the positive shift from boson-gluon fusion and strange sea growth:
+     $$\delta_{\text{high-E}}^{\text{up}}(E_\nu) = 0.28 \cdot \frac{\ln\left[\max(1, E_\nu / 40\text{ GeV})\right]}{\ln(1000 / 40)}$$
+     $$\sigma_{\text{outer}}^{\text{up}}(E_\nu) = \sqrt{\left[\text{kin\_factor}(E_\nu) \cdot R_\infty \cdot \sqrt{(0.08)^2 + (\delta_{\text{high-E}}^{\text{up}})^2}\right]^2 + \sigma_{\text{kin}}^2(E_\nu)}$$
+   - Formatted in ROOT using `TGraphAsymmErrors` with `SetFillColorAlpha(band_color, 0.20)`, `SetFillStyle(1001)`, and a dashed boundary `SetLineStyle(3)`.
 
 ---
 

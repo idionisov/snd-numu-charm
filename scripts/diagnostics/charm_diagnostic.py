@@ -737,14 +737,17 @@ def create_slow_rescaling_model(
     sigma_ethresh = d_ethresh_mc * sigma_m_c
 
     # Build 1-sigma uncertainty bands:
-    # 1. Inner band: base threshold mass & leading-order PDF/CKM uncertainty
-    # 2. Outer band: includes high-energy QCD scale & strange sea evolution deviation
+    # Build 1-sigma uncertainty bands:
+    # 1. Inner band: base threshold mass & leading-order PDF/CKM uncertainty (symmetric)
+    # 2. Outer band: asymmetric expansion reflecting that high-energy QCD evolution
+    #    (boson-gluon fusion W+ g -> c sbar and DGLAP strange sea growth g -> s sbar)
+    #    skews deviations upward rather than downward.
     n_pts = 300
     g_band_inner = ROOT.TGraphErrors(n_pts)
     g_band_inner.SetName(f"{name}_1sigma_inner_band")
     g_band_inner.SetTitle(f"Slow Rescaling Base 1#sigma Uncertainty Belt;E_{{#nu}} [GeV];R_{{charm}}")
 
-    g_band_outer = ROOT.TGraphErrors(n_pts)
+    g_band_outer = ROOT.TGraphAsymmErrors(n_pts)
     g_band_outer.SetName(f"{name}_1sigma_outer_band")
     g_band_outer.SetTitle(f"Slow Rescaling 1#sigma with High-E Evolution;E_{{#nu}} [GeV];R_{{charm}}")
 
@@ -753,32 +756,37 @@ def create_slow_rescaling_model(
         if x <= e_thresh:
             y = 0.0
             sigma_y_inner = 0.0
-            sigma_y_outer = 0.0
+            err_lo_outer = 0.0
+            err_hi_outer = 0.0
         else:
             kin_factor = ((1.0 - e_thresh / x)**alpha) * (x / (x + e_scale))
             y = r_inf * kin_factor
             dy_dethresh = r_inf * alpha * ((1.0 - e_thresh / x)**(alpha - 1.0)) * (-1.0 / (x + e_scale))
             sigma_kin = abs(dy_dethresh * sigma_ethresh)
 
-            # Inner base uncertainty
+            # Inner base uncertainty (symmetric base kinematics & CKM/PDF normalization)
             sigma_r_base = kin_factor * sigma_rinf_base
             sigma_y_inner = math.sqrt(sigma_r_base**2 + sigma_kin**2)
 
-            # Outer band with energy-dependent high-energy QCD scale & strange sea evolution:
-            # Grows logarithmically with Q^2 ~ 2 m_p E_nu x to reflect DGLAP scaling violations
-            # and deviations between leading-order slow rescaling and full high-energy DIS simulation.
-            rel_high_e_unc = 0.22 * math.log(max(1.0, x / 40.0)) / math.log(1000.0 / 40.0)
-            tot_rel_rinf = math.sqrt((sigma_rinf_base / r_inf)**2 + rel_high_e_unc**2)
-            sigma_r_outer = kin_factor * (r_inf * tot_rel_rinf)
-            sigma_y_outer = math.sqrt(sigma_r_outer**2 + sigma_kin**2)
+            # Outer band:
+            # Downward deviations at high E are constrained to base PDF/CKM and mass effects
+            err_lo_outer = sigma_y_inner
+
+            # Upward deviations expand with energy to account for:
+            # 1. Boson-gluon fusion (W+ g -> c sbar) opening at O(alpha_s)
+            # 2. DGLAP Q^2 evolution enhancing the strange sea (g -> s sbar) at small x
+            rel_high_e_unc_up = 0.28 * math.log(max(1.0, x / 40.0)) / math.log(1000.0 / 40.0)
+            tot_rel_rinf_up = math.sqrt((sigma_rinf_base / r_inf)**2 + rel_high_e_unc_up**2)
+            sigma_r_outer_up = kin_factor * (r_inf * tot_rel_rinf_up)
+            err_hi_outer = math.sqrt(sigma_r_outer_up**2 + sigma_kin**2)
 
         g_band_inner.SetPoint(i, x, y)
         g_band_inner.SetPointError(i, 0.0, sigma_y_inner)
 
         g_band_outer.SetPoint(i, x, y)
-        g_band_outer.SetPointError(i, 0.0, sigma_y_outer)
+        g_band_outer.SetPointError(i, 0.0, 0.0, err_lo_outer, err_hi_outer)
 
-    # Style outer band (lighter nuance, expanding at high E)
+    # Style outer band (lighter nuance, expanding asymmetrically upward at high E)
     g_band_outer.SetFillColorAlpha(band_color, 0.20)
     g_band_outer.SetFillStyle(1001)
     g_band_outer.SetLineColor(line_color)

@@ -61,6 +61,18 @@ if _repo_root not in sys.path:
 
 from snd import resolve_input_files
 
+DEFAULT_PRESETS: Dict[str, Dict[str, str]] = {
+    "nu14_2022": {
+        "input": "/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/*/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root",
+        "description": "2022 nu14 volTarget production (1000 partitions)",
+    },
+    "old_100fb_2022": {
+        "input": "/eos/user/i/idioniso/snd-numu-charm/data/old_sndlhc_100fb-1_2022_down_volTarget/*/sndLHC.Genie-TGeant4_digCPP_2MuTrks_truth.root",
+        "description": "2022 100fb-1 volTarget production (400 partitions)",
+    },
+}
+
+
 
 # Common particle names by PDG code for clean histogram labels
 PDG_NAMES: Dict[int, str] = {
@@ -661,6 +673,12 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
         "charm_theta": [],                          # list of production angle theta
         # Neutrino vs Antineutrino asymmetry
         "nu_sign_charm_species": {1: Counter(), -1: Counter()},
+        # Reconstruction & Tracking Multiplicity
+        "reco_tracks_cc_all": Counter(),
+        "reco_tracks_cc_charm": Counter(),
+        "charm_ge2trks_per_ebin": [0] * n_nu_ebins,
+        "charm_in_ds_per_ebin": [0] * n_nu_ebins,
+        "charm_candidate_per_ebin": [0] * n_nu_ebins,
     }
 
     events_analyzed = 0
@@ -723,7 +741,15 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
             if numu_cc_only and not is_numu_cc:
                 continue
 
+            n_reco_trks = 0
+            if hasattr(tree_cbmsim, "Reco_MuonTracks"):
+                try:
+                    n_reco_trks = tree_cbmsim.Reco_MuonTracks.GetEntries()
+                except Exception:
+                    n_reco_trks = 0
+
             local_data["nu_cc_inclusive"] += 1
+            local_data["reco_tracks_cc_all"][n_reco_trks] += 1
             local_data["nu_e_cc_all"].append(nu_energy)
             nu_ebin_idx = find_energy_bin_index(nu_energy, nu_bin_edges)
             if nu_ebin_idx >= 0:
@@ -745,9 +771,16 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
 
             if has_charm_event:
                 local_data["nu_cc_charm"] += 1
+                local_data["reco_tracks_cc_charm"][n_reco_trks] += 1
                 local_data["nu_e_cc_charm"].append(nu_energy)
                 if nu_ebin_idx >= 0:
                     local_data["cc_charm_per_ebin"][nu_ebin_idx] += 1
+                    if n_reco_trks >= 2:
+                        local_data["charm_ge2trks_per_ebin"][nu_ebin_idx] += 1
+                    if hasattr(tree_cbmsim, "dimuon_in_ds_acceptance") and bool(tree_cbmsim.dimuon_in_ds_acceptance):
+                        local_data["charm_in_ds_per_ebin"][nu_ebin_idx] += 1
+                    if hasattr(tree_cbmsim, "has_candidate") and bool(tree_cbmsim.has_candidate):
+                        local_data["charm_candidate_per_ebin"][nu_ebin_idx] += 1
             else:
                 continue
 
@@ -919,6 +952,11 @@ def merge_worker_results(
         "charm_pt": [],
         "charm_theta": [],
         "nu_sign_charm_species": {1: Counter(), -1: Counter()},
+        "reco_tracks_cc_all": Counter(),
+        "reco_tracks_cc_charm": Counter(),
+        "charm_ge2trks_per_ebin": [0] * n_nu_ebins,
+        "charm_in_ds_per_ebin": [0] * n_nu_ebins,
+        "charm_candidate_per_ebin": [0] * n_nu_ebins,
     }
 
     for r in results:
@@ -934,9 +972,15 @@ def merge_worker_results(
                 merged["charm_e_by_species"][abs_c] = []
             merged["charm_e_by_species"][abs_c].extend(e_list)
 
+        merged["reco_tracks_cc_all"].update(r.get("reco_tracks_cc_all", Counter()))
+        merged["reco_tracks_cc_charm"].update(r.get("reco_tracks_cc_charm", Counter()))
+
         for i in range(n_nu_ebins):
             merged["cc_all_per_ebin"][i] += r["cc_all_per_ebin"][i]
             merged["cc_charm_per_ebin"][i] += r["cc_charm_per_ebin"][i]
+            merged["charm_ge2trks_per_ebin"][i] += r.get("charm_ge2trks_per_ebin", [0] * n_nu_ebins)[i]
+            merged["charm_in_ds_per_ebin"][i] += r.get("charm_in_ds_per_ebin", [0] * n_nu_ebins)[i]
+            merged["charm_candidate_per_ebin"][i] += r.get("charm_candidate_per_ebin", [0] * n_nu_ebins)[i]
             merged["species_nu_ebin_counts"][i].update(r["species_nu_ebin_counts"][i])
 
         for i in range(n_ch_ebins):
@@ -1376,7 +1420,7 @@ def write_histograms_and_canvases(
     # MC data points with Clopper-Pearson asymmetric binomial errors
     g_charm_rate_mc = ROOT.TGraphAsymmErrors(n_nu_ebins)
     g_charm_rate_mc.SetName("g_charm_rate_mc")
-    g_charm_rate_mc.SetTitle("MC Production Rate (2MuTrks Stream)")
+    g_charm_rate_mc.SetTitle("MC Inclusive Charm Production Rate")
     for i_b in range(n_nu_ebins):
         n_cc = data["cc_all_per_ebin"][i_b]
         n_c = data["cc_charm_per_ebin"][i_b]
@@ -1397,6 +1441,26 @@ def write_histograms_and_canvases(
     g_charm_rate_mc.SetLineColor(ROOT.kBlack)
     g_charm_rate_mc.SetLineWidth(2)
 
+    # Reconstructed Di-Muon Stream Rate (>= 2 reco tracks)
+    has_2trks_data = any(c > 0 for c in data.get("charm_ge2trks_per_ebin", []))
+    g_charm_rate_2trks = ROOT.TGraphAsymmErrors(n_nu_ebins)
+    g_charm_rate_2trks.SetName("g_charm_rate_2trks")
+    g_charm_rate_2trks.SetTitle("MC Di-Muon Reconstructed Stream (>=2 tracks)")
+    if has_2trks_data:
+        for i_b in range(n_nu_ebins):
+            n_cc = data["cc_all_per_ebin"][i_b]
+            n_c2 = data.get("charm_ge2trks_per_ebin", [0] * n_nu_ebins)[i_b]
+            x_center = 0.5 * (nu_bin_edges[i_b] + nu_bin_edges[i_b + 1])
+            x_err = 0.5 * (nu_bin_edges[i_b + 1] - nu_bin_edges[i_b])
+            val_pct, err_lo_pct, err_hi_pct = clopper_pearson_errors(n_c2, n_cc, 0.6827)
+            g_charm_rate_2trks.SetPoint(i_b, x_center, val_pct / 100.0)
+            g_charm_rate_2trks.SetPointError(i_b, x_err, x_err, err_lo_pct / 100.0, err_hi_pct / 100.0)
+        g_charm_rate_2trks.SetMarkerStyle(25)
+        g_charm_rate_2trks.SetMarkerSize(1.1)
+        g_charm_rate_2trks.SetMarkerColor(ROOT.kAzure + 2)
+        g_charm_rate_2trks.SetLineColor(ROOT.kAzure + 2)
+        g_charm_rate_2trks.SetLineWidth(2)
+
     # Slow Rescaling Model theoretical prediction and 1-sigma uncertainty belt
     f_sr, g_sr_band = create_slow_rescaling_model(
         name="f_slow_rescaling",
@@ -1412,12 +1476,16 @@ def write_histograms_and_canvases(
     g_sr_band.Draw("3 same")
     f_sr.Draw("same")
     g_charm_rate_mc.Draw("P E1 same")
+    if has_2trks_data:
+        g_charm_rate_2trks.Draw("P E1 same")
 
     leg_rate = ROOT.TLegend(0.14, 0.68, 0.90, 0.88)
     leg_rate.SetBorderSize(1)
     leg_rate.SetFillStyle(1001)
     leg_rate.SetFillColor(ROOT.kWhite)
-    leg_rate.AddEntry(g_charm_rate_mc, "SND@LHC MC (2MuTrks Dimuon Stream - charm enriched)", "lep")
+    leg_rate.AddEntry(g_charm_rate_mc, "SND@LHC MC Inclusive CC (All Events)", "lep")
+    if has_2trks_data:
+        leg_rate.AddEntry(g_charm_rate_2trks, "SND@LHC MC (Events with #geq 2 reco tracks - dimuon candidate stream)", "lep")
     leg_rate.AddEntry(f_sr, "Slow Rescaling Model (m_{c}=1.273 GeV, |V_{cd}|=0.2250, |V_{cs}|=0.9735)", "l")
     leg_rate.AddEntry(g_sr_band, "Slow Rescaling 1#sigma Uncertainty Belt (PDG m_{c}, |V_{cd}|, |V_{cs}|, #kappa_{s})", "f")
     leg_rate.Draw("same")
@@ -1427,10 +1495,9 @@ def write_histograms_and_canvases(
     pave_rate_note.SetFillColorAlpha(ROOT.kWhite, 0.9)
     pave_rate_note.SetTextAlign(12)
     pave_rate_note.SetTextSize(0.026)
-    pave_rate_note.AddText("#bf{Physical Note on MC Charm Rate:}")
-    pave_rate_note.AddText("Input files are 2MuTrks-filtered candidates (#geq 2 reconstructed muon tracks).")
-    pave_rate_note.AddText("Semileptonic charm decays (c #rightarrow #mu^{+} #nu_{#mu} X) generate a second muon, heavily enriching")
-    pave_rate_note.AddText("the charm fraction in this sample relative to inclusive unselected #nu_{#mu} CC DIS.")
+    pave_rate_note.AddText("#bf{Physical Comparison with Slow Rescaling:}")
+    pave_rate_note.AddText("Inclusive #nu_{#mu} CC MC production rate (black markers) directly validates the Georgi-Politzer / Barnett prediction.")
+    pave_rate_note.AddText("Reconstructed #geq 2 tracks stream (blue open markers) illustrates downstream dimuon detection acceptance.")
     pave_rate_note.Draw("same")
     c_rate.Write()
 
@@ -1439,6 +1506,8 @@ def write_histograms_and_canvases(
     f_sr.Write("f_slow_rescaling")
     g_sr_band.Write("g_slow_rescaling_1sigma_band")
     g_charm_rate_mc.Write("g_charm_rate_mc")
+    if has_2trks_data:
+        g_charm_rate_2trks.Write("g_charm_rate_2trks")
     dir_canvases.cd()
 
     # --- Canvas 2: Overlaid Energy Spectra (Inclusive CC vs Charm CC vs Charm Hadron) ---
@@ -1840,6 +1909,106 @@ def write_histograms_and_canvases(
         c_all_sp.Write()
         keep_alive_pdg.append(c_all_sp)
 
+    # --- Canvas 7: Reconstructed Track Multiplicity and Dimuon Tracking Efficiency ---
+    if any(c > 0 for c in data.get("reco_tracks_cc_all", Counter()).values()):
+        dir_canvases.cd()
+        c_reco = ROOT.TCanvas("c_reco_multiplicity_and_efficiency", "Reconstruction Multiplicity & Selection Efficiency", 1200, 550)
+        c_reco.Divide(2, 1)
+
+        # Pad 1: Reconstructed track multiplicity
+        pad1 = c_reco.cd(1)
+        pad1.SetLeftMargin(0.12)
+        pad1.SetRightMargin(0.06)
+        pad1.SetTopMargin(0.08)
+        pad1.SetBottomMargin(0.12)
+        pad1.SetGridy()
+
+        max_trk = max(max(data["reco_tracks_cc_all"].keys(), default=3), max(data["reco_tracks_cc_charm"].keys(), default=3), 3)
+        h_mult_all = ROOT.TH1D("h_reco_tracks_cc_all", "Reconstructed Tracks Multiplicity;N_{reco tracks};Fraction of Events [%]", max_trk + 1, -0.5, max_trk + 0.5)
+        h_mult_charm = ROOT.TH1D("h_reco_tracks_cc_charm", "Charm CC Track Multiplicity;N_{reco tracks};Fraction of Events [%]", max_trk + 1, -0.5, max_trk + 0.5)
+
+        tot_cc = data["nu_cc_inclusive"]
+        tot_ch = data["nu_cc_charm"]
+        for n_t, cnt in data["reco_tracks_cc_all"].items():
+            if 0 <= n_t <= max_trk:
+                h_mult_all.SetBinContent(n_t + 1, (100.0 * cnt / tot_cc) if tot_cc > 0 else 0.0)
+        for n_t, cnt in data["reco_tracks_cc_charm"].items():
+            if 0 <= n_t <= max_trk:
+                h_mult_charm.SetBinContent(n_t + 1, (100.0 * cnt / tot_ch) if tot_ch > 0 else 0.0)
+
+        h_mult_all.SetLineColor(ROOT.kBlack)
+        h_mult_all.SetLineWidth(2)
+        h_mult_all.SetFillColorAlpha(ROOT.kGray + 1, 0.3)
+        h_mult_charm.SetLineColor(ROOT.kRed + 1)
+        h_mult_charm.SetLineWidth(2)
+        h_mult_charm.SetFillColorAlpha(ROOT.kRed - 9, 0.4)
+
+        max_val = max(h_mult_all.GetMaximum(), h_mult_charm.GetMaximum()) * 1.3
+        h_mult_all.SetMaximum(max_val)
+        h_mult_all.Draw("HIST")
+        h_mult_charm.Draw("HIST same")
+
+        leg_mult = ROOT.TLegend(0.48, 0.72, 0.92, 0.88)
+        leg_mult.SetBorderSize(1)
+        leg_mult.SetFillColor(ROOT.kWhite)
+        leg_mult.AddEntry(h_mult_all, f"All #nu_{{#mu}} CC ({tot_cc} ev)", "f")
+        leg_mult.AddEntry(h_mult_charm, f"#nu_{{#mu}} CC with Charm ({tot_ch} ev)", "f")
+        leg_mult.Draw("same")
+
+        # Pad 2: Tracking efficiency (>= 2 tracks) and DS acceptance vs E_nu
+        pad2 = c_reco.cd(2)
+        pad2.SetLeftMargin(0.12)
+        pad2.SetRightMargin(0.06)
+        pad2.SetTopMargin(0.08)
+        pad2.SetBottomMargin(0.12)
+        pad2.SetGrid()
+
+        h_eff_frame = pad2.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), 1.05)
+        h_eff_frame.SetTitle("Charm Dimuon Efficiency & Acceptance vs E_{#nu};E_{#nu} [GeV];Fraction / Efficiency")
+
+        g_eff_2trks = ROOT.TGraphAsymmErrors(n_nu_ebins)
+        g_eff_2trks.SetName("g_eff_charm_2trks")
+        g_eff_ds = ROOT.TGraphAsymmErrors(n_nu_ebins)
+        g_eff_ds.SetName("g_eff_charm_in_ds")
+
+        for i_b in range(n_nu_ebins):
+            n_ch_bin = data["cc_charm_per_ebin"][i_b]
+            n_ge2 = data.get("charm_ge2trks_per_ebin", [0] * n_nu_ebins)[i_b]
+            n_ds = data.get("charm_in_ds_per_ebin", [0] * n_nu_ebins)[i_b]
+            x_center = 0.5 * (nu_bin_edges[i_b] + nu_bin_edges[i_b + 1])
+            x_err = 0.5 * (nu_bin_edges[i_b + 1] - nu_bin_edges[i_b])
+
+            val_pct_2, lo_2, hi_2 = clopper_pearson_errors(n_ge2, n_ch_bin, 0.6827)
+            g_eff_2trks.SetPoint(i_b, x_center, val_pct_2 / 100.0)
+            g_eff_2trks.SetPointError(i_b, x_err, x_err, lo_2 / 100.0, hi_2 / 100.0)
+
+            val_pct_ds, lo_ds, hi_ds = clopper_pearson_errors(n_ds, n_ch_bin, 0.6827)
+            g_eff_ds.SetPoint(i_b, x_center, val_pct_ds / 100.0)
+            g_eff_ds.SetPointError(i_b, x_err, x_err, lo_ds / 100.0, hi_ds / 100.0)
+
+        g_eff_2trks.SetMarkerStyle(21)
+        g_eff_2trks.SetMarkerColor(ROOT.kAzure + 2)
+        g_eff_2trks.SetLineColor(ROOT.kAzure + 2)
+        g_eff_2trks.SetLineWidth(2)
+
+        g_eff_ds.SetMarkerStyle(22)
+        g_eff_ds.SetMarkerColor(ROOT.kGreen + 2)
+        g_eff_ds.SetLineColor(ROOT.kGreen + 2)
+        g_eff_ds.SetLineWidth(2)
+
+        g_eff_2trks.Draw("P E1 same")
+        g_eff_ds.Draw("P E1 same")
+
+        leg_eff = ROOT.TLegend(0.40, 0.72, 0.92, 0.88)
+        leg_eff.SetBorderSize(1)
+        leg_eff.SetFillColor(ROOT.kWhite)
+        leg_eff.AddEntry(g_eff_2trks, "#varepsilon_{tracking}: N(#geq 2 reco tracks) / N(charm)", "lep")
+        leg_eff.AddEntry(g_eff_ds, "Acceptance: In DS Acceptance / N(charm)", "lep")
+        leg_eff.Draw("same")
+
+        c_reco.Write()
+        keep_alive_pdg.append(c_reco)
+
     fout.Close()
     print(f"  ROOT Histograms and Superimposed Canvases written successfully to: {os.path.abspath(output_path)}")
 
@@ -2081,6 +2250,46 @@ def print_diagnostic_report(
             pdg_oth_str = f"{pdg_other_br:5.2f}% +/- {pdg_other_err:4.2f}%"
             sp_col = sp_name if not printed_sp else ""
             print(f" {sp_col:<10s} {'Other':<32s} {cnt_other:<10d} {mc_oth_str:<24s} {pdg_oth_str:<18s}")
+
+            # Print Total Sum confirming disjoint partition
+            tot_mc_br = (100.0 * (sum(sim_by_pdg.values()) + cnt_other) / tot_d) if tot_d > 0 else 0.0
+            tot_pdg_br = sum_pdg_br + pdg_other_br
+            print(f" {'':<10s} {'[SUM OF DISJOINT MODES]':<32s} {tot_d:<10d} {tot_mc_br:5.2f}% (100% disjoint)   {tot_pdg_br:5.2f}% +/- 0.00%   ")
+            print(f" {'':<10s} {'-' * 82}")
+        print("-" * 94)
+
+    # 7. Reconstruction Multiplicity & Dimuon Selection Efficiency
+    if any(c > 0 for c in data.get("reco_tracks_cc_all", Counter()).values()):
+        print("\n" + "=" * 94)
+        print(" 7. RECONSTRUCTION MULTIPLICITY & DIMUON TRACKING EFFICIENCY")
+        print("=" * 94)
+        tot_cc = data["nu_cc_inclusive"]
+        tot_ch = data["nu_cc_charm"]
+        print(f" {'N_tracks':<10s} {'Inclusive CC Count':<20s} {'Inclusive CC [%]':<18s} {'Charm CC Count':<16s} {'Charm CC [%]':<16s}")
+        print("-" * 94)
+        max_trk = max(max(data["reco_tracks_cc_all"].keys(), default=3), max(data["reco_tracks_cc_charm"].keys(), default=3), 3)
+        for n_t in range(max_trk + 1):
+            cnt_all = data["reco_tracks_cc_all"].get(n_t, 0)
+            cnt_ch = data["reco_tracks_cc_charm"].get(n_t, 0)
+            pct_all = (100.0 * cnt_all / tot_cc) if tot_cc > 0 else 0.0
+            pct_ch = (100.0 * cnt_ch / tot_ch) if tot_ch > 0 else 0.0
+            print(f" {n_t:<10d} {cnt_all:<20d} {pct_all:5.2f}%              {cnt_ch:<16d} {pct_ch:5.2f}%")
+        print("-" * 94)
+
+        print("\n Charm Dimuon Tracking & Acceptance Efficiency vs E_nu:")
+        print(f" {'E_nu Bin [GeV]':<20s} {'Charm Count':<14s} {'N(>=2 trks)':<14s} {'Tracking Eff [%]':<20s} {'In DS Acceptance':<20s}")
+        print("-" * 94)
+        for i_b in range(n_nu_ebins):
+            e_low, e_high = nu_bin_edges[i_b], nu_bin_edges[i_b + 1]
+            n_ch_bin = data["cc_charm_per_ebin"][i_b]
+            n_ge2 = data.get("charm_ge2trks_per_ebin", [0] * n_nu_ebins)[i_b]
+            n_ds = data.get("charm_in_ds_per_ebin", [0] * n_nu_ebins)[i_b]
+            eff_2, lo_2, hi_2 = clopper_pearson_errors(n_ge2, n_ch_bin, 0.6827)
+            eff_ds, lo_ds, hi_ds = clopper_pearson_errors(n_ds, n_ch_bin, 0.6827)
+            bin_str = f"[{e_low:.0f}, {e_high:.0f})"
+            str_2 = f"{eff_2:5.2f}% (-{lo_2:4.2f}/+{hi_2:4.2f}%)" if n_ch_bin > 0 else "N/A"
+            str_ds = f"{eff_ds:5.2f}% (-{lo_ds:4.2f}/+{hi_ds:4.2f}%)" if n_ch_bin > 0 else "N/A"
+            print(f" {bin_str:<20s} {n_ch_bin:<14d} {n_ge2:<14d} {str_2:<20s} {str_ds:<20s}")
         print("-" * 94)
 
     print("\n" + "=" * 86)
@@ -2104,6 +2313,12 @@ def main():
         "/eos/user/i/idioniso/snd-numu-charm/data/"
         "sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/*/"
         "sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root"
+    )
+    parser.add_argument(
+        "--preset",
+        choices=list(DEFAULT_PRESETS.keys()),
+        default=None,
+        help="Preset dataset configuration (e.g. nu14_2022, old_100fb_2022)",
     )
     parser.add_argument(
         "-i", "--input",
@@ -2205,6 +2420,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if args.preset and args.preset in DEFAULT_PRESETS:
+        args.input = DEFAULT_PRESETS[args.preset]["input"]
 
     print("=" * 86)
     print(" SND@LHC: Charmed Hadron Production, Species Fractions & Decay Diagnostic")

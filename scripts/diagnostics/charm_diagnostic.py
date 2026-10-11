@@ -737,9 +737,9 @@ def create_slow_rescaling_model(
     g_band.SetName(f"{name}_1sigma_band")
     g_band.SetTitle(f"Slow Rescaling 1#sigma Uncertainty Belt;E_{{#nu}} [GeV];R_{{charm}}")
 
+    # Base PDF/CKM and mass uncertainty
     d_ethresh_mc = (m_p + m_c) / m_p
-    # Strangeness & nuclear PDF uncertainty ~ 8%
-    sigma_rinf = 0.08 * r_inf
+    sigma_rinf_base = 0.08 * r_inf
     sigma_ethresh = d_ethresh_mc * sigma_m_c
 
     x_vals = [e_thresh + (e_max - e_thresh) * (i / float(n_pts - 1))**1.5 for i in range(n_pts)]
@@ -752,7 +752,14 @@ def create_slow_rescaling_model(
             y = r_inf * kin_factor
             dy_dethresh = r_inf * alpha * ((1.0 - e_thresh / x)**(alpha - 1.0)) * (-1.0 / (x + e_scale))
             sigma_kin = abs(dy_dethresh * sigma_ethresh)
-            sigma_r = kin_factor * sigma_rinf
+
+            # Energy-dependent high-energy QCD scale & PDF strange sea evolution uncertainty:
+            # Grows logarithmically with Q^2 ~ 2 m_p E_nu x to reflect DGLAP scaling violations
+            # and deviations between leading-order slow rescaling and full high-energy DIS simulation.
+            rel_high_e_unc = 0.22 * math.log(max(1.0, x / 40.0)) / math.log(1000.0 / 40.0)
+            tot_rel_rinf = math.sqrt((sigma_rinf_base / r_inf)**2 + rel_high_e_unc**2)
+            sigma_r = kin_factor * (r_inf * tot_rel_rinf)
+
             sigma_y = math.sqrt(sigma_r**2 + sigma_kin**2)
 
         g_band.SetPoint(i, x, y)

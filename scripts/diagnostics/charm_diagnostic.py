@@ -460,7 +460,32 @@ def load_pdg_summary_tables(tables_dir: Optional[str]) -> Dict[int, Dict[str, An
     return result
 
 
-def fast_resolve_files(pattern: str, filelist_path: Optional[str] = None, max_files: int = -1) -> List[str]:
+def is_partition_ready(truth_path: str) -> bool:
+    """Checks whether a partition has completed all pipeline stages."""
+    try:
+        if not os.path.isfile(truth_path) or os.path.getsize(truth_path) < 1000:
+            return False
+        parent = os.path.dirname(truth_path)
+        p_name = os.path.basename(parent)
+        dataset_dir = os.path.dirname(parent)
+        dataset_name = os.path.basename(dataset_dir)
+        user_dir = os.path.dirname(dataset_dir)
+        base_user = os.path.dirname(user_dir)
+        disp_file = os.path.join(base_user, "event_displays", dataset_name, "partitions", f"displays_part{p_name}.root")
+        disp_dir = os.path.dirname(disp_file)
+        if os.path.isdir(disp_dir):
+            return os.path.isfile(disp_file) and os.path.getsize(disp_file) > 500
+        return True
+    except Exception:
+        return False
+
+
+def fast_resolve_files(
+    pattern: str,
+    filelist_path: Optional[str] = None,
+    max_files: int = -1,
+    ready_only: bool = True,
+) -> List[str]:
     """Quickly resolves input ROOT files from a text filelist, EOS command, or pattern."""
     matched: List[str] = []
 
@@ -471,6 +496,8 @@ def fast_resolve_files(pattern: str, filelist_path: Optional[str] = None, max_fi
                 p = line.strip()
                 if p and not p.startswith("#") and p.endswith(".root"):
                     matched.append(p)
+        if ready_only:
+            matched = [f for f in matched if is_partition_ready(f)]
         if max_files > 0:
             matched = matched[:max_files]
         return matched
@@ -482,6 +509,8 @@ def fast_resolve_files(pattern: str, filelist_path: Optional[str] = None, max_fi
                 p = line.strip()
                 if p and not p.startswith("#") and p.endswith(".root"):
                     matched.append(p)
+        if ready_only:
+            matched = [f for f in matched if is_partition_ready(f)]
         if max_files > 0:
             matched = matched[:max_files]
         return matched
@@ -501,6 +530,8 @@ def fast_resolve_files(pattern: str, filelist_path: Optional[str] = None, max_fi
                         lines,
                         key=lambda x: [int(c) if c.isdigit() else c for c in os.path.dirname(x).split("/")]
                     )
+                    if ready_only:
+                        lines = [f for f in lines if is_partition_ready(f)]
                     if max_files > 0:
                         lines = lines[:max_files]
                     return lines
@@ -510,6 +541,8 @@ def fast_resolve_files(pattern: str, filelist_path: Optional[str] = None, max_fi
     # 4. Fallback to standard resolve_input_files
     try:
         matched = resolve_input_files(pattern, max_files=max_files)
+        if ready_only:
+            matched = [f for f in matched if is_partition_ready(f)]
     except Exception:
         pass
 
@@ -687,20 +720,38 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
         if max_events_chunk > 0 and events_analyzed >= max_events_chunk:
             break
 
-        fin = ROOT.TFile.Open(fpath, "READ")
-        if not fin or fin.IsZombie():
+        fin = None
+        try:
+            fin = ROOT.TFile.Open(fpath, "READ")
+        except Exception:
             continue
 
-        tree_cbmsim = fin.Get("cbmsim")
-        if not tree_cbmsim:
-            fin.Close()
+        if not fin or fin.IsZombie():
+            if fin:
+                try:
+                    fin.Close()
+                except Exception:
+                    pass
+            continue
+
+        try:
+            tree_cbmsim = fin.Get("cbmsim")
+            if not tree_cbmsim or tree_cbmsim.IsZombie():
+                fin.Close()
+                continue
+            n_entries = tree_cbmsim.GetEntries()
+        except Exception:
+            if fin:
+                try:
+                    fin.Close()
+                except Exception:
+                    pass
             continue
 
         tree_truth = fin.Get("truth")
-        if tree_truth:
+        if tree_truth and not tree_truth.IsZombie():
             tree_cbmsim.AddFriend(tree_truth)
 
-        n_entries = tree_cbmsim.GetEntries()
         local_data["files_processed"] += 1
 
         for iev in range(n_entries):
@@ -2419,6 +2470,19 @@ def main():
         help="Directory containing PDG summary CSV tables (branching_ratio_*.csv)",
     )
 
+    parser.add_argument(
+        "--ready-only",
+        action="store_true",
+        default=True,
+        help="Only process partitions that have completed all pipeline stages",
+    )
+    parser.add_argument(
+        "--no-ready-only",
+        action="store_false",
+        dest="ready_only",
+        help="Attempt processing all partitions even if still in progress",
+    )
+
     args = parser.parse_args()
 
     if args.preset and args.preset in DEFAULT_PRESETS:
@@ -2432,6 +2496,7 @@ def main():
         print(f" Filelist             : {args.filelist}")
     print(f" Output ROOT File     : {os.path.abspath(args.output)}")
     print(f" PDG Tables Dir       : {os.path.abspath(args.pdg_tables_dir)}")
+    print(f" Ready Only           : {args.ready_only}")
     print(f" Max Events           : {'All' if args.max_events < 0 else args.max_events}")
     print(f" Max Files            : {'All' if args.max_files < 0 else args.max_files}")
     print(f" Parallel Workers     : {args.jobs}")
@@ -2444,7 +2509,12 @@ def main():
 
     # 1. Resolve input files
     t0_resolve = time.time()
-    input_files = fast_resolve_files(args.input, filelist_path=args.filelist, max_files=args.max_files)
+    input_files = fast_resolve_files(
+        args.input,
+        filelist_path=args.filelist,
+        max_files=args.max_files,
+        ready_only=args.ready_only,
+    )
     if not input_files:
         print(f"[Error] No ROOT files matched input target: {args.input}")
         sys.exit(1)

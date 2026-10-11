@@ -241,18 +241,24 @@ Three dedicated canvases are generated:
 
 ---
 
-## 8. External Experimental Comparison: CHORUS Measurement
+## 8. External Experimental Comparisons: CHORUS and E531 Measurements
 
-To anchor the slow rescaling threshold turn-on against real experimental data, the diagnostic plots overlay the published measurements from the **CHORUS Collaboration** (*New J. Phys.* 13 (2011) 093002, arXiv:1107.0613):
-- **Beam**: CERN SPS West Area Neutrino Facility (WANF), wide-band $\nu_\mu$ beam ($\langle E_\nu \rangle \approx 27\text{ GeV}$, covering $10 - 200\text{ GeV}$).
-- **Target**: Nuclear emulsion ($\langle Z/A \rangle \approx 0.467$).
-- **Marker**: Black open squares ($\Box$), consistent with Figure 4 of the CHORUS publication.
+To anchor the slow rescaling threshold turn-on against real experimental data without overwhelming the primary SND@LHC MC simulation and theoretical bands, the diagnostic plots overlay published measurements from **CHORUS** and **Fermilab E531** with muted, open markers:
+
+1. **CHORUS Collaboration** (*New J. Phys.* 13 (2011) 093002, arXiv:1107.0613):
+   - **Beam**: CERN SPS West Area Neutrino Facility (WANF), wide-band $\nu_\mu$ beam ($\langle E_\nu \rangle \approx 27\text{ GeV}$, covering $10 - 200\text{ GeV}$).
+   - **Target**: Nuclear emulsion ($\langle Z/A \rangle \approx 0.467$).
+   - **Styling**: Muted charcoal open squares ($\Box$, marker 25, `ROOT.kGray+2`), linewidth 1.
+2. **Fermilab E531 Collaboration** (*Phys. Lett. B* 206 (1988) 375):
+   - **Beam**: Fermilab wide-band neutrino beam ($E_\nu \sim 5 - 150\text{ GeV}$).
+   - **Target**: Nuclear emulsion hybrid spectrometer.
+   - **Styling**: Muted slate open circles ($\bigcirc$, marker 24, `ROOT.kGray+1`), linewidth 1.
 
 ### 8.1 Nuclear Target Comparison: Emulsion vs Tungsten
 | Target | $\langle Z/A \rangle$ ($f_p$) | $f_n$ | Predicted $R_\infty(\nu_\mu)$ |
 | :--- | :--- | :--- | :--- |
 | **Isoscalar ($N=Z$)** | $0.5000$ | $0.5000$ | $11.16\%$ |
-| **CHORUS Emulsion** | $0.4670$ | $0.5330$ | $11.05\%$ |
+| **Emulsion (CHORUS / E531)** | $0.4670$ | $0.5330$ | $11.05\%$ |
 | **SND@LHC Tungsten** | $0.4025$ | $0.5975$ | $10.84\%$ |
 
-Because nuclear emulsion sits between an isoscalar target and Tungsten, the difference in the predicted slow rescaling curve between Emulsion and Tungsten is minuscule ($\Delta R_\infty \approx 0.2\%$). The CHORUS data points cleanly delineate the threshold region ($E_\nu < 150\text{ GeV}$), showing excellent agreement with the slow rescaling turn-on kinematics ($E_{\text{scale}} \approx 28\text{ GeV}$, $\alpha \approx 1.15$), while SND@LHC probes the higher-energy DIS evolution ($E_\nu > 150\text{ GeV}$ up to $1.5\text{ TeV}$).
+Because nuclear emulsion sits between an isoscalar target and Tungsten, the difference in the predicted slow rescaling curve between Emulsion and Tungsten is minuscule ($\Delta R_\infty \approx 0.2\%$). The CHORUS and E531 data points cleanly delineate the low-energy threshold region ($E_\nu < 150\text{ GeV}$), showing consistent agreement with the slow rescaling turn-on kinematics ($E_{\text{scale}} \approx 28\text{ GeV}$, $\alpha \approx 1.15$), while SND@LHC probes the higher-energy DIS evolution ($E_\nu > 150\text{ GeV}$ up to $1.5\text{ TeV}$).

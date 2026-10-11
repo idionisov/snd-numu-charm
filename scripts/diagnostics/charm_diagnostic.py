@@ -1876,7 +1876,8 @@ def write_histograms_and_canvases(
     f_sr_iso_antinu.SetLineStyle(7)
     f_sr_iso_antinu.SetLineWidth(2)
 
-    # Load CHORUS external measurement (New J. Phys. 13 (2011) 093002, Emulsion target, nu_mu CC)
+    # Load external experimental measurements:
+    # 1. CHORUS (New J. Phys. 13 (2011) 093002, Emulsion target, nu_mu CC)
     g_chorus = None
     chorus_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "measurements", "chorus_sigmaCharmDivSigmaCC_vs_Enu.csv")
     if os.path.exists(chorus_csv_path):
@@ -1892,17 +1893,54 @@ def write_histograms_and_canvases(
             if chorus_pts:
                 g_chorus = ROOT.TGraphErrors(len(chorus_pts))
                 g_chorus.SetName("g_chorus_measurement")
-                g_chorus.SetTitle("CHORUS (Emulsion target, #nu_{#mu})")
+                g_chorus.SetTitle("CHORUS (Emulsion, #nu_{#mu})")
                 for idx_ch, (enu, enu_err, val, val_err) in enumerate(chorus_pts):
                     g_chorus.SetPoint(idx_ch, enu, val)
                     g_chorus.SetPointError(idx_ch, enu_err, val_err)
+                # Muted styling: open square, dark charcoal
                 g_chorus.SetMarkerStyle(25)  # Open square
-                g_chorus.SetMarkerSize(1.2)
-                g_chorus.SetMarkerColor(ROOT.kBlack)
-                g_chorus.SetLineColor(ROOT.kBlack)
-                g_chorus.SetLineWidth(2)
+                g_chorus.SetMarkerSize(1.05)
+                g_chorus.SetMarkerColor(ROOT.kGray + 2)
+                g_chorus.SetLineColor(ROOT.kGray + 2)
+                g_chorus.SetLineWidth(1)
         except Exception as e_ch:
             print(f"[Warning] Failed to load CHORUS measurement: {e_ch}")
+
+    # 2. Fermilab E531 (Phys. Lett. B 206 (1988) 375, Emulsion target, nu_mu CC)
+    g_e531 = None
+    e531_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "measurements", "e531_sigmaCharmDivSigmaCC_vs_Enu.csv")
+    if os.path.exists(e531_csv_path):
+        try:
+            e531_pts = []
+            with open(e531_csv_path, "r", encoding="utf-8-sig") as f_e:
+                for line in f_e:
+                    line = line.strip()
+                    if not line or line.startswith("#") or line.startswith("bin_index"):
+                        continue
+                    parts = [float(p.strip()) for p in line.split(",")]
+                    e531_pts.append(parts)
+            if e531_pts:
+                g_e531 = ROOT.TGraphAsymmErrors(len(e531_pts))
+                g_e531.SetName("g_e531_measurement")
+                g_e531.SetTitle("E531 (Emulsion, #nu_{#mu})")
+                for idx_e, p in enumerate(e531_pts):
+                    # columns: bin_index, E_low, E_high, E_mean, E_err_low, E_err_high, ratio_pct, ratio_err_low_pct, ratio_err_high_pct, ...
+                    e_mean = p[3]
+                    e_err_lo = p[4]
+                    e_err_hi = p[5]
+                    r_val = p[6] / 100.0
+                    r_err_lo = p[7] / 100.0
+                    r_err_hi = p[8] / 100.0
+                    g_e531.SetPoint(idx_e, e_mean, r_val)
+                    g_e531.SetPointError(idx_e, e_err_lo, e_err_hi, r_err_lo, r_err_hi)
+                # Muted styling: open circle, slate gray
+                g_e531.SetMarkerStyle(24)  # Open circle
+                g_e531.SetMarkerSize(1.05)
+                g_e531.SetMarkerColor(ROOT.kGray + 1)
+                g_e531.SetLineColor(ROOT.kGray + 1)
+                g_e531.SetLineWidth(1)
+        except Exception as e_e531:
+            print(f"[Warning] Failed to load E531 measurement: {e_e531}")
 
     # Calculate data points
     g_charm_rate_mc = ROOT.TGraphAsymmErrors(n_nu_ebins)
@@ -1988,14 +2026,18 @@ def write_histograms_and_canvases(
     g_charm_rate_mc.Draw("P E1 same")
     if g_chorus:
         g_chorus.Draw("P E1 same")
+    if g_e531:
+        g_e531.Draw("P E1 same")
 
-    leg_inc = ROOT.TLegend(0.46, 0.62, 0.92, 0.89)
+    leg_inc = ROOT.TLegend(0.48, 0.58, 0.92, 0.89)
     leg_inc.SetBorderSize(1)
     leg_inc.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_inc.SetTextSize(0.023)
+    leg_inc.SetTextSize(0.022)
     leg_inc.AddEntry(g_charm_rate_mc, "MC Inclusive (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
     if g_chorus:
-        leg_inc.AddEntry(g_chorus, "CHORUS (Emulsion target, #nu_{#mu})", "lep")
+        leg_inc.AddEntry(g_chorus, "CHORUS (Emulsion, #nu_{#mu})", "lep")
+    if g_e531:
+        leg_inc.AddEntry(g_e531, "E531 (Emulsion, #nu_{#mu})", "lep")
     leg_inc.AddEntry(f_sr_w_inc, "Slow Rescaling (W, #nu+#bar{#nu})", "l")
     leg_inc.AddEntry(g_sr_w_inc_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
     leg_inc.AddEntry(g_sr_w_inc_outer, "+ High-E QCD / Sea Evolution", "f")
@@ -2024,14 +2066,18 @@ def write_histograms_and_canvases(
     g_charm_rate_mc_nu.Draw("P E1 same")
     if g_chorus:
         g_chorus.Draw("P E1 same")
+    if g_e531:
+        g_e531.Draw("P E1 same")
 
-    leg_nu = ROOT.TLegend(0.46, 0.62, 0.92, 0.89)
+    leg_nu = ROOT.TLegend(0.48, 0.58, 0.92, 0.89)
     leg_nu.SetBorderSize(1)
     leg_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_nu.SetTextSize(0.023)
+    leg_nu.SetTextSize(0.022)
     leg_nu.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
     if g_chorus:
-        leg_nu.AddEntry(g_chorus, "CHORUS (Emulsion target, #nu_{#mu})", "lep")
+        leg_nu.AddEntry(g_chorus, "CHORUS (Emulsion, #nu_{#mu})", "lep")
+    if g_e531:
+        leg_nu.AddEntry(g_e531, "E531 (Emulsion, #nu_{#mu})", "lep")
     leg_nu.AddEntry(f_sr_w_nu, "Slow Rescaling (W, #nu_{#mu})", "l")
     leg_nu.AddEntry(g_sr_w_nu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
     leg_nu.AddEntry(g_sr_w_nu_outer, "+ High-E QCD / Sea Evolution", "f")
@@ -2050,7 +2096,7 @@ def write_histograms_and_canvases(
     c_rate_antinu.SetGrid()
 
     y_max_antinu = max(0.35, y_max_frame * 1.25)
-    h_frame_antinu = c_rate_antinu.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), y_max_antinu)
+    h_frame_antinu = c_rate_antinu.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), y_max_frame)
     h_frame_antinu.SetTitle("Charm Production Rate: #bar{#nu}_{#mu} CC;E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
     h_frame_antinu.GetYaxis().SetTitleOffset(1.25)
 
@@ -2076,6 +2122,8 @@ def write_histograms_and_canvases(
     dir_summary.cd()
     if g_chorus:
         g_chorus.Write("g_chorus_measurement")
+    if g_e531:
+        g_e531.Write("g_e531_measurement")
     f_sr_w_inc.Write("f_slow_rescaling_w_inclusive")
     f_sr_w_nu.Write("f_slow_rescaling_w_nu")
     f_sr_w_antinu.Write("f_slow_rescaling_w_antinu")

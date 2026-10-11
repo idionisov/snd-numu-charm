@@ -659,20 +659,66 @@ def create_slow_rescaling_model(
     sigma_v_cs: float = 0.00016,
     alpha: float = 1.15,
     e_scale: float = 28.0,
+    target: str = "tungsten",  # "tungsten" (W, Z=74, A=184) or "isoscalar"
+    nu_type: str = "nu",       # "nu" (nu_mu), "antinu" (anti-nu_mu), or "inclusive"
+    line_color: int = ROOT.kRed + 1,
+    band_color: int = ROOT.kRed - 7,
 ) -> Tuple[ROOT.TF1, ROOT.TGraphErrors]:
     """
     Georgi-Politzer / Barnett Slow Rescaling Model prediction for:
       R_charm(E_nu) = sigma(nu_mu N -> mu- c X) / sigma_CC(nu_mu N -> mu- X)
-    Using user/PDG parameters:
-      - m_c = 1.2729 +/- 0.0045 GeV (CL = 90%)
-      - |V_cd| = 0.22503 +/- 0.00068
-      - |V_cs| = 0.97345 +/- 0.00016
-    Returns:
-      (f_central, g_band_1sigma)
+    accounting for target nuclear composition (Tungsten vs Isoscalar) and neutrino type.
+
+    Target composition:
+      - Isoscalar: Z/A = 0.50, N/A = 0.50
+      - Tungsten (nat W, Z=74, A=183.84): f_p = 74/184 = 0.402, f_n = 110/184 = 0.598
+    Parton momentum integrals (at typical DIS Q^2 scale):
+      - Valence: U_val ~ 0.285, D_val ~ 0.130 (for proton)
+      - Sea: U_bar ~ D_bar ~ 0.035
+      - Strange: S = kappa_s * D_bar with modern global PDF fits (kappa_s ~ 0.55 +/- 0.08)
     """
     m_p = 0.938272
     e_thresh = ((m_p + m_c)**2 - m_p**2) / (2.0 * m_p) + 1.50
-    r_inf = (v_cd**2 * 0.395) + (v_cs**2 * 0.0718)
+
+    # Nuclear composition fractions
+    if target.lower() in ["tungsten", "w"]:
+        f_p = 74.0 / 183.84
+        f_n = 1.0 - f_p  # ~ 0.5975
+    else:
+        f_p = 0.50
+        f_n = 0.50
+
+    # Parton momentum fractions on proton
+    u_val_p = 0.285
+    d_val_p = 0.130
+    sea_q = 0.035
+    kappa_s = 0.55  # modern PDF strange sea suppression factor
+    s_quark = kappa_s * sea_q  # ~ 0.01925
+
+    # Target nucleon average PDFs
+    # Proton has (u_val_p, d_val_p), neutron has (d_val_p, u_val_p) by isospin symmetry
+    d_target = f_p * d_val_p + f_n * u_val_p + sea_q
+    u_target = f_p * u_val_p + f_n * d_val_p + sea_q
+
+    # Calculate asymptotic ratio R_inf for nu, antinu, or inclusive
+    if nu_type.lower() in ["nu", "nu_mu"]:
+        # nu_mu: interacts with d and s (flat y, \int dy = 1) and \bar{u} ((1-y)^2, \int (1-y)^2 dy = 1/3)
+        num = (v_cd**2 * d_target) + (v_cs**2 * s_quark)
+        denom = d_target + s_quark + (1.0 / 3.0) * sea_q
+        r_inf = num / denom
+    elif nu_type.lower() in ["antinu", "anti_nu_mu", "nubar"]:
+        # anti-nu_mu: charm from \bar{d} and \bar{s}; CC inclusive from u ((1-y)^2) and \bar{d}, \bar{s}
+        num = (v_cd**2 * sea_q) + (v_cs**2 * s_quark)
+        denom = (1.0 / 3.0) * u_target + sea_q + s_quark
+        r_inf = num / denom
+    else:
+        # Inclusive (nu + antinu flux average, approximately 65% nu, 35% antinu in LHC forward beam)
+        num_nu = (v_cd**2 * d_target) + (v_cs**2 * s_quark)
+        den_nu = d_target + s_quark + (1.0 / 3.0) * sea_q
+        num_an = (v_cd**2 * sea_q) + (v_cs**2 * s_quark)
+        den_an = (1.0 / 3.0) * u_target + sea_q + s_quark
+        # Weighted by CC cross section ratio: sigma_CC(nu) ~ 2 * sigma_CC(antinu)
+        r_inf = (0.65 * num_nu + 0.35 * num_an) / (0.65 * den_nu + 0.35 * den_an)
 
     formula = (
         f"x < {e_thresh:.4f} ? 0.0 : "
@@ -681,7 +727,7 @@ def create_slow_rescaling_model(
     f_sr = ROOT.TF1(name, formula, e_min, e_max)
     f_sr.SetParameters(r_inf, e_thresh, alpha, e_scale)
     f_sr.SetParNames("R_inf", "E_thresh", "alpha", "E_scale")
-    f_sr.SetLineColor(ROOT.kRed + 1)
+    f_sr.SetLineColor(line_color)
     f_sr.SetLineWidth(3)
     f_sr.SetLineStyle(1)
 
@@ -691,13 +737,9 @@ def create_slow_rescaling_model(
     g_band.SetName(f"{name}_1sigma_band")
     g_band.SetTitle(f"Slow Rescaling 1#sigma Uncertainty Belt;E_{{#nu}} [GeV];R_{{charm}}")
 
-    d_rinf_vcd = 2.0 * v_cd * 0.395
-    d_rinf_vcs = 2.0 * v_cs * 0.0718
     d_ethresh_mc = (m_p + m_c) / m_p
-
-    # Strangeness suppression / PDF sea fraction uncertainty ~ 4%
-    sigma_pdf = 0.04 * r_inf
-    sigma_rinf = math.sqrt((d_rinf_vcd * sigma_v_cd)**2 + (d_rinf_vcs * sigma_v_cs)**2 + sigma_pdf**2)
+    # Strangeness & nuclear PDF uncertainty ~ 8%
+    sigma_rinf = 0.08 * r_inf
     sigma_ethresh = d_ethresh_mc * sigma_m_c
 
     x_vals = [e_thresh + (e_max - e_thresh) * (i / float(n_pts - 1))**1.5 for i in range(n_pts)]
@@ -716,8 +758,8 @@ def create_slow_rescaling_model(
         g_band.SetPoint(i, x, y)
         g_band.SetPointError(i, 0.0, sigma_y)
 
-    g_band.SetFillColorAlpha(ROOT.kRed - 7, 0.35)
-    g_band.SetLineColor(ROOT.kRed + 1)
+    g_band.SetFillColorAlpha(band_color, 0.30)
+    g_band.SetLineColor(line_color)
     g_band.SetLineWidth(1)
 
     return f_sr, g_band
@@ -766,14 +808,26 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
         "total_events": 0,
         "nu_cc_inclusive": 0,
         "nu_cc_charm": 0,
+        "nu_only_cc_inclusive": 0,
+        "nu_only_cc_charm": 0,
+        "antinu_only_cc_inclusive": 0,
+        "antinu_only_cc_charm": 0,
         # Energy spectra
         "nu_e_cc_all": [],
         "nu_e_cc_charm": [],
+        "nu_e_cc_all_nu": [],
+        "nu_e_cc_charm_nu": [],
+        "nu_e_cc_all_antinu": [],
+        "nu_e_cc_charm_antinu": [],
         "charm_e_all": [],
         "charm_e_by_species": {},             # abs_pdg -> list of E_charm
         # Binned counts
         "cc_all_per_ebin": [0] * n_nu_ebins,
         "cc_charm_per_ebin": [0] * n_nu_ebins,
+        "cc_all_nu_per_ebin": [0] * n_nu_ebins,
+        "cc_charm_nu_per_ebin": [0] * n_nu_ebins,
+        "cc_all_antinu_per_ebin": [0] * n_nu_ebins,
+        "cc_charm_antinu_per_ebin": [0] * n_nu_ebins,
         # Species counts
         "species_hadron_counts": Counter(),
         "species_nu_ebin_counts": {i: Counter() for i in range(n_nu_ebins)},
@@ -922,9 +976,20 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
             local_data["nu_cc_inclusive"] += 1
             local_data["reco_tracks_cc_all"][n_reco_trks] += 1
             local_data["nu_e_cc_all"].append(nu_energy)
+            if nu_pdg > 0:
+                local_data["nu_only_cc_inclusive"] += 1
+                local_data["nu_e_cc_all_nu"].append(nu_energy)
+            else:
+                local_data["antinu_only_cc_inclusive"] += 1
+                local_data["nu_e_cc_all_antinu"].append(nu_energy)
+
             nu_ebin_idx = find_energy_bin_index(nu_energy, nu_bin_edges)
             if nu_ebin_idx >= 0:
                 local_data["cc_all_per_ebin"][nu_ebin_idx] += 1
+                if nu_pdg > 0:
+                    local_data["cc_all_nu_per_ebin"][nu_ebin_idx] += 1
+                else:
+                    local_data["cc_all_antinu_per_ebin"][nu_ebin_idx] += 1
 
             # 2. Check if this event produces charm: without exception
             has_charm_event = False
@@ -944,8 +1009,19 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
                 local_data["nu_cc_charm"] += 1
                 local_data["reco_tracks_cc_charm"][n_reco_trks] += 1
                 local_data["nu_e_cc_charm"].append(nu_energy)
+                if nu_pdg > 0:
+                    local_data["nu_only_cc_charm"] += 1
+                    local_data["nu_e_cc_charm_nu"].append(nu_energy)
+                else:
+                    local_data["antinu_only_cc_charm"] += 1
+                    local_data["nu_e_cc_charm_antinu"].append(nu_energy)
+
                 if nu_ebin_idx >= 0:
                     local_data["cc_charm_per_ebin"][nu_ebin_idx] += 1
+                    if nu_pdg > 0:
+                        local_data["cc_charm_nu_per_ebin"][nu_ebin_idx] += 1
+                    else:
+                        local_data["cc_charm_antinu_per_ebin"][nu_ebin_idx] += 1
                     if n_reco_trks >= 2:
                         local_data["charm_ge2trks_per_ebin"][nu_ebin_idx] += 1
                     if hasattr(tree_cbmsim, "dimuon_in_ds_acceptance") and bool(tree_cbmsim.dimuon_in_ds_acceptance):
@@ -1124,12 +1200,24 @@ def merge_worker_results(
         "total_events": sum(r["total_events"] for r in results),
         "nu_cc_inclusive": sum(r["nu_cc_inclusive"] for r in results),
         "nu_cc_charm": sum(r["nu_cc_charm"] for r in results),
+        "nu_only_cc_inclusive": sum(r.get("nu_only_cc_inclusive", 0) for r in results),
+        "nu_only_cc_charm": sum(r.get("nu_only_cc_charm", 0) for r in results),
+        "antinu_only_cc_inclusive": sum(r.get("antinu_only_cc_inclusive", 0) for r in results),
+        "antinu_only_cc_charm": sum(r.get("antinu_only_cc_charm", 0) for r in results),
         "nu_e_cc_all": [],
         "nu_e_cc_charm": [],
+        "nu_e_cc_all_nu": [],
+        "nu_e_cc_charm_nu": [],
+        "nu_e_cc_all_antinu": [],
+        "nu_e_cc_charm_antinu": [],
         "charm_e_all": [],
         "charm_e_by_species": {},
         "cc_all_per_ebin": [0] * n_nu_ebins,
         "cc_charm_per_ebin": [0] * n_nu_ebins,
+        "cc_all_nu_per_ebin": [0] * n_nu_ebins,
+        "cc_charm_nu_per_ebin": [0] * n_nu_ebins,
+        "cc_all_antinu_per_ebin": [0] * n_nu_ebins,
+        "cc_charm_antinu_per_ebin": [0] * n_nu_ebins,
         "species_hadron_counts": Counter(),
         "species_nu_ebin_counts": {i: Counter() for i in range(n_nu_ebins)},
         "species_charm_ebin_counts": {i: Counter() for i in range(n_ch_ebins)},
@@ -1178,6 +1266,10 @@ def merge_worker_results(
 
         merged["nu_e_cc_all"].extend(r["nu_e_cc_all"])
         merged["nu_e_cc_charm"].extend(r["nu_e_cc_charm"])
+        merged["nu_e_cc_all_nu"].extend(r.get("nu_e_cc_all_nu", []))
+        merged["nu_e_cc_charm_nu"].extend(r.get("nu_e_cc_charm_nu", []))
+        merged["nu_e_cc_all_antinu"].extend(r.get("nu_e_cc_all_antinu", []))
+        merged["nu_e_cc_charm_antinu"].extend(r.get("nu_e_cc_charm_antinu", []))
         merged["charm_e_all"].extend(r["charm_e_all"])
         merged["fragmentation_z"].extend(r["fragmentation_z"])
         merged["charm_pt"].extend(r["charm_pt"])
@@ -1194,6 +1286,10 @@ def merge_worker_results(
         for i in range(n_nu_ebins):
             merged["cc_all_per_ebin"][i] += r["cc_all_per_ebin"][i]
             merged["cc_charm_per_ebin"][i] += r["cc_charm_per_ebin"][i]
+            merged["cc_all_nu_per_ebin"][i] += r.get("cc_all_nu_per_ebin", [0] * n_nu_ebins)[i]
+            merged["cc_charm_nu_per_ebin"][i] += r.get("cc_charm_nu_per_ebin", [0] * n_nu_ebins)[i]
+            merged["cc_all_antinu_per_ebin"][i] += r.get("cc_all_antinu_per_ebin", [0] * n_nu_ebins)[i]
+            merged["cc_charm_antinu_per_ebin"][i] += r.get("cc_charm_antinu_per_ebin", [0] * n_nu_ebins)[i]
             merged["charm_ge2trks_per_ebin"][i] += r.get("charm_ge2trks_per_ebin", [0] * n_nu_ebins)[i]
             merged["charm_in_ds_per_ebin"][i] += r.get("charm_in_ds_per_ebin", [0] * n_nu_ebins)[i]
             merged["charm_candidate_per_ebin"][i] += r.get("charm_candidate_per_ebin", [0] * n_nu_ebins)[i]
@@ -1290,19 +1386,47 @@ def write_histograms_and_canvases(
     dir_summary.cd()
 
     # Neutrino energy spectra (fine 1D, 50 bins 0-1000 GeV)
-    h_nu_e_cc_all = ROOT.TH1D("h_nu_e_cc_all", "Neutrino Energy (#nu_{#mu} CC Inclusive);E_{#nu} [GeV];Events", 50, 0.0, 1000.0)
+    h_nu_e_cc_all = ROOT.TH1D("h_nu_e_cc_all", "Neutrino Energy (#nu_{#mu}+#bar{#nu}_{#mu} CC Inclusive);E_{#nu} [GeV];Events", 50, 0.0, 1000.0)
     for e in data["nu_e_cc_all"]:
         h_nu_e_cc_all.Fill(e)
     h_nu_e_cc_all.SetLineColor(ROOT.kBlue + 2)
     h_nu_e_cc_all.SetLineWidth(2)
     h_nu_e_cc_all.Write()
 
-    h_nu_e_cc_charm = ROOT.TH1D("h_nu_e_cc_charm", "Neutrino Energy (#nu_{#mu} CC with Charm);E_{#nu} [GeV];Events", 50, 0.0, 1000.0)
+    h_nu_e_cc_all_nu = ROOT.TH1D("h_nu_e_cc_all_nu", "Neutrino Energy (#nu_{#mu} CC Inclusive);E_{#nu} [GeV];Events", 50, 0.0, 1000.0)
+    for e in data.get("nu_e_cc_all_nu", []):
+        h_nu_e_cc_all_nu.Fill(e)
+    h_nu_e_cc_all_nu.SetLineColor(ROOT.kBlack)
+    h_nu_e_cc_all_nu.SetLineWidth(2)
+    h_nu_e_cc_all_nu.Write()
+
+    h_nu_e_cc_all_antinu = ROOT.TH1D("h_nu_e_cc_all_antinu", "Neutrino Energy (#bar{#nu}_{#mu} CC Inclusive);E_{#nu} [GeV];Events", 50, 0.0, 1000.0)
+    for e in data.get("nu_e_cc_all_antinu", []):
+        h_nu_e_cc_all_antinu.Fill(e)
+    h_nu_e_cc_all_antinu.SetLineColor(ROOT.kMagenta + 2)
+    h_nu_e_cc_all_antinu.SetLineWidth(2)
+    h_nu_e_cc_all_antinu.Write()
+
+    h_nu_e_cc_charm = ROOT.TH1D("h_nu_e_cc_charm", "Neutrino Energy (CC with Charm);E_{#nu} [GeV];Events", 50, 0.0, 1000.0)
     for e in data["nu_e_cc_charm"]:
         h_nu_e_cc_charm.Fill(e)
     h_nu_e_cc_charm.SetLineColor(ROOT.kRed + 1)
     h_nu_e_cc_charm.SetLineWidth(2)
     h_nu_e_cc_charm.Write()
+
+    h_nu_e_cc_charm_nu = ROOT.TH1D("h_nu_e_cc_charm_nu", "Neutrino Energy (#nu_{#mu} CC with Charm);E_{#nu} [GeV];Events", 50, 0.0, 1000.0)
+    for e in data.get("nu_e_cc_charm_nu", []):
+        h_nu_e_cc_charm_nu.Fill(e)
+    h_nu_e_cc_charm_nu.SetLineColor(ROOT.kOrange + 7)
+    h_nu_e_cc_charm_nu.SetLineWidth(2)
+    h_nu_e_cc_charm_nu.Write()
+
+    h_nu_e_cc_charm_antinu = ROOT.TH1D("h_nu_e_cc_charm_antinu", "Neutrino Energy (#bar{#nu}_{#mu} CC with Charm);E_{#nu} [GeV];Events", 50, 0.0, 1000.0)
+    for e in data.get("nu_e_cc_charm_antinu", []):
+        h_nu_e_cc_charm_antinu.Fill(e)
+    h_nu_e_cc_charm_antinu.SetLineColor(ROOT.kViolet + 1)
+    h_nu_e_cc_charm_antinu.SetLineWidth(2)
+    h_nu_e_cc_charm_antinu.Write()
 
     # Charm hadron energy spectrum (fine 1D, 50 bins 0-1000 GeV)
     h_charm_e_all = ROOT.TH1D("h_charm_e_all", "Charm Hadron Energy Spectrum;E_{charm} [GeV];Charm Hadrons", 50, 0.0, 1000.0)
@@ -1321,11 +1445,25 @@ def write_histograms_and_canvases(
     # Charm production rate in discrete energy bins
     h_ebin_all = ROOT.TH1D("h_cc_all_ebins", "CC Inclusive Events per Energy Bin;E_{#nu} [GeV];Events", n_nu_ebins, arr_nu_edges)
     h_ebin_charm = ROOT.TH1D("h_cc_charm_ebins", "CC Charm Events per Energy Bin;E_{#nu} [GeV];Events", n_nu_ebins, arr_nu_edges)
+    h_ebin_all_nu = ROOT.TH1D("h_cc_all_nu_ebins", "#nu_{#mu} CC Inclusive Events per Energy Bin;E_{#nu} [GeV];Events", n_nu_ebins, arr_nu_edges)
+    h_ebin_charm_nu = ROOT.TH1D("h_cc_charm_nu_ebins", "#nu_{#mu} CC Charm Events per Energy Bin;E_{#nu} [GeV];Events", n_nu_ebins, arr_nu_edges)
+    h_ebin_all_antinu = ROOT.TH1D("h_cc_all_antinu_ebins", "#bar{#nu}_{#mu} CC Inclusive Events per Energy Bin;E_{#nu} [GeV];Events", n_nu_ebins, arr_nu_edges)
+    h_ebin_charm_antinu = ROOT.TH1D("h_cc_charm_antinu_ebins", "#bar{#nu}_{#mu} CC Charm Events per Energy Bin;E_{#nu} [GeV];Events", n_nu_ebins, arr_nu_edges)
+
     for i in range(n_nu_ebins):
         h_ebin_all.SetBinContent(i + 1, data["cc_all_per_ebin"][i])
         h_ebin_charm.SetBinContent(i + 1, data["cc_charm_per_ebin"][i])
+        h_ebin_all_nu.SetBinContent(i + 1, data.get("cc_all_nu_per_ebin", [0] * n_nu_ebins)[i])
+        h_ebin_charm_nu.SetBinContent(i + 1, data.get("cc_charm_nu_per_ebin", [0] * n_nu_ebins)[i])
+        h_ebin_all_antinu.SetBinContent(i + 1, data.get("cc_all_antinu_per_ebin", [0] * n_nu_ebins)[i])
+        h_ebin_charm_antinu.SetBinContent(i + 1, data.get("cc_charm_antinu_per_ebin", [0] * n_nu_ebins)[i])
+
     h_ebin_all.Write()
     h_ebin_charm.Write()
+    h_ebin_all_nu.Write()
+    h_ebin_charm_nu.Write()
+    h_ebin_all_antinu.Write()
+    h_ebin_charm_antinu.Write()
 
     h_charm_rate_ebins = h_ebin_charm.Clone("h_charm_rate_vs_energy_bins")
     h_charm_rate_ebins.SetTitle("Charm Production Rate in Energy Bins;E_{#nu} [GeV];R_{charm} = #sigma(c) / #sigma_{CC}")
@@ -1336,6 +1474,16 @@ def write_histograms_and_canvases(
     h_charm_rate_ebins.SetLineColor(ROOT.kBlue + 2)
     h_charm_rate_ebins.SetLineWidth(2)
     h_charm_rate_ebins.Write()
+
+    h_charm_rate_ebins_nu = h_ebin_charm_nu.Clone("h_charm_rate_nu_vs_energy_bins")
+    h_charm_rate_ebins_nu.SetTitle("#nu_{#mu} Charm Production Rate in Energy Bins;E_{#nu} [GeV];R_{charm}^{#nu} = #sigma(c) / #sigma_{CC}")
+    h_charm_rate_ebins_nu.Divide(h_ebin_charm_nu, h_ebin_all_nu, 1.0, 1.0, "B")
+    h_charm_rate_ebins_nu.Write()
+
+    h_charm_rate_ebins_antinu = h_ebin_charm_antinu.Clone("h_charm_rate_antinu_vs_energy_bins")
+    h_charm_rate_ebins_antinu.SetTitle("#bar{#nu}_{#mu} Charm Production Rate in Energy Bins;E_{#nu} [GeV];R_{charm}^{#bar{#nu}} = #sigma(#bar{c}) / #sigma_{CC}")
+    h_charm_rate_ebins_antinu.Divide(h_ebin_charm_antinu, h_ebin_all_antinu, 1.0, 1.0, "B")
+    h_charm_rate_ebins_antinu.Write()
 
     # Species counts and fractions (Overall)
     h_species_counts = ROOT.TH1D("h_species_counts", "Charm Species Counts;Charm Hadron;Entries", n_sp_bins, 0.5, n_sp_bins + 0.5)
@@ -1629,19 +1777,32 @@ def write_histograms_and_canvases(
     c_rate.SetBottomMargin(0.12)
     c_rate.SetGrid()
 
-    h_rate_frame = c_rate.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), max(0.20, h_charm_rate_ebins.GetMaximum() * 1.35))
+    y_max_frame = max(0.28, h_charm_rate_ebins.GetMaximum() * 1.50)
+    h_rate_frame = c_rate.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), y_max_frame)
     h_rate_frame.SetTitle("Charm Production Rate vs E_{#nu}: MC Simulation vs Slow Rescaling Model;E_{#nu} [GeV];R_{charm} = #sigma(#nu_{#mu} N #rightarrow c X) / #sigma_{CC}(#nu_{#mu} N #rightarrow X)")
     h_rate_frame.GetYaxis().SetTitleOffset(1.3)
 
     # MC data points with Clopper-Pearson asymmetric binomial errors
+    # MC data points: Inclusive, pure nu_mu, and pure anti_nu_mu
     g_charm_rate_mc = ROOT.TGraphAsymmErrors(n_nu_ebins)
     g_charm_rate_mc.SetName("g_charm_rate_mc")
-    g_charm_rate_mc.SetTitle("MC Inclusive Charm Production Rate")
+    g_charm_rate_mc.SetTitle("MC Inclusive (#nu_{#mu} + #bar{#nu}_{#mu}) Charm Production Rate")
+
+    g_charm_rate_mc_nu = ROOT.TGraphAsymmErrors(n_nu_ebins)
+    g_charm_rate_mc_nu.SetName("g_charm_rate_mc_nu")
+    g_charm_rate_mc_nu.SetTitle("MC #nu_{#mu} Charm Production Rate")
+
+    g_charm_rate_mc_antinu = ROOT.TGraphAsymmErrors(n_nu_ebins)
+    g_charm_rate_mc_antinu.SetName("g_charm_rate_mc_antinu")
+    g_charm_rate_mc_antinu.SetTitle("MC #bar{#nu}_{#mu} Charm Production Rate")
+
     for i_b in range(n_nu_ebins):
-        n_cc = data["cc_all_per_ebin"][i_b]
-        n_c = data["cc_charm_per_ebin"][i_b]
         x_center = 0.5 * (nu_bin_edges[i_b] + nu_bin_edges[i_b + 1])
         x_err = 0.5 * (nu_bin_edges[i_b + 1] - nu_bin_edges[i_b])
+
+        # Inclusive
+        n_cc = data["cc_all_per_ebin"][i_b]
+        n_c = data["cc_charm_per_ebin"][i_b]
         val_pct, err_lo_pct, err_hi_pct = clopper_pearson_errors(n_c, n_cc, 0.6827)
         val = val_pct / 100.0
         err_lo = err_lo_pct / 100.0
@@ -1651,11 +1812,37 @@ def write_histograms_and_canvases(
         h_charm_rate_ebins.SetBinContent(i_b + 1, val)
         h_charm_rate_ebins.SetBinError(i_b + 1, max(err_lo, err_hi))
 
+        # pure nu_mu
+        n_cc_nu = data.get("cc_all_nu_per_ebin", [0] * n_nu_ebins)[i_b]
+        n_c_nu = data.get("cc_charm_nu_per_ebin", [0] * n_nu_ebins)[i_b]
+        val_pct_nu, lo_nu, hi_nu = clopper_pearson_errors(n_c_nu, n_cc_nu, 0.6827)
+        g_charm_rate_mc_nu.SetPoint(i_b, x_center, val_pct_nu / 100.0)
+        g_charm_rate_mc_nu.SetPointError(i_b, x_err, x_err, lo_nu / 100.0, hi_nu / 100.0)
+
+        # pure anti_nu_mu
+        n_cc_an = data.get("cc_all_antinu_per_ebin", [0] * n_nu_ebins)[i_b]
+        n_c_an = data.get("cc_charm_antinu_per_ebin", [0] * n_nu_ebins)[i_b]
+        val_pct_an, lo_an, hi_an = clopper_pearson_errors(n_c_an, n_cc_an, 0.6827)
+        g_charm_rate_mc_antinu.SetPoint(i_b, x_center, val_pct_an / 100.0)
+        g_charm_rate_mc_antinu.SetPointError(i_b, x_err, x_err, lo_an / 100.0, hi_an / 100.0)
+
     g_charm_rate_mc.SetMarkerStyle(20)
     g_charm_rate_mc.SetMarkerSize(1.2)
     g_charm_rate_mc.SetMarkerColor(ROOT.kBlack)
     g_charm_rate_mc.SetLineColor(ROOT.kBlack)
     g_charm_rate_mc.SetLineWidth(2)
+
+    g_charm_rate_mc_nu.SetMarkerStyle(21)
+    g_charm_rate_mc_nu.SetMarkerSize(1.1)
+    g_charm_rate_mc_nu.SetMarkerColor(ROOT.kBlue + 2)
+    g_charm_rate_mc_nu.SetLineColor(ROOT.kBlue + 2)
+    g_charm_rate_mc_nu.SetLineWidth(2)
+
+    g_charm_rate_mc_antinu.SetMarkerStyle(22)
+    g_charm_rate_mc_antinu.SetMarkerSize(1.2)
+    g_charm_rate_mc_antinu.SetMarkerColor(ROOT.kMagenta + 2)
+    g_charm_rate_mc_antinu.SetLineColor(ROOT.kMagenta + 2)
+    g_charm_rate_mc_antinu.SetLineWidth(2)
 
     # Reconstructed Di-Muon Stream Rate (>= 2 reco tracks)
     has_2trks_data = any(c > 0 for c in data.get("charm_ge2trks_per_ebin", []))
@@ -1677,51 +1864,113 @@ def write_histograms_and_canvases(
         g_charm_rate_2trks.SetLineColor(ROOT.kAzure + 2)
         g_charm_rate_2trks.SetLineWidth(2)
 
-    # Slow Rescaling Model theoretical prediction and 1-sigma uncertainty belt
-    f_sr, g_sr_band = create_slow_rescaling_model(
-        name="f_slow_rescaling",
+    # Slow Rescaling Model: Tungsten Target (nu_mu, anti_nu_mu, and Isoscalar reference)
+    e_max_model = max(1000.0, nu_bin_edges[-1])
+
+    # 1. Tungsten Target nu_mu
+    f_sr_w_nu, g_sr_w_nu_band = create_slow_rescaling_model(
+        name="f_slow_rescaling_w_nu",
         e_min=0.0,
-        e_max=max(1000.0, nu_bin_edges[-1]),
-        m_c=1.2729,
-        sigma_m_c=0.0045,
-        v_cd=0.22503,
-        sigma_v_cd=0.00068,
-        v_cs=0.97345,
-        sigma_v_cs=0.00016,
+        e_max=e_max_model,
+        target="tungsten",
+        nu_type="nu",
+        line_color=ROOT.kBlue + 1,
+        band_color=ROOT.kBlue - 9,
     )
-    g_sr_band.Draw("3 same")
-    f_sr.Draw("same")
+
+    # 2. Tungsten Target anti_nu_mu
+    f_sr_w_antinu, g_sr_w_antinu_band = create_slow_rescaling_model(
+        name="f_slow_rescaling_w_antinu",
+        e_min=0.0,
+        e_max=e_max_model,
+        target="tungsten",
+        nu_type="antinu",
+        line_color=ROOT.kMagenta + 2,
+        band_color=ROOT.kMagenta - 9,
+    )
+
+    # 3. Tungsten Target Inclusive (flux-averaged)
+    f_sr_w_inc, g_sr_w_inc_band = create_slow_rescaling_model(
+        name="f_slow_rescaling_w_inclusive",
+        e_min=0.0,
+        e_max=e_max_model,
+        target="tungsten",
+        nu_type="inclusive",
+        line_color=ROOT.kRed + 1,
+        band_color=ROOT.kRed - 7,
+    )
+
+    # 4. Isoscalar Reference nu_mu
+    f_sr_iso, _ = create_slow_rescaling_model(
+        name="f_slow_rescaling_isoscalar",
+        e_min=0.0,
+        e_max=e_max_model,
+        target="isoscalar",
+        nu_type="nu",
+        line_color=ROOT.kGray + 2,
+    )
+    f_sr_iso.SetLineStyle(7)
+    f_sr_iso.SetLineWidth(2)
+
+    # Draw theory bands and lines
+    g_sr_w_inc_band.Draw("3 same")
+    f_sr_iso.Draw("same")
+    f_sr_w_nu.Draw("same")
+    f_sr_w_antinu.Draw("same")
+    f_sr_w_inc.Draw("same")
+
+    # Draw data points
+    has_nu_data = any(c > 0 for c in data.get("cc_all_nu_per_ebin", []))
+    has_antinu_data = any(c > 0 for c in data.get("cc_all_antinu_per_ebin", []))
+
+    if has_nu_data and has_antinu_data:
+        g_charm_rate_mc_nu.Draw("P E1 same")
+        g_charm_rate_mc_antinu.Draw("P E1 same")
     g_charm_rate_mc.Draw("P E1 same")
+
     if has_2trks_data:
         g_charm_rate_2trks.Draw("P E1 same")
 
-    leg_rate = ROOT.TLegend(0.14, 0.68, 0.90, 0.88)
+    leg_rate = ROOT.TLegend(0.46, 0.64, 0.92, 0.89)
     leg_rate.SetBorderSize(1)
     leg_rate.SetFillStyle(1001)
-    leg_rate.SetFillColor(ROOT.kWhite)
-    leg_rate.AddEntry(g_charm_rate_mc, "SND@LHC MC Inclusive CC (All Events)", "lep")
+    leg_rate.SetFillColorAlpha(ROOT.kWhite, 0.92)
+    leg_rate.SetTextSize(0.024)
+    leg_rate.AddEntry(g_charm_rate_mc, "MC Inclusive (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
+    leg_rate.AddEntry(f_sr_w_inc, "Slow Rescaling (W, #nu+#bar{#nu} avg)", "l")
+    if has_nu_data:
+        leg_rate.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
+        leg_rate.AddEntry(f_sr_w_nu, "Slow Rescaling (W, pure #nu_{#mu})", "l")
+    if has_antinu_data:
+        leg_rate.AddEntry(g_charm_rate_mc_antinu, "MC #bar{#nu}_{#mu} CC", "lep")
+        leg_rate.AddEntry(f_sr_w_antinu, "Slow Rescaling (W, pure #bar{#nu}_{#mu})", "l")
+    leg_rate.AddEntry(f_sr_iso, "Slow Rescaling (Isoscalar N=Z, #nu_{#mu})", "l")
+    leg_rate.AddEntry(g_sr_w_inc_band, "Slow Rescaling 1#sigma Uncertainty (W)", "f")
     if has_2trks_data:
-        leg_rate.AddEntry(g_charm_rate_2trks, "SND@LHC MC (Events with #geq 2 reco tracks - dimuon candidate stream)", "lep")
-    leg_rate.AddEntry(f_sr, "Slow Rescaling Model (m_{c}=1.273 GeV, |V_{cd}|=0.2250, |V_{cs}|=0.9735)", "l")
-    leg_rate.AddEntry(g_sr_band, "Slow Rescaling 1#sigma Uncertainty Belt (PDG m_{c}, |V_{cd}|, |V_{cs}|, #kappa_{s})", "f")
+        leg_rate.AddEntry(g_charm_rate_2trks, "MC #geq 2 reco tracks (dimuon stream)", "lep")
     leg_rate.Draw("same")
 
-    pave_rate_note = ROOT.TPaveText(0.14, 0.54, 0.90, 0.66, "NDC")
+    pave_rate_note = ROOT.TPaveText(0.46, 0.48, 0.92, 0.62, "NDC")
     pave_rate_note.SetBorderSize(1)
-    pave_rate_note.SetFillColorAlpha(ROOT.kWhite, 0.9)
+    pave_rate_note.SetFillColorAlpha(ROOT.kWhite, 0.92)
     pave_rate_note.SetTextAlign(12)
-    pave_rate_note.SetTextSize(0.026)
-    pave_rate_note.AddText("#bf{Physical Comparison with Slow Rescaling:}")
-    pave_rate_note.AddText("Inclusive #nu_{#mu} CC MC production rate (black markers) directly validates the Georgi-Politzer / Barnett prediction.")
-    pave_rate_note.AddText("Reconstructed #geq 2 tracks stream (blue open markers) illustrates downstream dimuon detection acceptance.")
+    pave_rate_note.SetTextSize(0.022)
+    pave_rate_note.AddText("#bf{Nuclear Target & Flavour Corrections:}")
+    pave_rate_note.AddText("Tungsten target (f_{n} #approx 0.60) enhances #nu_{#mu} charm via valence d quarks.")
+    pave_rate_note.AddText("#bar{#nu}_{#mu} CC has higher ratio due to (1-y)^{2} valence suppression.")
     pave_rate_note.Draw("same")
     c_rate.Write()
 
     # Also store into Summary directory
     dir_summary.cd()
-    f_sr.Write("f_slow_rescaling")
-    g_sr_band.Write("g_slow_rescaling_1sigma_band")
+    f_sr_w_inc.Write("f_slow_rescaling_w_inclusive")
+    f_sr_w_nu.Write("f_slow_rescaling_w_nu")
+    f_sr_w_antinu.Write("f_slow_rescaling_w_antinu")
+    f_sr_iso.Write("f_slow_rescaling_isoscalar")
+    g_sr_w_inc_band.Write("g_slow_rescaling_1sigma_band")
     g_charm_rate_mc.Write("g_charm_rate_mc")
+    g_charm_rate_mc_nu.Write("g_charm_rate_mc_nu")
+    g_charm_rate_mc_antinu.Write("g_charm_rate_mc_antinu")
     if has_2trks_data:
         g_charm_rate_2trks.Write("g_charm_rate_2trks")
     dir_canvases.cd()

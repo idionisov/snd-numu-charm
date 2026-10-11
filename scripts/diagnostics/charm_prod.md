@@ -262,3 +262,76 @@ To anchor the slow rescaling threshold turn-on against real experimental data wi
 | **SND@LHC Tungsten** | $0.4025$ | $0.5975$ | $10.84\%$ |
 
 Because nuclear emulsion sits between an isoscalar target and Tungsten, the difference in the predicted slow rescaling curve between Emulsion and Tungsten is minuscule ($\Delta R_\infty \approx 0.2\%$). The CHORUS and E531 data points cleanly delineate the low-energy threshold region ($E_\nu < 150\text{ GeV}$), showing consistent agreement with the slow rescaling turn-on kinematics ($E_{\text{scale}} \approx 28\text{ GeV}$, $\alpha \approx 1.15$), while SND@LHC probes the higher-energy DIS evolution ($E_\nu > 150\text{ GeV}$ up to $1.5\text{ TeV}$).
+
+---
+
+## 9. Dimuon Production Ratio $\sigma_{\text{charm, }2\mu} / \sigma_{\text{CC}}$ in SND@LHC
+
+### 9.1 Physics Motivation and Dimuon Signature
+In neutrino-induced charged-current deep inelastic scattering, opposite-sign dimuon events ($\mu^\mp \mu^\pm$) provide an experimentally clean and historically crucial signature of charm production:
+$$\nu_\mu + N \longrightarrow \mu^- + c + X \longrightarrow \mu^- + \mu^+ + \nu_\mu + X'$$
+$$\bar{\nu}_\mu + N \longrightarrow \mu^+ + \bar{c} + X \longrightarrow \mu^+ + \mu^- + \bar{\nu}_\mu + X'$$
+
+The leading primary muon originates directly from the weak leptonic vertex, while the secondary, opposite-sign muon arises from the prompt semi-muonic decay of the produced charmed hadron ($c \to \mu^+ \nu_\mu s$).
+
+The dimuon cross-section ratio is defined as:
+$$R_{2\mu}(E_\nu) \equiv \frac{\sigma(\nu_\mu N \to \mu^- \mu^+ X)}{\sigma_{\text{CC}}(\nu_\mu N \to \mu^- X)} = \frac{\sigma_{\text{charm, }2\mu}(E_\nu)}{\sigma_{\text{CC}}(E_\nu)}$$
+
+### 9.2 Relation to Inclusive Charm Production
+Under the factorization hypothesis in neutrino DIS, charm hadronization and subsequent weak decay factorize from the hard partonic scattering:
+$$R_{2\mu}(E_\nu) = \langle B_\mu \rangle \cdot R_{\text{charm}}(E_\nu)$$
+where $\langle B_\mu \rangle$ is the **effective inclusive semi-muonic branching fraction** averaged over the charm hadron species production fractions in neutrino DIS:
+$$\langle B_\mu \rangle = \sum_{i} f_i \cdot \mathcal{B}(H_{c, i} \to \mu^+ X)$$
+where $i \in \{D^0, D^+, D_s^+, \Lambda_c^+\}$, $f_i$ are the fragmentation fractions, and $\mathcal{B}(H_{c, i} \to \mu^+ X)$ are the inclusive semi-muonic branching ratios.
+
+### 9.3 Derivation of Effective Branching Ratio $\langle B_\mu \rangle$
+Using global neutrino DIS measurements (CHORUS, NuTeV, NOMAD) for the fragmentation fractions and PDG 2024 values for the semi-muonic branching fractions:
+- **Species Fragmentation Fractions ($f_i$)**:
+  - $f(D^0) \approx 0.58 \pm 0.03$
+  - $f(D^+) \approx 0.23 \pm 0.02$
+  - $f(D_s^+) \approx 0.10 \pm 0.02$
+  - $f(\Lambda_c^+) \approx 0.09 \pm 0.02$
+- **Inclusive Semi-Muonic Branching Ratios ($\mathcal{B}_i$)**:
+  - $\mathcal{B}(D^0 \to \mu^+ X) = (6.8 \pm 0.6)\%$
+  - $\mathcal{B}(D^+ \to \mu^+ X) = (15.6 \pm 0.8)\%$
+  - $\mathcal{B}(D_s^+ \to \mu^+ X) = (6.3 \pm 0.7)\%$
+  - $\mathcal{B}(\Lambda_c^+ \to \mu^+ X) = (3.5 \pm 0.6)\%$
+
+Evaluating the weighted sum:
+$$\begin{aligned}
+\langle B_\mu \rangle &= (0.58 \times 0.068) + (0.23 \times 0.156) + (0.10 \times 0.063) + (0.09 \times 0.035) \\
+&= 0.03944 + 0.03588 + 0.00630 + 0.00315 \\
+&= \mathbf{0.0848 \pm 0.0050} \quad (\sim 8.48\%)
+\end{aligned}$$
+
+The relative uncertainty on $\langle B_\mu \rangle$ is:
+$$\frac{\sigma(\langle B_\mu \rangle)}{\langle B_\mu \rangle} \approx \frac{0.0050}{0.0848} \approx 5.9\%$$
+
+### 9.4 Asymptotic Dimuon Ratios $R_{2\mu, \infty}$
+Multiplying the asymptotic inclusive charm ratios $R_\infty$ by $\langle B_\mu \rangle = 0.0848$:
+
+| Category | Target | Inclusive $R_\infty$ | Effective $\langle B_\mu \rangle$ | Dimuon Asymptotic $R_{2\mu, \infty}$ |
+| :--- | :--- | :--- | :--- | :--- |
+| **Neutrino ($\nu_\mu$)** | Tungsten ($^{184}_{74}\text{W}$) | $10.84\%$ | $8.48\%$ | $\mathbf{0.919\%}$ ($\approx 0.92\%$) |
+| **Neutrino ($\nu_\mu$)** | Isoscalar ($N=Z$) | $11.16\%$ | $8.48\%$ | $\mathbf{0.946\%}$ ($\approx 0.95\%$) |
+| **Antineutrino ($\bar{\nu}_\mu$)** | Tungsten ($^{184}_{74}\text{W}$) | $15.39\%$ | $8.48\%$ | $\mathbf{1.305\%}$ ($\approx 1.31\%$) |
+| **Antineutrino ($\bar{\nu}_\mu$)** | Isoscalar ($N=Z$) | $14.82\%$ | $8.48\%$ | $\mathbf{1.257\%}$ ($\approx 1.26\%$) |
+| **Inclusive ($\nu_\mu + \bar{\nu}_\mu$)** | Tungsten ($^{184}_{74}\text{W}$) | $11.73\%$ | $8.48\%$ | $\mathbf{0.995\%}$ ($\approx 0.99\%$) |
+| **Inclusive ($\nu_\mu + \bar{\nu}_\mu$)** | Isoscalar ($N=Z$) | $12.05\%$ | $8.48\%$ | $\mathbf{1.022\%}$ ($\approx 1.02\%$) |
+
+### 9.5 Error Propagation
+When predicting the dimuon ratio with the slow rescaling model, the parametric uncertainty on $\langle B_\mu \rangle$ ($5.9\%$) is folded in quadrature with the base PDF/CKM normalization uncertainty ($8.0\%$):
+$$\sigma_{\text{base}, 2\mu} = \sqrt{(0.08)^2 + (0.059)^2} \cdot R_{2\mu, \infty} \approx 9.9\% \cdot R_{2\mu, \infty}$$
+
+The two-tier uncertainty belts are generated via:
+1. **Inner Belt**: Base kinematics ($m_c$, $E_{\text{thresh}}$) + combined base normalization ($\pm 9.9\%$).
+2. **Outer Belt**: High-energy asymmetric expansion accounting for boson-gluon fusion ($W^+ g \to c\bar{s}$) and strange sea growth ($g \to s\bar{s}$) under DGLAP evolution.
+
+### 9.6 Diagnostic Canvases
+Three companion canvases are produced in [`charm_diagnostic.py`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/charm_diagnostic.py):
+1. `c_charm_dimuon_rate_vs_energy`: Inclusive ($\nu_\mu + \bar{\nu}_\mu$) dimuon production rate on Tungsten, compared against MC inclusive simulation with Clopper-Pearson error bars, the two-tier uncertainty belt, and the dashed Isoscalar reference line.
+2. `c_charm_dimuon_rate_vs_energy_nu_only`: Pure $\nu_\mu$ CC dimuon rate on Tungsten.
+3. `c_charm_dimuon_rate_vs_energy_antinu_only`: Pure $\bar{\nu}_\mu$ CC dimuon rate on Tungsten.
+
+In accordance with analysis design, external fixed-target emulsion measurements (CHORUS, E531) are excluded from these canvases to preserve a clean, direct benchmark between the SND@LHC Monte Carlo simulation and the theoretical slow rescaling predictions.
+

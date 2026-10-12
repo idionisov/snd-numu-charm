@@ -55,6 +55,8 @@ import ROOT
 ROOT.gROOT.SetBatch(True)
 ROOT.gStyle.SetOptStat(1111)
 
+import numpy as np
+
 _repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
@@ -197,6 +199,14 @@ SPECIES_COLORS: Dict[int, int] = {
     411: ROOT.kAzure + 1,     # D+
     431: ROOT.kGreen + 2,     # Ds
     4122: ROOT.kMagenta + 1,  # Lambda_c
+}
+
+# ROOT TLatex formatted titles for charm hadron species
+SPECIES_LATEX: Dict[int, str] = {
+    421: "D^{0}",
+    411: "D^{+}",
+    431: "D_{s}^{+}",
+    4122: "#Lambda_{c}^{+}",
 }
 
 
@@ -824,6 +834,148 @@ def create_slow_rescaling_function(
     if r_inf is not None:
         f_sr.SetParameter(0, r_inf)
     return f_sr
+
+
+def create_species_fraction_model(
+    e_min: float = 4.5,
+    e_max: float = 1500.0,
+    n_points: int = 300,
+    n_samples: int = 2000,
+    seed: int = 42,
+) -> Tuple[Dict[int, ROOT.TGraph], Dict[int, ROOT.TGraphAsymmErrors], ROOT.TGraph, ROOT.TGraphAsymmErrors]:
+    """
+    Parametrized phenomenological model for charm hadron species fragmentation fractions
+    f_i(E_nu) and effective semi-muonic branching fraction <B_mu>(E_nu) transitioning from
+    threshold (quasi-elastic/resonance Lambda_c enhancement) to asymptotic DIS (pythia/fragmentation plateau).
+
+    Transitions via decay = exp(-(E_nu - 4.5) / tau) with tau ~ 18 +/- 4 GeV.
+    Computes median predictions and 68% CL (1-sigma) uncertainty bands via Monte Carlo sampling.
+    """
+    np.random.seed(seed)
+    e_pts = np.logspace(np.log10(max(4.5, e_min)), np.log10(e_max), n_points)
+
+    br_params = {
+        "D0": (0.067, 0.003),
+        "D+": (0.160, 0.004),
+        "Lambda_c": (0.035, 0.005),
+        "Ds+": (0.068, 0.006),
+    }
+
+    species_keys = ["D0", "D+", "Lambda_c", "Ds+"]
+    pdg_map = {
+        "D0": 421,
+        "D+": 411,
+        "Lambda_c": 4122,
+        "Ds+": 431,
+    }
+
+    f_samples = {sp: np.zeros((n_samples, len(e_pts))) for sp in species_keys}
+    b_mu_samples = np.zeros((n_samples, len(e_pts)))
+
+    for s in range(n_samples):
+        tau_s = max(8.0, float(np.random.normal(18.0, 4.0)))
+
+        w_inf = {
+            "D0": max(0.40, float(np.random.normal(0.58, 0.04))),
+            "D+": max(0.12, float(np.random.normal(0.23, 0.03))),
+            "Lambda_c": max(0.03, float(np.random.normal(0.08, 0.02))),
+            "Ds+": max(0.04, float(np.random.normal(0.09, 0.02))),
+        }
+        sum_inf = sum(w_inf.values())
+        f_inf_s = {k: v / sum_inf for k, v in w_inf.items()}
+
+        w_thresh = {
+            "D0": max(0.25, float(np.random.normal(0.45, 0.06))),
+            "D+": max(0.08, float(np.random.normal(0.17, 0.04))),
+            "Lambda_c": max(0.12, float(np.random.normal(0.30, 0.08))),
+            "Ds+": max(0.01, float(np.random.normal(0.04, 0.02))),
+        }
+        sum_thresh = sum(w_thresh.values())
+        f_thresh_s = {k: v / sum_thresh for k, v in w_thresh.items()}
+
+        decay = np.exp(-(e_pts - 4.5) / tau_s)
+
+        raw = {sp: f_inf_s[sp] + (f_thresh_s[sp] - f_inf_s[sp]) * decay for sp in species_keys}
+        total_raw = sum(raw.values())
+
+        br_s = {sp: max(0.01, float(np.random.normal(br_params[sp][0], br_params[sp][1]))) for sp in species_keys}
+
+        b_avg = np.zeros(len(e_pts))
+        for sp in species_keys:
+            f_val = raw[sp] / total_raw
+            f_samples[sp][s, :] = f_val
+            b_avg += f_val * br_s[sp]
+        b_mu_samples[s, :] = b_avg
+
+    f_med = {sp: np.median(f_samples[sp], axis=0) for sp in species_keys}
+    f_low = {sp: np.percentile(f_samples[sp], 16, axis=0) for sp in species_keys}
+    f_high = {sp: np.percentile(f_samples[sp], 84, axis=0) for sp in species_keys}
+
+    b_med = np.median(b_mu_samples, axis=0)
+    b_low = np.percentile(b_mu_samples, 16, axis=0)
+    b_high = np.percentile(b_mu_samples, 84, axis=0)
+
+    model_curves: Dict[int, ROOT.TGraph] = {}
+    model_bands: Dict[int, ROOT.TGraphAsymmErrors] = {}
+
+    for sp_key in species_keys:
+        abs_pdg = pdg_map[sp_key]
+        sp_name = get_species_name(abs_pdg)
+        col = SPECIES_COLORS.get(abs_pdg, ROOT.kBlack)
+
+        # Central median curve
+        g_curve = ROOT.TGraph(n_points)
+        g_curve.SetName(f"g_model_curve_fraction_{sp_name}_vs_nu_energy")
+        g_curve.SetTitle(f"Model {sp_name} Median Fraction vs E_{{#nu}};E_{{#nu}} [GeV];f({sp_name})")
+        for i_pt in range(n_points):
+            g_curve.SetPoint(i_pt, float(e_pts[i_pt]), float(f_med[sp_key][i_pt]))
+        g_curve.SetLineColor(col)
+        g_curve.SetLineWidth(2)
+        g_curve.SetLineStyle(1)
+        model_curves[abs_pdg] = g_curve
+
+        # 68% CL (1-sigma) band
+        g_band = ROOT.TGraphAsymmErrors(n_points)
+        g_band.SetName(f"g_model_band_fraction_{sp_name}_vs_nu_energy")
+        g_band.SetTitle(f"Model {sp_name} 1#sigma Band vs E_{{#nu}};E_{{#nu}} [GeV];f({sp_name})")
+        for i_pt in range(n_points):
+            x = float(e_pts[i_pt])
+            y = float(f_med[sp_key][i_pt])
+            ey_lo = float(y - f_low[sp_key][i_pt])
+            ey_hi = float(f_high[sp_key][i_pt] - y)
+            g_band.SetPoint(i_pt, x, y)
+            g_band.SetPointError(i_pt, 0.0, 0.0, max(0.0, ey_lo), max(0.0, ey_hi))
+        g_band.SetFillColorAlpha(col, 0.20)
+        g_band.SetFillStyle(1001)
+        g_band.SetLineColor(col)
+        g_band.SetLineWidth(1)
+        g_band.SetLineStyle(3)
+        model_bands[abs_pdg] = g_band
+
+    # Effective B_mu curve and band
+    g_bmu = ROOT.TGraph(n_points)
+    g_bmu.SetName("g_model_effective_bmu_vs_nu_energy")
+    g_bmu.SetTitle("Model Effective Semi-Muonic Branching Ratio #LTB_{#mu}#GT vs E_{#nu};E_{#nu} [GeV];#LTB_{#mu}#GT")
+    for i_pt in range(n_points):
+        g_bmu.SetPoint(i_pt, float(e_pts[i_pt]), float(b_med[i_pt]))
+    g_bmu.SetLineColor(ROOT.kOrange + 7)
+    g_bmu.SetLineWidth(2)
+
+    g_band_bmu = ROOT.TGraphAsymmErrors(n_points)
+    g_band_bmu.SetName("g_model_band_effective_bmu_vs_nu_energy")
+    g_band_bmu.SetTitle("Model Effective Semi-Muonic Branching Ratio 1#sigma Band vs E_{#nu};E_{#nu} [GeV];#LTB_{#mu}#GT")
+    for i_pt in range(n_points):
+        x = float(e_pts[i_pt])
+        y = float(b_med[i_pt])
+        ey_lo = float(y - b_low[i_pt])
+        ey_hi = float(b_high[i_pt] - y)
+        g_band_bmu.SetPoint(i_pt, x, y)
+        g_band_bmu.SetPointError(i_pt, 0.0, 0.0, max(0.0, ey_lo), max(0.0, ey_hi))
+    g_band_bmu.SetFillColorAlpha(ROOT.kOrange + 7, 0.25)
+    g_band_bmu.SetFillStyle(1001)
+    g_band_bmu.SetLineColor(ROOT.kOrange + 7)
+
+    return model_curves, model_bands, g_bmu, g_band_bmu
 
 
 def process_files_worker(args_tuple) -> Dict[str, Any]:
@@ -2808,6 +2960,24 @@ def write_histograms_and_canvases(
     g_dimuon_rate_mc.Write("g_dimuon_rate_mc")
     g_dimuon_rate_mc_nu.Write("g_dimuon_rate_mc_nu")
     g_dimuon_rate_mc_antinu.Write("g_dimuon_rate_mc_antinu")
+
+    # Generate and write theoretical/empirical charm species fraction model
+    model_curves, model_bands, g_model_bmu, g_model_band_bmu = create_species_fraction_model(
+        e_min=4.5,
+        e_max=max(1000.0, nu_bin_edges[-1]),
+        n_points=300,
+        n_samples=2000,
+        seed=42,
+    )
+    for abs_c, g_c in model_curves.items():
+        sp_name = get_species_name(abs_c)
+        g_c.Write(f"g_model_fraction_{sp_name}_vs_nu_energy")
+    for abs_c, g_b in model_bands.items():
+        sp_name = get_species_name(abs_c)
+        g_b.Write(f"g_model_band_fraction_{sp_name}_vs_nu_energy")
+    g_model_bmu.Write("g_model_effective_bmu_vs_nu_energy")
+    g_model_band_bmu.Write("g_model_band_effective_bmu_vs_nu_energy")
+
     dir_canvases.cd()
 
     # --- Canvas 2: Overlaid Energy Spectra (Inclusive CC vs Charm CC vs Charm Hadron) ---
@@ -2848,18 +3018,42 @@ def write_histograms_and_canvases(
     c_sp_nu.SetBottomMargin(0.12)
     c_sp_nu.SetGrid()
 
-    h_sp_nu_frame = c_sp_nu.DrawFrame(0.0, 0.0, nu_bin_edges[-1], 1.05)
-    h_sp_nu_frame.SetTitle("Charm Species Fragmentation Fractions vs E_{#nu};E_{#nu} [GeV];Fraction f_{i} = N_{i} / N_{charm}")
+    x_max_sp = max(1000.0, nu_bin_edges[-1])
+    h_sp_nu_frame = c_sp_nu.DrawFrame(0.0, 0.0, x_max_sp, 1.05)
+    h_sp_nu_frame.SetTitle("Charm Species Fragmentation Fractions vs Neutrino Energy;E_{#nu} [GeV];Fraction f_{i} = N_{i} / N_{charm}")
+    h_sp_nu_frame.GetYaxis().SetTitleOffset(1.25)
 
-    leg_sp_nu = ROOT.TLegend(0.68, 0.70, 0.92, 0.88)
-    leg_sp_nu.SetBorderSize(1)
-    leg_sp_nu.SetFillColor(ROOT.kWhite)
+    # 1. Draw 1-sigma uncertainty bands first
+    for abs_c in species_order:
+        if abs_c in model_bands:
+            model_bands[abs_c].Draw("3 same")
 
+    # 2. Draw central model median curves
+    for abs_c in species_order:
+        if abs_c in model_curves:
+            model_curves[abs_c].Draw("L same")
+
+    # 3. Draw MC simulation data points
     for abs_c in species_order:
         g = species_frac_nu_graphs.get(abs_c)
         if g:
             g.Draw("P E1 same")
-            leg_sp_nu.AddEntry(g, get_species_name(abs_c), "lep")
+
+    # 4. Legend (2 columns, formatted with LaTeX symbols)
+    leg_sp_nu = ROOT.TLegend(0.48, 0.62, 0.92, 0.89)
+    leg_sp_nu.SetBorderSize(1)
+    leg_sp_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
+    leg_sp_nu.SetTextSize(0.022)
+    leg_sp_nu.SetNColumns(2)
+
+    for abs_c in species_order:
+        g_mc = species_frac_nu_graphs.get(abs_c)
+        sp_latex = SPECIES_LATEX.get(abs_c, get_species_name(abs_c))
+        if g_mc:
+            leg_sp_nu.AddEntry(g_mc, f"{sp_latex} (MC)", "lep")
+        if abs_c in model_bands:
+            leg_sp_nu.AddEntry(model_bands[abs_c], f"{sp_latex} (Model #pm 1#sigma)", "lf")
+
     leg_sp_nu.Draw("same")
     c_sp_nu.Write()
 

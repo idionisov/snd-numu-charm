@@ -346,4 +346,48 @@ Simulated MC error graphs are styled to match the color of their respective slow
 
 All individual graphs (`g_dimuon_nomad`, `g_dimuon_chorus`, `g_dimuon_ccfr`, `g_dimuon_e53a_e53b`) and a combined graph (`g_dimuon_all_measurements`) are saved in the `Summary/` directory in the output ROOT file.
 
+---
+
+## 10. Charm Species Fragmentation Fractions: Threshold-to-DIS Transition Model
+
+### 10.1 Physics Motivation
+Charmed hadron production mechanisms in neutrino charged-current scattering vary significantly across energy regimes:
+1. **Near-Threshold Regime ($E_\nu \sim 4.5 - 30\text{ GeV}$)**:
+   - Quasi-elastic and resonance charm baryon production channels (such as $\nu_\mu + n \to \mu^- + \Lambda_c^+$) are kinematically preferred and substantially enhance the baryon fraction $f(\Lambda_c^+)$ up to $\sim 30\%$, while suppressing the relative meson fractions $f(D^0)$, $f(D^+)$, and $f(D_s^+)$.
+2. **Asymptotic DIS Regime ($E_\nu \gg 30\text{ GeV}$)**:
+   - Partonic deep inelastic scattering dominates. The struck charm quark hadronizes via universal Lund/string fragmentation, establishing a stable plateau where charmed mesons dominate ($f(D^0) \approx 58\%$, $f(D^+) \approx 23\%$, $f(D_s^+) \approx 9\%$, $f(\Lambda_c^+) \approx 8\%$).
+
+### 10.2 Mathematical Formulation
+The energy-dependent species fractions $f_i(E_\nu)$ ($i \in \{D^0, D^+, D_s^+, \Lambda_c^+\}$) transition exponentially from threshold to the asymptotic plateau:
+$$w_i(E_\nu) = f_{\infty, i} + \left(f_{\text{thresh}, i} - f_{\infty, i}\right) \cdot \exp\left(-\frac{E_\nu - 4.5\text{ GeV}}{\tau}\right)$$
+$$f_i(E_\nu) = \frac{w_i(E_\nu)}{\sum_{j} w_j(E_\nu)}$$
+
+with transition scale $\tau = 18 \pm 4\text{ GeV}$ ($\tau \ge 8\text{ GeV}$), and parameter uncertainties sampled via Monte Carlo:
+- **Asymptotic DIS Fractions ($f_{\infty}$)**:
+  - $f(D^0) = 0.58 \pm 0.04$
+  - $f(D^+) = 0.23 \pm 0.03$
+  - $f(\Lambda_c^+) = 0.08 \pm 0.02$
+  - $f(D_s^+) = 0.09 \pm 0.02$
+- **Threshold Fractions ($f_{\text{thresh}}$)**:
+  - $f(D^0) = 0.45 \pm 0.06$
+  - $f(D^+) = 0.17 \pm 0.04$
+  - $f(\Lambda_c^+) = 0.30 \pm 0.08$
+  - $f(D_s^+) = 0.04 \pm 0.02$
+
+### 10.3 Energy-Dependent Effective Branching Fraction $\langle B_\mu \rangle(E_\nu)$
+Folding the evolving species fractions with PDG semi-muonic branching fractions yields an energy-dependent effective semi-muonic branching ratio:
+$$\langle B_\mu \rangle(E_\nu) = \sum_i f_i(E_\nu) \cdot \mathcal{B}(H_{c, i} \to \mu^+ X)$$
+Because $\Lambda_c^+$ has a lower semi-muonic branching ratio ($\mathcal{B} \approx 3.5\%$) compared to charmed mesons (especially $D^+ \to \mu^+ X$ at $16.0\%$), the effective $\langle B_\mu \rangle$ drops near threshold:
+- $\langle B_\mu \rangle(5\text{ GeV}) \approx 7.35\% \pm 0.55\%$
+- $\langle B_\mu \rangle(200\text{ GeV}) \approx 8.64\% \pm 0.35\%$ (asymptoting toward the DIS benchmark $8.48 \pm 0.50\%$).
+
+### 10.4 Visualization on `c_species_fractions_vs_nu_energy`
+In [`charm_diagnostic.py`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/charm_diagnostic.py), canvas `c_species_fractions_vs_nu_energy` directly overlays:
+1. **Model 68% CL Bands**: Semi-transparent shaded belts (`SetFillColorAlpha(col, 0.20)`) for each species.
+2. **Model Median Curves**: Solid lines matching each species' color palette.
+3. **MC Truth Points**: SND@LHC simulated data points with asymmetric Clopper-Pearson error bars.
+4. **Summary ROOT Objects**: Stored under `Summary/` in the output file (`g_model_fraction_*_vs_nu_energy`, `g_model_band_fraction_*_vs_nu_energy`, and `g_model_effective_bmu_vs_nu_energy`).
+5. **Standalone Tool**: Script [`scripts/diagnostics/plot_species_fractions_model.py`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/plot_species_fractions_model.py) generates publication-grade 2-panel Matplotlib comparisons.
+
+
 

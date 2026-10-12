@@ -414,6 +414,7 @@ def resolve_mctruth_directory_hierarchy(
         is_dimuon_in_ds_acceptance,
         find_primary_muon_track_id,
         find_charm_muon_track_id,
+        find_truth_mu2_track_id,
     )
 
     # 1. Inspect tree for truth information, or evaluate via processor if needed
@@ -505,6 +506,11 @@ def resolve_mctruth_directory_hierarchy(
         process_label = "ch0_unknown"
 
     # 5. Subsequent Chain Category & Muon Multiplicity
+    # Identical logic to Snd2DEventDisplay (drawing red mu2 line):
+    # Only events with a verified mu2 track are categorized as dimuon (2mu).
+    mu2_trk_id = find_truth_mu2_track_id(tree)
+    has_truth_mu2 = (mu2_trk_id >= 0)
+
     extra_muon = 0
     if has_charm and charm_pdg != 0:
         species = CHARM_SPECIES_NAMES.get(charm_pdg)
@@ -514,12 +520,12 @@ def resolve_mctruth_directory_hierarchy(
             clean_name = pdg_to_name(charm_pdg).replace("+", "Plus").replace("-", "Minus").replace("*", "Star").replace("_", "")
             species = clean_name or f"PDG{charm_pdg}"
 
-        if charm_has_direct_muon:
+        if charm_has_direct_muon or (has_truth_mu2 and not has_downstream_charm_muon):
             mode_label = "directToMu"
-            extra_muon = 1
-        elif has_downstream_charm_muon:
+            extra_muon = 1 if has_truth_mu2 else 0
+        elif has_downstream_charm_muon or has_truth_mu2:
             mode_label = "hadronic_downstreamMu"
-            extra_muon = 1
+            extra_muon = 1 if has_truth_mu2 else 0
         elif charm_has_direct_electron:
             mode_label = "directToE"
             extra_muon = 0
@@ -528,7 +534,7 @@ def resolve_mctruth_directory_hierarchy(
             extra_muon = 0
         cat_base = f"{species}_{mode_label}"
     else:
-        if has_downstream_charm_muon or (n_muons_in_event > (1 if (is_cc and flavor_dir == "numu") else 0)):
+        if has_truth_mu2:
             cat_base = "noCharm_downstreamMu"
             extra_muon = 1
         else:
@@ -561,9 +567,7 @@ def resolve_mctruth_directory_hierarchy(
             is_in_ds = bool(tree.dimuon_in_ds_acceptance)
         else:
             mu1_id = primary_lepton_track_id if primary_lepton_track_id >= 0 else find_primary_muon_track_id(tree)
-            mu2_id = mu2_track_id if mu2_track_id >= 0 else (
-                downstream_muon_track_id if downstream_muon_track_id >= 0 else find_charm_muon_track_id(tree)
-            )
+            mu2_id = mu2_trk_id
             is_in_ds = is_dimuon_in_ds_acceptance(
                 tree,
                 min_hor_points=min_ds_hor_points,
@@ -580,9 +584,7 @@ def resolve_mctruth_directory_hierarchy(
                 h, v, _ = count_ds_mcpoints(tree, mu1_id)
                 is_in_ds = (h >= min_ds_hor_points and v >= min_ds_ver_points)
         else:
-            sec_id = mu2_track_id if mu2_track_id >= 0 else (
-                downstream_muon_track_id if downstream_muon_track_id >= 0 else find_charm_muon_track_id(tree)
-            )
+            sec_id = mu2_trk_id
             h, v, _ = count_ds_mcpoints(tree, sec_id)
             is_in_ds = (h >= min_ds_hor_points and v >= min_ds_ver_points)
     elif n_mu >= 3:

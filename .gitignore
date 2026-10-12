@@ -126,6 +126,7 @@ conditionsDatabase/**/.cache/
 /calibration_scan/
 *.csv
 !scripts/diagnostics/pdg_summary_tables/*.csv
+!scripts/diagnostics/measurements/*.csv
 *.log
 *.tmp
 *.err

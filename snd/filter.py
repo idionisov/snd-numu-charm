@@ -859,6 +859,74 @@ def find_charm_muon_track_id(tree: Any, direct_only: bool = True) -> int:
     return best_mu2_id
 
 
+def find_truth_mu2_track_id(tree: Any) -> int:
+    """
+    Finds the MCTrack index of the secondary muon (mu2) in a dimuon event.
+    Provides identical logic for both event display rendering and directory hierarchy routing:
+      1. Inspects tree.mu2_track_id if valid (>= 0).
+      2. Inspects tree.downstream_muon_track_id if valid (>= 0).
+      3. Dynamic inspection for charm hadron descendant muon with maximum momentum.
+
+    Returns:
+        int: Track ID >= 0 if mu2 exists, else -1.
+    """
+    n_tracks = tree.MCTrack.GetEntries() if (hasattr(tree, "MCTrack") and tree.MCTrack) else 0
+
+    # 1. Pre-extracted truth branch: mu2_track_id
+    if hasattr(tree, "mu2_track_id"):
+        try:
+            tid = int(tree.mu2_track_id)
+            if 0 <= tid < n_tracks or (n_tracks == 0 and tid >= 0):
+                return tid
+        except Exception:
+            pass
+
+    # 2. Pre-extracted truth branch: downstream_muon_track_id
+    if hasattr(tree, "downstream_muon_track_id"):
+        try:
+            tid = int(tree.downstream_muon_track_id)
+            if 0 <= tid < n_tracks or (n_tracks == 0 and tid >= 0):
+                return tid
+        except Exception:
+            pass
+
+    # 3. Dynamic MCTrack inspection for charm decay descendant muon
+    if n_tracks > 0:
+        mu1_id = find_primary_muon_track_id(tree)
+        charm_id = -1
+        if hasattr(tree, "charm_track_id"):
+            try:
+                charm_id = int(tree.charm_track_id)
+            except Exception:
+                charm_id = -1
+        if charm_id < 0 or charm_id >= n_tracks:
+            for i, trk in enumerate(tree.MCTrack):
+                abs_pdg = abs(trk.GetPdgCode())
+                if abs_pdg in [411, 421, 431, 4122, 4232, 4132, 4332] and trk.GetMotherId() == 0:
+                    charm_id = i
+                    break
+
+        if 0 <= charm_id < n_tracks:
+            max_p = -1.0
+            best_mu2_id = -1
+            for i, trk in enumerate(tree.MCTrack):
+                if abs(trk.GetPdgCode()) == 13 and i != mu1_id:
+                    curr_mid = trk.GetMotherId()
+                    is_from_charm = False
+                    while 0 <= curr_mid < n_tracks:
+                        if curr_mid == charm_id:
+                            is_from_charm = True
+                            break
+                        curr_mid = tree.MCTrack[curr_mid].GetMotherId()
+                    if is_from_charm and trk.GetP() > max_p:
+                        max_p = trk.GetP()
+                        best_mu2_id = i
+            if best_mu2_id >= 0:
+                return best_mu2_id
+
+    return -1
+
+
 def count_ds_mcpoints(tree: Any, track_id: int) -> Tuple[int, int, int]:
     """
     Count the number of MCPoints in the Downstream (DS) MuFilter system (system == 3)

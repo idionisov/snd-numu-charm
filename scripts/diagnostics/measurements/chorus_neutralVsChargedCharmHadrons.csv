@@ -1,0 +1,17 @@
+# Source: CHORUS Collaboration (arXiv:1107.0613)
+# Data: Figure 5 - Neutral (D0) and Charged (C+) charm cross-section ratios relative to CC
+# Columns: E_nu [GeV], E_nu_err [GeV], ratio, ratio_err
+# Type: charged (C+)
+channel,E_nu,E_nu_err,sigma_div_sigma_CC,sigma_div_sigma_CC_err
+charged,13.0,7.0,0.0157,0.0032
+charged,24.0,5.0,0.0238,0.0022
+charged,42.0,13.0,0.0345,0.0024
+charged,73.0,17.0,0.0373,0.0038
+charged,104.0,15.0,0.0479,0.0081
+charged,150.0,30.0,0.0538,0.0101
+neutral,13.0,7.0,0.0083,0.0021
+neutral,24.0,5.0,0.0188,0.0021
+neutral,42.0,13.0,0.0312,0.0030
+neutral,73.0,17.0,0.0406,0.0044
+neutral,104.0,15.0,0.0463,0.0066
+neutral,150.0,30.0,0.0410,0.0070

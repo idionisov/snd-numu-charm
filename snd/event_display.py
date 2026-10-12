@@ -527,34 +527,9 @@ class Snd2DEventDisplay:
             if 0 <= charm_id < n_tracks:
                 charm_trk = (charm_id, tree.MCTrack[charm_id])
 
-            # 3. Charm decay muon (mu2): check mu2_track_id, downstream_muon_track_id, or charm descendant
-            mu2_id = -1
-            if hasattr(tree, "mu2_track_id"):
-                try:
-                    mu2_id = int(tree.mu2_track_id)
-                except Exception:
-                    mu2_id = -1
-            if (mu2_id < 0 or mu2_id >= n_tracks) and hasattr(tree, "downstream_muon_track_id"):
-                try:
-                    mu2_id = int(tree.downstream_muon_track_id)
-                except Exception:
-                    mu2_id = -1
-            if (mu2_id < 0 or mu2_id >= n_tracks) and charm_trk is not None:
-                max_mu2_p = -1.0
-                for i, trk in enumerate(tree.MCTrack):
-                    if abs(trk.GetPdgCode()) == 13 and i != (mu1_trk[0] if mu1_trk else -1):
-                        curr = trk
-                        curr_mid = curr.GetMotherId()
-                        is_from_charm = False
-                        while 0 <= curr_mid < n_tracks:
-                            if curr_mid == charm_trk[0]:
-                                is_from_charm = True
-                                break
-                            curr = tree.MCTrack[curr_mid]
-                            curr_mid = curr.GetMotherId()
-                        if is_from_charm and trk.GetP() > max_mu2_p:
-                            max_mu2_p = trk.GetP()
-                            mu2_id = i
+            # 3. Secondary Muon (mu2): identified via unified find_truth_mu2_track_id
+            from .filter import find_truth_mu2_track_id
+            mu2_id = find_truth_mu2_track_id(tree)
             if 0 <= mu2_id < n_tracks:
                 mu2_trk = (mu2_id, tree.MCTrack[mu2_id])
 

@@ -1,0 +1,10 @@
+# Source: CHORUS Collaboration (arXiv:1107.0613)
+# Table: Relative charmed hadron production fractions in nu_mu CC interactions (integrated spectrum)
+# Energy coordinates: mean energy <E_nu> = 27 GeV, full evaluated spectrum ~[5, 200] GeV
+# Asymmetric energy bounds: E_nu_err_low = 22 GeV (down to 5 GeV), E_nu_err_high = 173 GeV (up to 200 GeV)
+# Symmetric energy span approximation: E_nu_err = 97.5 GeV (covering [0, 200] GeV range)
+species,E_nu,E_nu_err,E_nu_err_low,E_nu_err_high,fraction,fraction_err
+D0,27.0,97.5,22.0,173.0,0.437,0.045
+D+,27.0,97.5,22.0,173.0,0.253,0.044
+Lambda_c+,27.0,97.5,22.0,173.0,0.192,0.042
+D_s+,27.0,97.5,22.0,173.0,0.118,0.047

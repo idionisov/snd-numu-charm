@@ -243,16 +243,16 @@ Three dedicated canvases are generated:
 
 ## 8. External Experimental Comparisons: CHORUS and E531 Measurements
 
-To anchor the slow rescaling threshold turn-on against real experimental data without overwhelming the primary SND@LHC MC simulation and theoretical bands, the diagnostic plots overlay published measurements from **CHORUS** and **Fermilab E531** with muted, open markers:
+To anchor the slow rescaling threshold turn-on against real experimental data without overwhelming the primary SND@LHC MC simulation and theoretical bands, the diagnostic plots overlay published measurements from **CHORUS** and **Fermilab E531** with prominent black open markers:
 
 1. **CHORUS Collaboration** (*New J. Phys.* 13 (2011) 093002, arXiv:1107.0613):
    - **Beam**: CERN SPS West Area Neutrino Facility (WANF), wide-band $\nu_\mu$ beam ($\langle E_\nu \rangle \approx 27\text{ GeV}$, covering $10 - 200\text{ GeV}$).
    - **Target**: Nuclear emulsion ($\langle Z/A \rangle \approx 0.467$).
-   - **Styling**: Muted charcoal open squares ($\Box$, marker 25, `ROOT.kGray+2`), linewidth 1.
+   - **Styling**: Black open squares ($\Box$, marker 25, `ROOT.kBlack`, size 1.20), linewidth 2.
 2. **Fermilab E531 Collaboration** (*Phys. Lett. B* 206 (1988) 375):
    - **Beam**: Fermilab wide-band neutrino beam ($E_\nu \sim 5 - 150\text{ GeV}$).
    - **Target**: Nuclear emulsion hybrid spectrometer.
-   - **Styling**: Muted slate open circles ($\bigcirc$, marker 24, `ROOT.kGray+1`), linewidth 1.
+   - **Styling**: Black open circles ($\bigcirc$, marker 24, `ROOT.kBlack`, size 1.20), linewidth 2.
 
 ### 8.1 Nuclear Target Comparison: Emulsion vs Tungsten
 | Target | $\langle Z/A \rangle$ ($f_p$) | $f_n$ | Predicted $R_\infty(\nu_\mu)$ |
@@ -333,11 +333,16 @@ Three companion canvases are produced in [`charm_diagnostic.py`](file:///afs/cer
 2. `c_charm_dimuon_rate_vs_energy_nu_only`: Pure $\nu_\mu$ CC dimuon rate on Tungsten, compared against MC $\nu_\mu$ simulation, theoretical bands, and historical measurements.
 3. `c_charm_dimuon_rate_vs_energy_antinu_only`: Pure $\bar{\nu}_\mu$ CC dimuon rate on Tungsten.
 
-To anchor the dimuon rate against historical neutrino experiments without cluttering the SND@LHC MC points, published dimuon cross section ratios $\sigma(2\mu)/\sigma(\text{CC})$ vs. $E_\nu$ from **NOMAD**, **CHORUS**, **CCFR**, and **E53A+E53B** (compiled in [`neutrino_charm_dimuon_ratio_vs_enu.csv`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/measurements/neutrino_charm_dimuon_ratio_vs_enu.csv)) are overlaid with muted markers:
-- **NOMAD (2013)**: Open diamonds (`ROOT.kGray+3`, 19 points)
-- **CHORUS (2011)**: Open squares (`ROOT.kGray+2`, 7 points)
-- **CCFR (1995)**: Open circles (`ROOT.kGray+1`, 8 points)
-- **E53A+E53B (1983)**: Open triangles (`ROOT.kGray+2`, 4 points)
+To anchor the dimuon rate against historical neutrino experiments without cluttering the SND@LHC MC points, published dimuon cross section ratios $\sigma(2\mu)/\sigma(\text{CC})$ vs. $E_\nu$ from **NOMAD**, **CHORUS**, **CCFR**, and **E53A+E53B** (compiled in [`neutrino_charm_dimuon_ratio_vs_enu.csv`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/measurements/neutrino_charm_dimuon_ratio_vs_enu.csv)) are overlaid with prominent black open markers:
+- **NOMAD (2013)**: Open diamonds (`ROOT.kBlack`, marker 27, size 1.25, linewidth 2, 19 points)
+- **CHORUS (2011)**: Open squares (`ROOT.kBlack`, marker 25, size 1.10, linewidth 2, 7 points)
+- **CCFR (1995)**: Open circles (`ROOT.kBlack`, marker 24, size 1.10, linewidth 2, 8 points)
+- **E53A+E53B (1983)**: Open triangles (`ROOT.kBlack`, marker 26, size 1.10, linewidth 2, 4 points)
+
+Simulated MC error graphs are styled to match the color of their respective slow rescaling model curves:
+- **Inclusive ($\nu_\mu + \bar{\nu}_\mu$)**: Red (`ROOT.kRed + 1`, marker 20)
+- **Neutrino ($\nu_\mu$)**: Blue (`ROOT.kBlue + 2`, marker 20)
+- **Antineutrino ($\bar{\nu}_\mu$)**: Purple/Magenta (`ROOT.kMagenta + 2`, marker 20)
 
 All individual graphs (`g_dimuon_nomad`, `g_dimuon_chorus`, `g_dimuon_ccfr`, `g_dimuon_e53a_e53b`) and a combined graph (`g_dimuon_all_measurements`) are saved in the `Summary/` directory in the output ROOT file.
 

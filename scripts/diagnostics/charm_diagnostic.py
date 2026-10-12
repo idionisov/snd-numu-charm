@@ -2124,12 +2124,12 @@ def write_histograms_and_canvases(
         for idx_ch, (enu, enu_err, val, val_err) in enumerate(chorus_pts):
             g_chorus.SetPoint(idx_ch, enu, val)
             g_chorus.SetPointError(idx_ch, enu_err, val_err)
-        # Muted styling: open square, dark charcoal
+        # Prominent black open square
         g_chorus.SetMarkerStyle(25)  # Open square
-        g_chorus.SetMarkerSize(1.05)
-        g_chorus.SetMarkerColor(ROOT.kGray + 2)
-        g_chorus.SetLineColor(ROOT.kGray + 2)
-        g_chorus.SetLineWidth(1)
+        g_chorus.SetMarkerSize(1.20)
+        g_chorus.SetMarkerColor(ROOT.kBlack)
+        g_chorus.SetLineColor(ROOT.kBlack)
+        g_chorus.SetLineWidth(2)
         print(f"  [Info] Loaded CHORUS measurement ({len(chorus_pts)} points)")
 
     # 2. Fermilab E531 (Phys. Lett. B 206 (1988) 375, Emulsion target, nu_mu CC)
@@ -2189,12 +2189,12 @@ def write_histograms_and_canvases(
             r_err_hi = p[8] / 100.0
             g_e531.SetPoint(idx_e, e_mean, r_val)
             g_e531.SetPointError(idx_e, e_err_lo, e_err_hi, r_err_lo, r_err_hi)
-        # Muted styling: open circle, slate gray
+        # Prominent black open circle
         g_e531.SetMarkerStyle(24)  # Open circle
-        g_e531.SetMarkerSize(1.05)
-        g_e531.SetMarkerColor(ROOT.kGray + 1)
-        g_e531.SetLineColor(ROOT.kGray + 1)
-        g_e531.SetLineWidth(1)
+        g_e531.SetMarkerSize(1.20)
+        g_e531.SetMarkerColor(ROOT.kBlack)
+        g_e531.SetLineColor(ROOT.kBlack)
+        g_e531.SetLineWidth(2)
         print(f"  [Info] Loaded E531 measurement ({len(e531_pts)} points)")
 
     # Calculate data points
@@ -2242,8 +2242,8 @@ def write_histograms_and_canvases(
 
     g_charm_rate_mc.SetMarkerStyle(20)
     g_charm_rate_mc.SetMarkerSize(1.2)
-    g_charm_rate_mc.SetMarkerColor(ROOT.kBlack)
-    g_charm_rate_mc.SetLineColor(ROOT.kBlack)
+    g_charm_rate_mc.SetMarkerColor(ROOT.kRed + 1)
+    g_charm_rate_mc.SetLineColor(ROOT.kRed + 1)
     g_charm_rate_mc.SetLineWidth(2)
 
     g_charm_rate_mc_nu.SetMarkerStyle(20)
@@ -2499,8 +2499,8 @@ def write_histograms_and_canvases(
 
     g_dimuon_rate_mc.SetMarkerStyle(20)
     g_dimuon_rate_mc.SetMarkerSize(1.2)
-    g_dimuon_rate_mc.SetMarkerColor(ROOT.kBlack)
-    g_dimuon_rate_mc.SetLineColor(ROOT.kBlack)
+    g_dimuon_rate_mc.SetMarkerColor(ROOT.kRed + 1)
+    g_dimuon_rate_mc.SetLineColor(ROOT.kRed + 1)
     g_dimuon_rate_mc.SetLineWidth(2)
 
     g_dimuon_rate_mc_nu.SetMarkerStyle(20)
@@ -2596,26 +2596,26 @@ def write_histograms_and_canvases(
         "NOMAD": {
             "title": "NOMAD (2013, #nu_{#mu})",
             "marker_style": 27,  # Open diamond
-            "marker_size": 1.15,
-            "color": ROOT.kGray + 3,
+            "marker_size": 1.25,
+            "color": ROOT.kBlack,
         },
         "CHORUS": {
             "title": "CHORUS (2011, #nu_{#mu})",
             "marker_style": 25,  # Open square
-            "marker_size": 0.95,
-            "color": ROOT.kGray + 2,
+            "marker_size": 1.10,
+            "color": ROOT.kBlack,
         },
         "CCFR": {
             "title": "CCFR (1995, #nu_{#mu})",
             "marker_style": 24,  # Open circle
-            "marker_size": 0.95,
-            "color": ROOT.kGray + 1,
+            "marker_size": 1.10,
+            "color": ROOT.kBlack,
         },
         "E53A+E53B": {
             "title": "E53A+E53B (1983, #nu_{#mu})",
             "marker_style": 26,  # Open triangle
-            "marker_size": 0.95,
-            "color": ROOT.kGray + 2,
+            "marker_size": 1.10,
+            "color": ROOT.kBlack,
         },
     }
 
@@ -2631,8 +2631,8 @@ def write_histograms_and_canvases(
         style = dimuon_exp_styles.get(exp_name, {
             "title": str(exp_name) + " (#nu_{#mu})",
             "marker_style": 24,
-            "marker_size": 0.95,
-            "color": ROOT.kGray + 2,
+            "marker_size": 1.10,
+            "color": ROOT.kBlack,
         })
         g_exp.SetTitle(style["title"])
         for idx, (enu, dx_lo, dx_hi, ratio, dy_lo, dy_hi) in enumerate(pts):
@@ -2642,7 +2642,7 @@ def write_histograms_and_canvases(
         g_exp.SetMarkerSize(style["marker_size"])
         g_exp.SetMarkerColor(style["color"])
         g_exp.SetLineColor(style["color"])
-        g_exp.SetLineWidth(1)
+        g_exp.SetLineWidth(2)
         dimuon_graphs[exp_name] = g_exp
         print(f"  [Info] Loaded {exp_name} dimuon measurement ({len(pts)} points)")
 
@@ -2659,10 +2659,10 @@ def write_histograms_and_canvases(
                 g_dimuon_all.SetPointError(pt_counter, dx_lo, dx_hi, dy_lo, dy_hi)
                 pt_counter += 1
     g_dimuon_all.SetMarkerStyle(24)
-    g_dimuon_all.SetMarkerSize(0.95)
-    g_dimuon_all.SetMarkerColor(ROOT.kGray + 2)
-    g_dimuon_all.SetLineColor(ROOT.kGray + 2)
-    g_dimuon_all.SetLineWidth(1)
+    g_dimuon_all.SetMarkerSize(1.10)
+    g_dimuon_all.SetMarkerColor(ROOT.kBlack)
+    g_dimuon_all.SetLineColor(ROOT.kBlack)
+    g_dimuon_all.SetLineWidth(2)
 
     y_max_dimuon = max(0.022, h_charm_dimuon_rate_ebins.GetMaximum() * 1.60)
     y_max_dimuon_nu = max(0.020, h_charm_dimuon_rate_ebins_nu.GetMaximum() * 1.60)

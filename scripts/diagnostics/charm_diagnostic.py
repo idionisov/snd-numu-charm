@@ -1692,47 +1692,91 @@ def write_histograms_and_canvases(
 
     # 1D Species Fraction vs E_nu for each major ground state
     species_frac_nu_hists: Dict[int, ROOT.TH1D] = {}
-    for abs_c in species_order:
+    species_frac_nu_graphs: Dict[int, ROOT.TGraphAsymmErrors] = {}
+    for idx_sp, abs_c in enumerate(species_order):
         sp_name = get_species_name(abs_c)
         h_frac_vs_e = ROOT.TH1D(
             f"h_fraction_{sp_name}_vs_nu_energy",
             f"{sp_name} Fraction vs Neutrino Energy;E_{{#nu}} [GeV];f({sp_name}) = N({sp_name}) / N_{{charm}}",
             n_nu_ebins, arr_nu_edges
         )
+        g_frac_vs_e = ROOT.TGraphAsymmErrors(n_nu_ebins)
+        g_frac_vs_e.SetName(f"g_fraction_{sp_name}_vs_nu_energy")
+        g_frac_vs_e.SetTitle(f"{sp_name} Fraction vs Neutrino Energy;E_{{#nu}} [GeV];f({sp_name}) = N({sp_name}) / N_{{charm}}")
         for i_b in range(n_nu_ebins):
             ebin_tot = sum(data["species_nu_ebin_counts"][i_b].values())
             c_cnt = data["species_nu_ebin_counts"][i_b].get(abs_c, 0)
-            frac = (c_cnt / ebin_tot) if ebin_tot > 0 else 0.0
-            h_frac_vs_e.SetBinContent(i_b + 1, frac)
+            val_pct, lo_pct, hi_pct = clopper_pearson_errors(c_cnt, ebin_tot, 0.6827)
+            val = val_pct / 100.0
+            err_lo = lo_pct / 100.0
+            err_hi = hi_pct / 100.0
+            x_c = 0.5 * (nu_bin_edges[i_b] + nu_bin_edges[i_b + 1])
+            dx_lo = x_c - nu_bin_edges[i_b]
+            dx_hi = nu_bin_edges[i_b + 1] - x_c
+            h_frac_vs_e.SetBinContent(i_b + 1, val)
+            h_frac_vs_e.SetBinError(i_b + 1, max(err_lo, err_hi))
+            g_frac_vs_e.SetPoint(i_b, x_c, val)
+            g_frac_vs_e.SetPointError(i_b, dx_lo, dx_hi, err_lo, err_hi)
+
         col = SPECIES_COLORS.get(abs_c, ROOT.kBlack)
         h_frac_vs_e.SetLineColor(col)
         h_frac_vs_e.SetMarkerColor(col)
-        h_frac_vs_e.SetMarkerStyle(20)
+        h_frac_vs_e.SetMarkerStyle(20 + idx_sp)
         h_frac_vs_e.SetLineWidth(2)
         h_frac_vs_e.Write()
         species_frac_nu_hists[abs_c] = h_frac_vs_e
 
+        g_frac_vs_e.SetLineColor(col)
+        g_frac_vs_e.SetMarkerColor(col)
+        g_frac_vs_e.SetMarkerStyle(20 + idx_sp)
+        g_frac_vs_e.SetMarkerSize(1.15)
+        g_frac_vs_e.SetLineWidth(2)
+        g_frac_vs_e.Write()
+        species_frac_nu_graphs[abs_c] = g_frac_vs_e
+
     # 1D Species Fraction vs E_charm for each major ground state
     species_frac_ch_hists: Dict[int, ROOT.TH1D] = {}
-    for abs_c in species_order:
+    species_frac_ch_graphs: Dict[int, ROOT.TGraphAsymmErrors] = {}
+    for idx_sp, abs_c in enumerate(species_order):
         sp_name = get_species_name(abs_c)
         h_frac_vs_ce = ROOT.TH1D(
             f"h_fraction_{sp_name}_vs_charm_energy",
             f"{sp_name} Fraction vs Charm Hadron Energy;E_{{charm}} [GeV];f({sp_name}) = N({sp_name}) / N_{{charm}}",
             n_ch_ebins, arr_ch_edges
         )
+        g_frac_vs_ce = ROOT.TGraphAsymmErrors(n_ch_ebins)
+        g_frac_vs_ce.SetName(f"g_fraction_{sp_name}_vs_charm_energy")
+        g_frac_vs_ce.SetTitle(f"{sp_name} Fraction vs Charm Hadron Energy;E_{{charm}} [GeV];f({sp_name}) = N({sp_name}) / N_{{charm}}")
         for i_b in range(n_ch_ebins):
             ebin_tot = sum(data["species_charm_ebin_counts"][i_b].values())
             c_cnt = data["species_charm_ebin_counts"][i_b].get(abs_c, 0)
-            frac = (c_cnt / ebin_tot) if ebin_tot > 0 else 0.0
-            h_frac_vs_ce.SetBinContent(i_b + 1, frac)
+            val_pct, lo_pct, hi_pct = clopper_pearson_errors(c_cnt, ebin_tot, 0.6827)
+            val = val_pct / 100.0
+            err_lo = lo_pct / 100.0
+            err_hi = hi_pct / 100.0
+            x_c = 0.5 * (charm_bin_edges[i_b] + charm_bin_edges[i_b + 1])
+            dx_lo = x_c - charm_bin_edges[i_b]
+            dx_hi = charm_bin_edges[i_b + 1] - x_c
+            h_frac_vs_ce.SetBinContent(i_b + 1, val)
+            h_frac_vs_ce.SetBinError(i_b + 1, max(err_lo, err_hi))
+            g_frac_vs_ce.SetPoint(i_b, x_c, val)
+            g_frac_vs_ce.SetPointError(i_b, dx_lo, dx_hi, err_lo, err_hi)
+
         col = SPECIES_COLORS.get(abs_c, ROOT.kBlack)
         h_frac_vs_ce.SetLineColor(col)
         h_frac_vs_ce.SetMarkerColor(col)
-        h_frac_vs_ce.SetMarkerStyle(21)
+        h_frac_vs_ce.SetMarkerStyle(20 + idx_sp)
         h_frac_vs_ce.SetLineWidth(2)
         h_frac_vs_ce.Write()
         species_frac_ch_hists[abs_c] = h_frac_vs_ce
+
+        g_frac_vs_ce.SetLineColor(col)
+        g_frac_vs_ce.SetMarkerColor(col)
+        g_frac_vs_ce.SetMarkerStyle(20 + idx_sp)
+        g_frac_vs_ce.SetMarkerSize(1.15)
+        g_frac_vs_ce.SetLineWidth(2)
+        g_frac_vs_ce.Write()
+        species_frac_ch_graphs[abs_c] = g_frac_vs_ce
 
     # Kinematics: Fragmentation z, pT, Theta
     h_z = ROOT.TH1D("h_fragmentation_z", "Charm Energy Fraction (Fragmentation);z = E_{charm} / E_{#nu};Entries", 50, 0.0, 1.0)
@@ -1786,8 +1830,8 @@ def write_histograms_and_canvases(
     # =========================================================================
     dir_species_root = fout.mkdir("Species")
     species_ctau_hists: Dict[int, ROOT.TH1D] = {}
-    species_br_vs_charm_e: Dict[int, List[Tuple[str, ROOT.TH1D]]] = {}
-    species_br_vs_nu_e: Dict[int, List[Tuple[str, ROOT.TH1D]]] = {}
+    species_br_vs_charm_e: Dict[int, List[Tuple[str, ROOT.TH1D, ROOT.TGraphAsymmErrors]]] = {}
+    species_br_vs_nu_e: Dict[int, List[Tuple[str, ROOT.TH1D, ROOT.TGraphAsymmErrors]]] = {}
 
     for abs_c in sorted(data["species_hadron_counts"].keys()):
         sp_name = get_species_name(abs_c)
@@ -1874,12 +1918,21 @@ def write_histograms_and_canvases(
                 f"BR({sp_name} -> {formula}) vs E_{{charm}};E_{{charm}} [GeV];Branching Ratio [%]",
                 n_ch_ebins, arr_ch_edges
             )
+            g_mode_vs_ce = ROOT.TGraphAsymmErrors(n_ch_ebins)
+            g_mode_vs_ce.SetName(f"g_br_{slug}_vs_charm_e")
+            g_mode_vs_ce.SetTitle(f"BR({sp_name} #rightarrow {formula}) vs E_{{charm}};E_{{charm}} [GeV];Branching Ratio [%]")
             for i_b in range(n_ch_ebins):
                 eb_counter = ch_ebin_map.get(i_b, Counter())
                 eb_tot = sum(eb_counter.values())
                 mode_cnt = eb_counter.get(mode_tuple, 0)
-                br = (100.0 * mode_cnt / eb_tot) if eb_tot > 0 else 0.0
-                h_mode_vs_ce.SetBinContent(i_b + 1, br)
+                val_pct, lo_pct, hi_pct = clopper_pearson_errors(mode_cnt, eb_tot, 0.6827)
+                x_c = 0.5 * (charm_bin_edges[i_b] + charm_bin_edges[i_b + 1])
+                dx_lo = x_c - charm_bin_edges[i_b]
+                dx_hi = charm_bin_edges[i_b + 1] - x_c
+                h_mode_vs_ce.SetBinContent(i_b + 1, val_pct)
+                h_mode_vs_ce.SetBinError(i_b + 1, max(lo_pct, hi_pct))
+                g_mode_vs_ce.SetPoint(i_b, x_c, val_pct)
+                g_mode_vs_ce.SetPointError(i_b, dx_lo, dx_hi, lo_pct, hi_pct)
 
             col = mode_colors[m_idx % len(mode_colors)]
             h_mode_vs_ce.SetLineColor(col)
@@ -1887,7 +1940,14 @@ def write_histograms_and_canvases(
             h_mode_vs_ce.SetMarkerStyle(20 + m_idx)
             h_mode_vs_ce.SetLineWidth(2)
             h_mode_vs_ce.Write()
-            species_br_vs_charm_e[abs_c].append((formula, h_mode_vs_ce))
+
+            g_mode_vs_ce.SetLineColor(col)
+            g_mode_vs_ce.SetMarkerColor(col)
+            g_mode_vs_ce.SetMarkerStyle(20 + m_idx)
+            g_mode_vs_ce.SetMarkerSize(1.15)
+            g_mode_vs_ce.SetLineWidth(2)
+            g_mode_vs_ce.Write()
+            species_br_vs_charm_e[abs_c].append((formula, h_mode_vs_ce, g_mode_vs_ce))
 
         # Branching Ratios vs E_nu for top 4 decay modes
         nu_ebin_map = data["decay_channels_by_species_nu_ebin"].get(abs_c, {})
@@ -1904,12 +1964,21 @@ def write_histograms_and_canvases(
                 f"BR({sp_name} -> {formula}) vs E_{{#nu}};E_{{#nu}} [GeV];Branching Ratio [%]",
                 n_nu_ebins, arr_nu_edges
             )
+            g_mode_vs_nue = ROOT.TGraphAsymmErrors(n_nu_ebins)
+            g_mode_vs_nue.SetName(f"g_br_{slug}_vs_nu_e")
+            g_mode_vs_nue.SetTitle(f"BR({sp_name} #rightarrow {formula}) vs E_{{#nu}};E_{{#nu}} [GeV];Branching Ratio [%]")
             for i_b in range(n_nu_ebins):
                 eb_counter = nu_ebin_map.get(i_b, Counter())
                 eb_tot = sum(eb_counter.values())
                 mode_cnt = eb_counter.get(mode_tuple, 0)
-                br = (100.0 * mode_cnt / eb_tot) if eb_tot > 0 else 0.0
-                h_mode_vs_nue.SetBinContent(i_b + 1, br)
+                val_pct, lo_pct, hi_pct = clopper_pearson_errors(mode_cnt, eb_tot, 0.6827)
+                x_c = 0.5 * (nu_bin_edges[i_b] + nu_bin_edges[i_b + 1])
+                dx_lo = x_c - nu_bin_edges[i_b]
+                dx_hi = nu_bin_edges[i_b + 1] - x_c
+                h_mode_vs_nue.SetBinContent(i_b + 1, val_pct)
+                h_mode_vs_nue.SetBinError(i_b + 1, max(lo_pct, hi_pct))
+                g_mode_vs_nue.SetPoint(i_b, x_c, val_pct)
+                g_mode_vs_nue.SetPointError(i_b, dx_lo, dx_hi, lo_pct, hi_pct)
 
             col = mode_colors[m_idx % len(mode_colors)]
             h_mode_vs_nue.SetLineColor(col)
@@ -1917,7 +1986,14 @@ def write_histograms_and_canvases(
             h_mode_vs_nue.SetMarkerStyle(20 + m_idx)
             h_mode_vs_nue.SetLineWidth(2)
             h_mode_vs_nue.Write()
-            species_br_vs_nu_e[abs_c].append((formula, h_mode_vs_nue))
+
+            g_mode_vs_nue.SetLineColor(col)
+            g_mode_vs_nue.SetMarkerColor(col)
+            g_mode_vs_nue.SetMarkerStyle(20 + m_idx)
+            g_mode_vs_nue.SetMarkerSize(1.15)
+            g_mode_vs_nue.SetLineWidth(2)
+            g_mode_vs_nue.Write()
+            species_br_vs_nu_e[abs_c].append((formula, h_mode_vs_nue, g_mode_vs_nue))
 
     # =========================================================================
     # 4. CANVASES DIRECTORY: Superimposed Histograms, Models & Legends
@@ -2780,10 +2856,10 @@ def write_histograms_and_canvases(
     leg_sp_nu.SetFillColor(ROOT.kWhite)
 
     for abs_c in species_order:
-        h = species_frac_nu_hists.get(abs_c)
-        if h:
-            h.Draw("LP same")
-            leg_sp_nu.AddEntry(h, get_species_name(abs_c), "lp")
+        g = species_frac_nu_graphs.get(abs_c)
+        if g:
+            g.Draw("P E1 same")
+            leg_sp_nu.AddEntry(g, get_species_name(abs_c), "lep")
     leg_sp_nu.Draw("same")
     c_sp_nu.Write()
 
@@ -2803,15 +2879,15 @@ def write_histograms_and_canvases(
     leg_sp_ce.SetFillColor(ROOT.kWhite)
 
     for abs_c in species_order:
-        h = species_frac_ch_hists.get(abs_c)
-        if h:
-            h.Draw("LP same")
-            leg_sp_ce.AddEntry(h, get_species_name(abs_c), "lp")
+        g = species_frac_ch_graphs.get(abs_c)
+        if g:
+            g.Draw("P E1 same")
+            leg_sp_ce.AddEntry(g, get_species_name(abs_c), "lep")
     leg_sp_ce.Draw("same")
     c_sp_ce.Write()
 
-    # --- Canvas 5: Superimposed Branching Ratios vs E_charm (for D0 and D+) ---
-    for abs_c in [421, 411]:
+    # --- Canvas 5: Superimposed Branching Ratios vs E_charm (for all available species) ---
+    for abs_c in species_order:
         sp_name = get_species_name(abs_c)
         mode_list = species_br_vs_charm_e.get(abs_c, [])
         if not mode_list:
@@ -2824,7 +2900,15 @@ def write_histograms_and_canvases(
         c_br_ce.SetBottomMargin(0.12)
         c_br_ce.SetGrid()
 
-        max_br = max([h.GetMaximum() for _, h in mode_list] + [10.0])
+        max_br = 10.0
+        for _, h, g in mode_list:
+            if h.GetMaximum() > max_br:
+                max_br = h.GetMaximum()
+            for pt_idx in range(g.GetN()):
+                val_hi = g.GetPointY(pt_idx) + g.GetErrorYhigh(pt_idx)
+                if val_hi > max_br:
+                    max_br = val_hi
+
         h_br_frame = c_br_ce.DrawFrame(0.0, 0.0, charm_bin_edges[-1], min(100.0, max_br * 1.35))
         h_br_frame.SetTitle(f"Evolution of {sp_name} Branching Ratios with Hadron Energy;E_{{{sp_name}}} [GeV];Branching Ratio [%]")
 
@@ -2832,9 +2916,9 @@ def write_histograms_and_canvases(
         leg_br_ce.SetBorderSize(1)
         leg_br_ce.SetFillColor(ROOT.kWhite)
 
-        for formula, h in mode_list:
-            h.Draw("LP same")
-            leg_br_ce.AddEntry(h, f"{sp_name} #rightarrow {formula}", "lp")
+        for formula, h, g in mode_list:
+            g.Draw("P E1 same")
+            leg_br_ce.AddEntry(g, f"{sp_name} #rightarrow {formula}", "lep")
         leg_br_ce.Draw("same")
         c_br_ce.Write()
 
@@ -3499,8 +3583,9 @@ def print_diagnostic_report(
     header = f" {'Species':<14s} {'Overall Share':<16s}"
     for i in range(n_ch_ebins):
         header += f" [{charm_bin_edges[i]:.0f},{charm_bin_edges[i+1]:.0f}) GeV".ljust(14)
+    tbl_width = max(86, len(header))
     print(header)
-    print("-" * 86)
+    print("-" * tbl_width)
 
     for abs_c in major_pdgs + other_pdgs:
         sp_name = get_species_name(abs_c)
@@ -3514,7 +3599,7 @@ def print_diagnostic_report(
             share_ebin = (100.0 * c_ebin / ebin_tot) if ebin_tot > 0 else 0.0
             row += f"{share_ebin:5.1f}% ({c_ebin:<2d})".ljust(14)
         print(row)
-    print("-" * 86)
+    print("-" * tbl_width)
 
     # 4. Exclusive Decay Channels & Branching Ratio Evolution with E_charm
     print("\n" + "-" * 86)
@@ -3741,14 +3826,14 @@ def main():
         "--nu-energy-bins",
         nargs="+",
         type=float,
-        default=[0.0, 100.0, 250.0, 500.0, 1500.0],
+        default=[0.0, 50.0, 100.0, 150.0, 200.0, 250.0, 350.0, 500.0, 750.0, 1500.0],
         help="Neutrino energy bin edges in GeV",
     )
     parser.add_argument(
         "--charm-energy-bins",
         nargs="+",
         type=float,
-        default=[0.0, 50.0, 100.0, 250.0, 500.0, 1500.0],
+        default=[0.0, 25.0, 50.0, 75.0, 100.0, 150.0, 200.0, 300.0, 500.0, 1500.0],
         help="Charm hadron energy bin edges in GeV",
     )
     parser.add_argument(

@@ -192,6 +192,26 @@ def plot_comparison(
     e_nu = model["e_nu"]
     species_order = ["D0", "D+", "Ds+", "Lambda_c"]
 
+    # Full analysis beam acceptance range [10, 200] GeV for CHORUS
+    ax_sp.axvspan(
+        10,
+        200,
+        color="gray",
+        alpha=0.07,
+        zorder=0,
+        label="CHORUS beam acceptance (10–200 GeV)",
+    )
+
+    # CHORUS measured fractions: (mean, error) from NJP 13 (2011) 093002
+    chorus_vals = {
+        "D0": (0.437, 0.045),
+        "D+": (0.253, 0.044),
+        "Lambda_c": (0.192, 0.042),
+        "Ds+": (0.118, 0.047),
+    }
+    dx_low = 14.0
+    dx_high = 28.0
+
     # --- Top Panel: Species Fractions ---
     for sp in species_order:
         meta = SPECIES_META[sp]
@@ -216,6 +236,24 @@ def plot_comparison(
             linestyle="-",
         )
 
+        # CHORUS measurement
+        ch_val, ch_err = chorus_vals[sp]
+        ax_sp.errorbar(
+            27.0,
+            ch_val,
+            xerr=[[dx_low], [dx_high]],
+            yerr=[[ch_err], [ch_err]],
+            fmt="s",
+            mfc="none",
+            mec=col,
+            ecolor=col,
+            elinewidth=1.6,
+            capsize=3.5,
+            capthick=1.2,
+            markersize=7,
+            label=f"{lbl} CHORUS (2011)",
+        )
+
         # MC data points
         if sp in mc_data:
             d = mc_data[sp]
@@ -233,15 +271,17 @@ def plot_comparison(
                 label=f"{lbl} (MC)",
             )
 
+    ax_sp.set_xscale("log")
+    ax_sp.set_xlim(4.5, max(300.0, float(e_nu[-1])))
     ax_sp.set_ylabel(r"Fragmentation Fraction $f_i = N_i / N_{\mathrm{charm}}$", fontsize=12)
     ax_sp.set_ylim(0.0, 1.02)
     ax_sp.set_title(
-        r"Charm Hadron Species Fragmentation Fractions vs $E_\nu$" + title_suffix,
+        r"Charm Hadron Species Fragmentation Fractions vs $E_\nu$ (Lund String + QE/Recombination)" + title_suffix,
         fontsize=13,
         pad=10,
     )
     ax_sp.grid(True, linestyle="--", alpha=0.5)
-    ax_sp.legend(loc="upper right", ncol=2, framealpha=0.90, fontsize=10)
+    ax_sp.legend(loc="upper right", ncol=3, framealpha=0.90, fontsize=8.5)
 
     # --- Bottom Panel: Effective Semi-Muonic Branching Ratio ---
     ax_bmu.fill_between(

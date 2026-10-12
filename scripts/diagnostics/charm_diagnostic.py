@@ -201,12 +201,29 @@ SPECIES_COLORS: Dict[int, int] = {
     4122: ROOT.kMagenta + 1,  # Lambda_c
 }
 
+# Persistent standard fill colors for model 1-sigma uncertainty bands
+SPECIES_FILL_COLORS: Dict[int, int] = {
+    421: ROOT.kRed - 9,       # D0 light pastel red
+    411: ROOT.kAzure - 9,     # D+ light pastel blue
+    431: ROOT.kGreen - 9,     # Ds light pastel green
+    4122: ROOT.kMagenta - 9,  # Lambda_c light pastel magenta
+}
+
 # ROOT TLatex formatted titles for charm hadron species
 SPECIES_LATEX: Dict[int, str] = {
     421: "D^{0}",
     411: "D^{+}",
     431: "D_{s}^{+}",
     4122: "#Lambda_{c}^{+}",
+}
+
+# CHORUS measured fractions: (mean, stat+syst err) from New J. Phys. 13 (2011) 093002
+# WANF wide-band beam: <E_nu> = 27 GeV, central 68% interaction interval spans [13, 55] GeV
+CHORUS_SPECIES_FRACTIONS: Dict[int, Tuple[float, float]] = {
+    421: (0.437, 0.045),     # D0
+    411: (0.253, 0.044),     # D+
+    431: (0.118, 0.047),     # Ds+
+    4122: (0.192, 0.042),    # Lambda_c+
 }
 
 
@@ -945,7 +962,8 @@ def create_species_fraction_model(
             ey_hi = float(f_high[sp_key][i_pt] - y)
             g_band.SetPoint(i_pt, x, y)
             g_band.SetPointError(i_pt, 0.0, 0.0, max(0.0, ey_lo), max(0.0, ey_hi))
-        g_band.SetFillColorAlpha(col, 0.20)
+        fill_col = SPECIES_FILL_COLORS.get(abs_pdg, col)
+        g_band.SetFillColor(fill_col)
         g_band.SetFillStyle(1001)
         g_band.SetLineColor(col)
         g_band.SetLineWidth(1)
@@ -2978,6 +2996,24 @@ def write_histograms_and_canvases(
     g_model_bmu.Write("g_model_effective_bmu_vs_nu_energy")
     g_model_band_bmu.Write("g_model_band_effective_bmu_vs_nu_energy")
 
+    # CHORUS experimental species fraction measurement graphs
+    chorus_species_graphs: Dict[int, ROOT.TGraphAsymmErrors] = {}
+    for abs_c, (c_val, c_err) in CHORUS_SPECIES_FRACTIONS.items():
+        sp_name = get_species_name(abs_c)
+        col = SPECIES_COLORS.get(abs_c, ROOT.kBlack)
+        g_ch = ROOT.TGraphAsymmErrors(1)
+        g_ch.SetName(f"g_chorus_fraction_{sp_name}_vs_nu_energy")
+        g_ch.SetTitle(f"CHORUS (2011) {sp_name} Fraction;E_{{#nu}} [GeV];f({sp_name})")
+        g_ch.SetPoint(0, 27.0, c_val)
+        g_ch.SetPointError(0, 14.0, 28.0, c_err, c_err)
+        g_ch.SetMarkerStyle(25)  # Open square
+        g_ch.SetMarkerSize(1.30)
+        g_ch.SetMarkerColor(col)
+        g_ch.SetLineColor(col)
+        g_ch.SetLineWidth(2)
+        chorus_species_graphs[abs_c] = g_ch
+        g_ch.Write(f"g_chorus_fraction_{sp_name}_vs_nu_energy")
+
     dir_canvases.cd()
 
     # --- Canvas 2: Overlaid Energy Spectra (Inclusive CC vs Charm CC vs Charm Hadron) ---
@@ -3011,15 +3047,16 @@ def write_histograms_and_canvases(
     c_spectra.Write()
 
     # --- Canvas 3: Superimposed Species Fractions vs E_nu ---
-    c_sp_nu = ROOT.TCanvas("c_species_fractions_vs_nu_energy", "Charm Species Fractions vs Neutrino Energy", 950, 700)
+    c_sp_nu = ROOT.TCanvas("c_species_fractions_vs_nu_energy", "Charm Species Fractions vs Neutrino Energy", 1000, 700)
     c_sp_nu.SetLeftMargin(0.12)
     c_sp_nu.SetRightMargin(0.06)
     c_sp_nu.SetTopMargin(0.08)
     c_sp_nu.SetBottomMargin(0.12)
+    c_sp_nu.SetLogx()
     c_sp_nu.SetGrid()
 
     x_max_sp = max(1000.0, nu_bin_edges[-1])
-    h_sp_nu_frame = c_sp_nu.DrawFrame(0.0, 0.0, x_max_sp, 1.05)
+    h_sp_nu_frame = c_sp_nu.DrawFrame(4.5, 0.0, x_max_sp, 1.05)
     h_sp_nu_frame.SetTitle("Charm Species Fragmentation Fractions vs Neutrino Energy;E_{#nu} [GeV];Fraction f_{i} = N_{i} / N_{charm}")
     h_sp_nu_frame.GetYaxis().SetTitleOffset(1.25)
 
@@ -3033,18 +3070,23 @@ def write_histograms_and_canvases(
         if abs_c in model_curves:
             model_curves[abs_c].Draw("L same")
 
-    # 3. Draw MC simulation data points
+    # 3. Draw CHORUS experimental measurements
+    for abs_c in species_order:
+        if abs_c in chorus_species_graphs:
+            chorus_species_graphs[abs_c].Draw("P E1 same")
+
+    # 4. Draw MC simulation data points
     for abs_c in species_order:
         g = species_frac_nu_graphs.get(abs_c)
         if g:
             g.Draw("P E1 same")
 
-    # 4. Legend (2 columns, formatted with LaTeX symbols)
-    leg_sp_nu = ROOT.TLegend(0.48, 0.62, 0.92, 0.89)
+    # 5. Legend (3 columns: MC, Model 1-sigma, CHORUS)
+    leg_sp_nu = ROOT.TLegend(0.44, 0.60, 0.92, 0.90)
     leg_sp_nu.SetBorderSize(1)
-    leg_sp_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_sp_nu.SetTextSize(0.022)
-    leg_sp_nu.SetNColumns(2)
+    leg_sp_nu.SetFillColorAlpha(ROOT.kWhite, 0.94)
+    leg_sp_nu.SetTextSize(0.021)
+    leg_sp_nu.SetNColumns(3)
 
     for abs_c in species_order:
         g_mc = species_frac_nu_graphs.get(abs_c)
@@ -3052,7 +3094,9 @@ def write_histograms_and_canvases(
         if g_mc:
             leg_sp_nu.AddEntry(g_mc, f"{sp_latex} (MC)", "lep")
         if abs_c in model_bands:
-            leg_sp_nu.AddEntry(model_bands[abs_c], f"{sp_latex} (Model #pm 1#sigma)", "lf")
+            leg_sp_nu.AddEntry(model_bands[abs_c], f"{sp_latex} (Model 1#sigma)", "lf")
+        if abs_c in chorus_species_graphs:
+            leg_sp_nu.AddEntry(chorus_species_graphs[abs_c], f"{sp_latex} (CHORUS)", "lep")
 
     leg_sp_nu.Draw("same")
     c_sp_nu.Write()

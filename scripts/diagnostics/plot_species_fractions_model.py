@@ -28,25 +28,29 @@ import matplotlib.pyplot as plt
 SPECIES_META = {
     "D0": {
         "latex": r"$D^0$",
-        "color": "#d62728",      # Crimson / Red
+        "color": "#d62728",          # Crimson / Red
+        "dark_color": "#800000",     # Deep Maroon / Dark Red
         "marker": "o",
         "pdg": 421,
     },
     "D+": {
         "latex": r"$D^+$",
-        "color": "#1f77b4",      # Steel Blue
+        "color": "#1f77b4",          # Steel Blue
+        "dark_color": "#000080",     # Deep Navy Blue
         "marker": "s",
         "pdg": 411,
     },
     "Ds+": {
         "latex": r"$D_s^+$",
-        "color": "#2ca02c",      # Forest Green
+        "color": "#2ca02c",          # Forest Green
+        "dark_color": "#004d00",     # Deep Dark Forest Green
         "marker": "^",
         "pdg": 431,
     },
     "Lambda_c": {
         "latex": r"$\Lambda_c^+$",
-        "color": "#9467bd",      # Purple / Magenta
+        "color": "#9467bd",          # Purple / Magenta
+        "dark_color": "#4b0082",     # Deep Dark Violet / Indigo
         "marker": "v",
         "pdg": 4122,
     },
@@ -216,15 +220,17 @@ def plot_comparison(
     for sp in species_order:
         meta = SPECIES_META[sp]
         col = meta["color"]
+        dark_col = meta["dark_color"]
         lbl = meta["latex"]
 
-        # Shaded 68% CL model band
+        # Shaded 68% CL model band (pale fill, no edge)
         ax_sp.fill_between(
             e_nu,
             model["f_low"][sp],
             model["f_high"][sp],
             color=col,
-            alpha=0.20,
+            alpha=0.14,
+            edgecolor="none",
             label=f"{lbl} Model (68% CL)",
         )
         # Median model curve
@@ -236,7 +242,7 @@ def plot_comparison(
             linestyle="-",
         )
 
-        # CHORUS measurement
+        # CHORUS measurement (darker prominent open squares)
         ch_val, ch_err = chorus_vals[sp]
         ax_sp.errorbar(
             27.0,
@@ -245,12 +251,12 @@ def plot_comparison(
             yerr=[[ch_err], [ch_err]],
             fmt="s",
             mfc="none",
-            mec=col,
-            ecolor=col,
-            elinewidth=1.6,
+            mec=dark_col,
+            ecolor=dark_col,
+            elinewidth=1.8,
             capsize=3.5,
             capthick=1.2,
-            markersize=7,
+            markersize=7.5,
             label=f"{lbl} CHORUS (2011)",
         )
 

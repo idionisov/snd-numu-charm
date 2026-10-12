@@ -201,12 +201,20 @@ SPECIES_COLORS: Dict[int, int] = {
     4122: ROOT.kMagenta + 1,  # Lambda_c
 }
 
-# Persistent standard fill colors for model 1-sigma uncertainty bands
+# Pale pastel fill colors for model 1-sigma uncertainty bands
 SPECIES_FILL_COLORS: Dict[int, int] = {
-    421: ROOT.kRed - 9,       # D0 light pastel red
-    411: ROOT.kAzure - 9,     # D+ light pastel blue
-    431: ROOT.kGreen - 9,     # Ds light pastel green
-    4122: ROOT.kMagenta - 9,  # Lambda_c light pastel magenta
+    421: ROOT.kRed - 10,       # D0 pale pastel red
+    411: ROOT.kBlue - 10,      # D+ pale pastel blue
+    431: ROOT.kGreen - 10,     # Ds pale pastel green
+    4122: ROOT.kMagenta - 10,  # Lambda_c pale pastel magenta
+}
+
+# Darker prominent colors for external CHORUS measurements
+CHORUS_COLORS: Dict[int, int] = {
+    421: ROOT.kRed + 3,        # D0 deep dark red / maroon
+    411: ROOT.kBlue + 3,       # D+ deep dark navy blue
+    431: ROOT.kGreen + 3,      # Ds deep dark forest green
+    4122: ROOT.kMagenta + 3,   # Lambda_c deep dark violet
 }
 
 # ROOT TLatex formatted titles for charm hadron species
@@ -965,9 +973,8 @@ def create_species_fraction_model(
         fill_col = SPECIES_FILL_COLORS.get(abs_pdg, col)
         g_band.SetFillColor(fill_col)
         g_band.SetFillStyle(1001)
-        g_band.SetLineColor(col)
+        g_band.SetLineColor(fill_col)
         g_band.SetLineWidth(1)
-        g_band.SetLineStyle(3)
         model_bands[abs_pdg] = g_band
 
     # Effective B_mu curve and band
@@ -3000,14 +3007,14 @@ def write_histograms_and_canvases(
     chorus_species_graphs: Dict[int, ROOT.TGraphAsymmErrors] = {}
     for abs_c, (c_val, c_err) in CHORUS_SPECIES_FRACTIONS.items():
         sp_name = get_species_name(abs_c)
-        col = SPECIES_COLORS.get(abs_c, ROOT.kBlack)
+        col = CHORUS_COLORS.get(abs_c, ROOT.kBlack)
         g_ch = ROOT.TGraphAsymmErrors(1)
         g_ch.SetName(f"g_chorus_fraction_{sp_name}_vs_nu_energy")
         g_ch.SetTitle(f"CHORUS (2011) {sp_name} Fraction;E_{{#nu}} [GeV];f({sp_name})")
         g_ch.SetPoint(0, 27.0, c_val)
         g_ch.SetPointError(0, 14.0, 28.0, c_err, c_err)
         g_ch.SetMarkerStyle(25)  # Open square
-        g_ch.SetMarkerSize(1.30)
+        g_ch.SetMarkerSize(1.40)
         g_ch.SetMarkerColor(col)
         g_ch.SetLineColor(col)
         g_ch.SetLineWidth(2)
@@ -3094,7 +3101,7 @@ def write_histograms_and_canvases(
         if g_mc:
             leg_sp_nu.AddEntry(g_mc, f"{sp_latex} (MC)", "lep")
         if abs_c in model_bands:
-            leg_sp_nu.AddEntry(model_bands[abs_c], f"{sp_latex} (Model 1#sigma)", "lf")
+            leg_sp_nu.AddEntry(model_bands[abs_c], f"{sp_latex} (Model 1#sigma)", "f")
         if abs_c in chorus_species_graphs:
             leg_sp_nu.AddEntry(chorus_species_graphs[abs_c], f"{sp_latex} (CHORUS)", "lep")
 

@@ -382,12 +382,13 @@ Because $\Lambda_c^+$ has a lower semi-muonic branching ratio ($\mathcal{B} \app
 - $\langle B_\mu \rangle(200\text{ GeV}) \approx 8.64\% \pm 0.35\%$ (asymptoting toward the DIS benchmark $8.48 \pm 0.50\%$).
 
 ### 10.4 Visualization on `c_species_fractions_vs_nu_energy`
-In [`charm_diagnostic.py`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/charm_diagnostic.py), canvas `c_species_fractions_vs_nu_energy` directly overlays:
-1. **Model 68% CL Bands**: Semi-transparent shaded belts (`SetFillColorAlpha(col, 0.20)`) for each species.
-2. **Model Median Curves**: Solid lines matching each species' color palette.
-3. **MC Truth Points**: SND@LHC simulated data points with asymmetric Clopper-Pearson error bars.
-4. **Summary ROOT Objects**: Stored under `Summary/` in the output file (`g_model_fraction_*_vs_nu_energy`, `g_model_band_fraction_*_vs_nu_energy`, and `g_model_effective_bmu_vs_nu_energy`).
-5. **Standalone Tool**: Script [`scripts/diagnostics/plot_species_fractions_model.py`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/plot_species_fractions_model.py) generates publication-grade 2-panel Matplotlib comparisons.
+In [`charm_diagnostic.py`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/charm_diagnostic.py), canvas `c_species_fractions_vs_nu_energy` applies a logarithmic energy scale (`SetLogx`) and directly overlays:
+1. **Pale Model 68% CL Bands**: Soft pastel shaded belts (`ROOT.kRed - 10`, `ROOT.kBlue - 10`, `ROOT.kGreen - 10`, `ROOT.kMagenta - 10`) acting as an unobtrusive theoretical backdrop without harsh borders.
+2. **Model Median Curves**: Solid lines (`LineWidth = 2`) in each species' primary color palette (`kRed+1`, `kAzure+1`, `kGreen+2`, `kMagenta+1`).
+3. **Darker CHORUS (2011) Measurements**: Prominent open squares (marker 25, size 1.40, `LineWidth = 2`) in deeper, high-contrast nuances (`kRed+3`, `kBlue+3`, `kGreen+3`, `kMagenta+3`) at $\langle E_\nu \rangle = 27\text{ GeV}$ with the beam flux spread $[13, 55]\text{ GeV}$.
+4. **MC Truth Points**: SND@LHC simulated data points with asymmetric Clopper-Pearson error bars.
+5. **Summary ROOT Objects**: Stored under `Summary/` in the output file (`g_model_fraction_*`, `g_model_band_fraction_*`, `g_chorus_fraction_*`, and `g_model_effective_bmu_*`).
+6. **Standalone Tool**: Script [`scripts/diagnostics/plot_species_fractions_model.py`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/plot_species_fractions_model.py) generates publication-grade 2-panel Matplotlib comparisons.
 
 
 

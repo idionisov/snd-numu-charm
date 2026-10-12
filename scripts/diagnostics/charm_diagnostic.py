@@ -2002,7 +2002,7 @@ def write_histograms_and_canvases(
     if os.path.exists(chorus_csv_path):
         try:
             chorus_pts = []
-            with open(chorus_csv_path, "r") as f_ch:
+            with open(chorus_csv_path, "r", encoding="utf-8-sig") as f_ch:
                 for line in f_ch:
                     line = line.strip()
                     if not line or line.startswith("#") or line.startswith("E_nu"):

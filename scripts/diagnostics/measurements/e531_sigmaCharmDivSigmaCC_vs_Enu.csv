@@ -1,4 +1,7 @@
-﻿bin_index,E_low_GeV,E_high_GeV,E_mean_GeV,E_err_low_GeV,E_err_high_GeV,ratio_percent,ratio_err_low_percent,ratio_err_high_percent,ratio_err_sym_percent
+﻿# Source: E531 Collaboration Phys. Lett. B 206 375
+# Title: Cross sections for neutrino production of charmed particles
+# Data: Figure 2 (black squares) - Inclusive sigma_charm / sigma_CC vs E_nu
+bin_index,E_low_GeV,E_high_GeV,E_mean_GeV,E_err_low_GeV,E_err_high_GeV,ratio_percent,ratio_err_low_percent,ratio_err_high_percent,ratio_err_sym_percent
 1,0.0,10.0,5.5,5.5,4.5,0.75,0.75,1.05,1.0
 2,10.0,30.0,20.0,10.0,10.0,3.6,0.9,0.9,0.9
 3,30.0,60.0,45.0,15.0,15.0,4.9,1.1,1.1,1.1

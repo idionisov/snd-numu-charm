@@ -1999,8 +1999,26 @@ def write_histograms_and_canvases(
     # 1. CHORUS (New J. Phys. 13 (2011) 093002, Emulsion target, nu_mu CC)
     g_chorus = None
     chorus_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "measurements", "chorus_sigmaCharmDivSigmaCC_vs_Enu.csv")
+    merged_xsec_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "measurements", "neutrino_charm_cross_section_ratio_vs_enu.csv")
     chorus_pts = []
-    if os.path.exists(chorus_csv_path):
+
+    # Try loading from merged CSV or dedicated CHORUS CSV
+    if os.path.exists(merged_xsec_csv_path):
+        try:
+            import csv
+            with open(merged_xsec_csv_path, "r", encoding="utf-8-sig") as f_mx:
+                reader = csv.DictReader(row for row in f_mx if not row.strip().startswith("#"))
+                for row in reader:
+                    if row["experiment"].strip() == "CHORUS" and row.get("channel", "inclusive").strip() == "inclusive":
+                        enu = float(row["E_nu_GeV"])
+                        enu_err = float(row.get("dx_low", row.get("dx_high", 0.0)))
+                        val = float(row["ratio"])
+                        val_err = float(row.get("dy_low", row.get("dy_high", 0.0)))
+                        chorus_pts.append([enu, enu_err, val, val_err])
+        except Exception as e_mx:
+            print(f"  [Warning] Failed to load CHORUS from merged CSV: {e_mx}")
+
+    if not chorus_pts and os.path.exists(chorus_csv_path):
         try:
             with open(chorus_csv_path, "r", encoding="utf-8-sig") as f_ch:
                 for line in f_ch:
@@ -2042,7 +2060,26 @@ def write_histograms_and_canvases(
     g_e531 = None
     e531_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "measurements", "e531_sigmaCharmDivSigmaCC_vs_Enu.csv")
     e531_pts = []
-    if os.path.exists(e531_csv_path):
+
+    # Try loading from merged CSV or dedicated E531 CSV
+    if os.path.exists(merged_xsec_csv_path):
+        try:
+            import csv
+            with open(merged_xsec_csv_path, "r", encoding="utf-8-sig") as f_mx:
+                reader = csv.DictReader(row for row in f_mx if not row.strip().startswith("#"))
+                for row in reader:
+                    if row["experiment"].strip() == "E531" and row.get("channel", "inclusive").strip() == "inclusive":
+                        enu = float(row["E_nu_GeV"])
+                        dx_lo = float(row.get("dx_low", 0.0))
+                        dx_hi = float(row.get("dx_high", 0.0))
+                        val = float(row["ratio"])
+                        dy_lo = float(row.get("dy_low", 0.0))
+                        dy_hi = float(row.get("dy_high", 0.0))
+                        e531_pts.append([len(e531_pts) + 1, enu - dx_lo, enu + dx_hi, enu, dx_lo, dx_hi, val * 100.0, dy_lo * 100.0, dy_hi * 100.0, 0.5 * (dy_lo + dy_hi) * 100.0])
+        except Exception as e_mx:
+            print(f"  [Warning] Failed to load E531 from merged CSV: {e_mx}")
+
+    if not e531_pts and os.path.exists(e531_csv_path):
         try:
             with open(e531_csv_path, "r", encoding="utf-8-sig") as f_e:
                 for line in f_e:
@@ -2402,6 +2439,155 @@ def write_histograms_and_canvases(
     g_dimuon_rate_mc_antinu.SetLineColor(ROOT.kMagenta + 2)
     g_dimuon_rate_mc_antinu.SetLineWidth(2)
 
+    # -------------------------------------------------------------------------
+    # Overlay Experimental Dimuon Measurements (NOMAD, CHORUS, CCFR, E53A+E53B)
+    # Source: NOMAD Collaboration, Nucl. Phys. B 876 (2013) 339, Fig. 15
+    # -------------------------------------------------------------------------
+    dimuon_csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "measurements", "neutrino_charm_dimuon_ratio_vs_enu.csv")
+    dimuon_data = {}
+    if os.path.exists(dimuon_csv_path):
+        try:
+            import csv
+            with open(dimuon_csv_path, "r", encoding="utf-8-sig") as f_dim:
+                reader = csv.DictReader(row for row in f_dim if not row.strip().startswith("#"))
+                for row in reader:
+                    exp = row["experiment"].strip()
+                    if exp not in dimuon_data:
+                        dimuon_data[exp] = []
+                    dimuon_data[exp].append((
+                        float(row["E_nu_GeV"]),
+                        float(row["dx_low"]),
+                        float(row["dx_high"]),
+                        float(row["ratio_times_10^-3"]) * 1e-3,
+                        float(row["dy_low"]) * 1e-3,
+                        float(row["dy_high"]) * 1e-3,
+                    ))
+        except Exception as e_dim:
+            print(f"  [Warning] Failed to load dimuon CSV: {e_dim}")
+
+    # Robust fallback: NOMAD Collaboration, Nucl. Phys. B 876 (2013) 339, Fig. 15
+    if not dimuon_data:
+        dimuon_data = {
+            "E53A+E53B": [
+                (12.501716, 6.492915, 12.529668, 1.989e-3, 0.398e-3, 0.382e-3),
+                (37.780942, 12.749558, 11.989294, 5.063e-3, 0.765e-3, 0.841e-3),
+                (75.120355, 25.350119, 25.229162, 5.966e-3, 0.979e-3, 1.024e-3),
+                (149.362845, 49.013328, 50.163400, 5.966e-3, 1.484e-3, 1.514e-3),
+            ],
+            "CCFR": [
+                (40.089471, 0.0, 0.0, 5.384321e-3, 0.475300e-3, 0.504780e-3),
+                (69.813505, 0.0, 0.0, 6.363289e-3, 0.379628e-3, 0.413002e-3),
+                (90.062801, 0.0, 0.0, 6.577438e-3, 0.389084e-3, 0.397705e-3),
+                (100.349517, 0.0, 0.0, 6.485660e-3, 0.297306e-3, 0.305927e-3),
+                (139.783065, 0.0, 0.0, 7.678776e-3, 0.377403e-3, 0.397706e-3),
+                (179.698925, 0.0, 0.0, 8.382409e-3, 0.287850e-3, 0.290631e-3),
+                (218.471123, 0.0, 0.0, 8.581262e-3, 0.290631e-3, 0.290631e-3),
+                (269.341417, 0.0, 0.0, 9.177820e-3, 0.305928e-3, 0.305928e-3),
+            ],
+            "CHORUS": [
+                (20.022353, 11.047440, 8.858236, 3.380497e-3, 0.596558e-3, 0.596558e-3),
+                (40.937493, 12.056904, 9.006687, 4.879541e-3, 0.596558e-3, 0.611855e-3),
+                (60.298023, 10.353843, 9.515482, 6.087954e-3, 0.611855e-3, 0.611855e-3),
+                (79.989017, 10.175512, 9.760137, 6.286807e-3, 0.611855e-3, 0.596558e-3),
+                (104.275389, 14.526235, 15.616008, 6.684512e-3, 0.703633e-3, 0.673040e-3),
+                (136.410740, 16.519343, 23.746094, 7.082218e-3, 0.795411e-3, 0.795411e-3),
+                (184.141500, 23.984666, 55.909288, 7.189293e-3, 1.101338e-3, 1.086042e-3),
+            ],
+            "NOMAD": [
+                (15.959905, 9.972031, 6.117061, 2.799e-3, 0.290e-3, 0.276e-3),
+                (24.342416, 2.265450, 2.685853, 4.115e-3, 0.291e-3, 0.260e-3),
+                (28.780011, 1.751742, 2.295925, 4.482e-3, 0.260e-3, 0.260e-3),
+                (32.859934, 1.783998, 2.497836, 4.803e-3, 0.245e-3, 0.245e-3),
+                (37.387578, 2.029808, 2.701893, 5.109e-3, 0.229e-3, 0.229e-3),
+                (41.657861, 1.568390, 2.545431, 5.430e-3, 0.245e-3, 0.260e-3),
+                (46.093154, 1.889862, 2.816431, 5.797e-3, 0.260e-3, 0.260e-3),
+                (51.178904, 2.269319, 3.127185, 6.057e-3, 0.275e-3, 0.245e-3),
+                (56.825783, 2.519694, 3.262250, 6.226e-3, 0.276e-3, 0.275e-3),
+                (62.657031, 2.568998, 3.828517, 6.333e-3, 0.260e-3, 0.275e-3),
+                (69.570378, 3.084830, 3.993857, 6.409e-3, 0.260e-3, 0.276e-3),
+                (77.246518, 3.682283, 4.150067, 6.807e-3, 0.275e-3, 0.260e-3),
+                (85.769615, 4.373030, 4.607971, 7.113e-3, 0.276e-3, 0.245e-3),
+                (94.901423, 4.523837, 4.750324, 7.327e-3, 0.260e-3, 0.260e-3),
+                (105.372498, 5.720751, 5.661135, 7.648e-3, 0.260e-3, 0.260e-3),
+                (117.407844, 6.374211, 7.173943, 7.801e-3, 0.290e-3, 0.245e-3),
+                (132.656118, 8.074331, 10.083809, 7.969e-3, 0.260e-3, 0.276e-3),
+                (155.206216, 12.466289, 16.524735, 8.367e-3, 0.291e-3, 0.260e-3),
+                (205.173521, 33.442570, 94.931164, 8.841e-3, 0.306e-3, 0.291e-3),
+            ],
+        }
+
+    dimuon_exp_styles = {
+        "NOMAD": {
+            "title": "NOMAD (2013, #nu_{#mu})",
+            "marker_style": 27,  # Open diamond
+            "marker_size": 1.15,
+            "color": ROOT.kGray + 3,
+        },
+        "CHORUS": {
+            "title": "CHORUS (2011, #nu_{#mu})",
+            "marker_style": 25,  # Open square
+            "marker_size": 0.95,
+            "color": ROOT.kGray + 2,
+        },
+        "CCFR": {
+            "title": "CCFR (1995, #nu_{#mu})",
+            "marker_style": 24,  # Open circle
+            "marker_size": 0.95,
+            "color": ROOT.kGray + 1,
+        },
+        "E53A+E53B": {
+            "title": "E53A+E53B (1983, #nu_{#mu})",
+            "marker_style": 26,  # Open triangle
+            "marker_size": 0.95,
+            "color": ROOT.kGray + 2,
+        },
+    }
+
+    dimuon_graphs = {}
+    preferred_dimuon_order = ["NOMAD", "CHORUS", "CCFR", "E53A+E53B"]
+    for exp_name in preferred_dimuon_order:
+        if exp_name not in dimuon_data:
+            continue
+        pts = dimuon_data[exp_name]
+        g_exp = ROOT.TGraphAsymmErrors(len(pts))
+        clean_exp = exp_name.lower().replace("+", "_").replace("-", "_")
+        g_exp.SetName(f"g_dimuon_{clean_exp}")
+        style = dimuon_exp_styles.get(exp_name, {
+            "title": str(exp_name) + " (#nu_{#mu})",
+            "marker_style": 24,
+            "marker_size": 0.95,
+            "color": ROOT.kGray + 2,
+        })
+        g_exp.SetTitle(style["title"])
+        for idx, (enu, dx_lo, dx_hi, ratio, dy_lo, dy_hi) in enumerate(pts):
+            g_exp.SetPoint(idx, enu, ratio)
+            g_exp.SetPointError(idx, dx_lo, dx_hi, dy_lo, dy_hi)
+        g_exp.SetMarkerStyle(style["marker_style"])
+        g_exp.SetMarkerSize(style["marker_size"])
+        g_exp.SetMarkerColor(style["color"])
+        g_exp.SetLineColor(style["color"])
+        g_exp.SetLineWidth(1)
+        dimuon_graphs[exp_name] = g_exp
+        print(f"  [Info] Loaded {exp_name} dimuon measurement ({len(pts)} points)")
+
+    # Combined dimuon graph for convenience
+    total_dim_pts = sum(len(pts) for pts in dimuon_data.values())
+    g_dimuon_all = ROOT.TGraphAsymmErrors(total_dim_pts)
+    g_dimuon_all.SetName("g_dimuon_all_measurements")
+    g_dimuon_all.SetTitle("Historical Dimuon Measurements (#nu_{#mu} CC)")
+    pt_counter = 0
+    for exp_name in preferred_dimuon_order:
+        if exp_name in dimuon_data:
+            for (enu, dx_lo, dx_hi, ratio, dy_lo, dy_hi) in dimuon_data[exp_name]:
+                g_dimuon_all.SetPoint(pt_counter, enu, ratio)
+                g_dimuon_all.SetPointError(pt_counter, dx_lo, dx_hi, dy_lo, dy_hi)
+                pt_counter += 1
+    g_dimuon_all.SetMarkerStyle(24)
+    g_dimuon_all.SetMarkerSize(0.95)
+    g_dimuon_all.SetMarkerColor(ROOT.kGray + 2)
+    g_dimuon_all.SetLineColor(ROOT.kGray + 2)
+    g_dimuon_all.SetLineWidth(1)
+
     y_max_dimuon = max(0.022, h_charm_dimuon_rate_ebins.GetMaximum() * 1.60)
     y_max_dimuon_nu = max(0.020, h_charm_dimuon_rate_ebins_nu.GetMaximum() * 1.60)
     y_max_dimuon_antinu = max(0.028, h_charm_dimuon_rate_ebins_antinu.GetMaximum() * 1.60)
@@ -2422,13 +2608,17 @@ def write_histograms_and_canvases(
     g_sr_2mu_w_inc_inner.Draw("3 same")
     f_sr_2mu_iso_inc.Draw("same")
     f_sr_2mu_w_inc.Draw("same")
+    for g_dim in dimuon_graphs.values():
+        g_dim.Draw("P E1 same")
     g_dimuon_rate_mc.Draw("P E1 same")
 
-    leg_dimuon_inc = ROOT.TLegend(0.48, 0.62, 0.92, 0.89)
+    leg_dimuon_inc = ROOT.TLegend(0.44, 0.48, 0.92, 0.89)
     leg_dimuon_inc.SetBorderSize(1)
     leg_dimuon_inc.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_dimuon_inc.SetTextSize(0.022)
+    leg_dimuon_inc.SetTextSize(0.020)
     leg_dimuon_inc.AddEntry(g_dimuon_rate_mc, "MC Inclusive Dimuon (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
+    for g_dim in dimuon_graphs.values():
+        leg_dimuon_inc.AddEntry(g_dim, g_dim.GetTitle(), "lep")
     leg_dimuon_inc.AddEntry(f_sr_2mu_w_inc, "Slow Rescaling #times #LTB_{#mu}#GT (W, #nu+#bar{#nu})", "l")
     leg_dimuon_inc.AddEntry(g_sr_2mu_w_inc_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
     leg_dimuon_inc.AddEntry(g_sr_2mu_w_inc_outer, "+ High-E QCD / Sea Evolution", "f")
@@ -2452,13 +2642,17 @@ def write_histograms_and_canvases(
     g_sr_2mu_w_nu_inner.Draw("3 same")
     f_sr_2mu_iso_nu.Draw("same")
     f_sr_2mu_w_nu.Draw("same")
+    for g_dim in dimuon_graphs.values():
+        g_dim.Draw("P E1 same")
     g_dimuon_rate_mc_nu.Draw("P E1 same")
 
-    leg_dimuon_nu = ROOT.TLegend(0.48, 0.62, 0.92, 0.89)
+    leg_dimuon_nu = ROOT.TLegend(0.44, 0.48, 0.92, 0.89)
     leg_dimuon_nu.SetBorderSize(1)
     leg_dimuon_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_dimuon_nu.SetTextSize(0.022)
+    leg_dimuon_nu.SetTextSize(0.020)
     leg_dimuon_nu.AddEntry(g_dimuon_rate_mc_nu, "MC #nu_{#mu} Dimuon CC", "lep")
+    for g_dim in dimuon_graphs.values():
+        leg_dimuon_nu.AddEntry(g_dim, g_dim.GetTitle(), "lep")
     leg_dimuon_nu.AddEntry(f_sr_2mu_w_nu, "Slow Rescaling #times #LTB_{#mu}#GT (W, #nu_{#mu})", "l")
     leg_dimuon_nu.AddEntry(g_sr_2mu_w_nu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
     leg_dimuon_nu.AddEntry(g_sr_2mu_w_nu_outer, "+ High-E QCD / Sea Evolution", "f")
@@ -2502,6 +2696,11 @@ def write_histograms_and_canvases(
         g_chorus.Write("g_chorus_measurement")
     if g_e531:
         g_e531.Write("g_e531_measurement")
+    for exp_name, g_dim in dimuon_graphs.items():
+        clean_exp = exp_name.lower().replace("+", "_").replace("-", "_")
+        g_dim.Write(f"g_dimuon_{clean_exp}")
+    if g_dimuon_all:
+        g_dimuon_all.Write("g_dimuon_all_measurements")
     f_sr_w_inc.Write("f_slow_rescaling_w_inclusive")
     f_sr_w_nu.Write("f_slow_rescaling_w_nu")
     f_sr_w_antinu.Write("f_slow_rescaling_w_antinu")

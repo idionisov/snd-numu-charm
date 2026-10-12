@@ -1,7 +1,5 @@
-# Source: CHORUS Collaboration (A. Kayis-Topaksu et al.)
+# Source: CHORUS Collaboration New J. Phys. 13 (2011) 093002
 # Title: Measurement of charm production in neutrino charged-current interactions
-# Citation: New J. Phys. 13 (2011) 093002
-# arXiv: 1107.0613 [hep-ex]
 # Data: Figure 4 (black squares) - Inclusive sigma_charm / sigma_CC vs E_nu
 E_nu,E_nu_err,sigma_charm_div_sigma_CC,sigma_charm_div_sigma_CC_err
 13.0,7.0,0.024,0.004

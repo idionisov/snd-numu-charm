@@ -327,11 +327,18 @@ The two-tier uncertainty belts are generated via:
 1. **Inner Belt**: Base kinematics ($m_c$, $E_{\text{thresh}}$) + combined base normalization ($\pm 9.9\%$).
 2. **Outer Belt**: High-energy asymmetric expansion accounting for boson-gluon fusion ($W^+ g \to c\bar{s}$) and strange sea growth ($g \to s\bar{s}$) under DGLAP evolution.
 
-### 9.6 Diagnostic Canvases
+### 9.6 Diagnostic Canvases & Historical Dimuon Measurements
 Three companion canvases are produced in [`charm_diagnostic.py`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/charm_diagnostic.py):
-1. `c_charm_dimuon_rate_vs_energy`: Inclusive ($\nu_\mu + \bar{\nu}_\mu$) dimuon production rate on Tungsten, compared against MC inclusive simulation with Clopper-Pearson error bars, the two-tier uncertainty belt, and the dashed Isoscalar reference line.
-2. `c_charm_dimuon_rate_vs_energy_nu_only`: Pure $\nu_\mu$ CC dimuon rate on Tungsten.
+1. `c_charm_dimuon_rate_vs_energy`: Inclusive ($\nu_\mu + \bar{\nu}_\mu$) dimuon production rate on Tungsten, compared against MC inclusive simulation with Clopper-Pearson error bars, the two-tier uncertainty belt, the dashed Isoscalar reference line, and historical experimental measurements.
+2. `c_charm_dimuon_rate_vs_energy_nu_only`: Pure $\nu_\mu$ CC dimuon rate on Tungsten, compared against MC $\nu_\mu$ simulation, theoretical bands, and historical measurements.
 3. `c_charm_dimuon_rate_vs_energy_antinu_only`: Pure $\bar{\nu}_\mu$ CC dimuon rate on Tungsten.
 
-In accordance with analysis design, external fixed-target emulsion measurements (CHORUS, E531) are excluded from these canvases to preserve a clean, direct benchmark between the SND@LHC Monte Carlo simulation and the theoretical slow rescaling predictions.
+To anchor the dimuon rate against historical neutrino experiments without cluttering the SND@LHC MC points, published dimuon cross section ratios $\sigma(2\mu)/\sigma(\text{CC})$ vs. $E_\nu$ from **NOMAD**, **CHORUS**, **CCFR**, and **E53A+E53B** (compiled in [`neutrino_charm_dimuon_ratio_vs_enu.csv`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/measurements/neutrino_charm_dimuon_ratio_vs_enu.csv)) are overlaid with muted markers:
+- **NOMAD (2013)**: Open diamonds (`ROOT.kGray+3`, 19 points)
+- **CHORUS (2011)**: Open squares (`ROOT.kGray+2`, 7 points)
+- **CCFR (1995)**: Open circles (`ROOT.kGray+1`, 8 points)
+- **E53A+E53B (1983)**: Open triangles (`ROOT.kGray+2`, 4 points)
+
+All individual graphs (`g_dimuon_nomad`, `g_dimuon_chorus`, `g_dimuon_ccfr`, `g_dimuon_e53a_e53b`) and a combined graph (`g_dimuon_all_measurements`) are saved in the `Summary/` directory in the output ROOT file.
+
 

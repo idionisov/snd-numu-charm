@@ -89,7 +89,23 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
     else:
         path_parts = pattern.split("/")
         dir_s_indices = [i for i in range(len(path_parts) - 1) if "%s" in path_parts[i]]
-        if dir_s_indices and "*" not in pattern:
+        # Support range patterns like [1-1000]
+        range_match = re.search(r'\[(\d+)-(\d+)\]', pattern)
+        if range_match:
+            start_num = int(range_match.group(1))
+            end_num = int(range_match.group(2))
+            base_dir = pattern[:range_match.start()].rstrip("/")
+            rest = pattern[range_match.end():].lstrip("/")
+            if os.path.isdir(base_dir):
+                existing_entries = set(os.listdir(base_dir))
+                for num in range(start_num, end_num + 1):
+                    if max_files > 0 and len(matched_files) >= max_files:
+                        break
+                    s_num = str(num)
+                    if s_num in existing_entries:
+                        fpath = os.path.join(base_dir, s_num, rest)
+                        matched_files.append(fpath)
+        elif dir_s_indices and "*" not in pattern:
             idx = dir_s_indices[0]
             base_dir = "/".join(path_parts[:idx])
             subdir_fmt = path_parts[idx]
@@ -122,8 +138,7 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
                     if max_files > 0 and len(matched_files) >= max_files:
                         break
                     fpath = os.path.join(base_dir, d, filename)
-                    if os.path.exists(fpath):
-                        matched_files.append(fpath)
+                    matched_files.append(fpath)
 
         if not matched_files:
             glob_pattern = pattern.replace("%s", "*")

@@ -61,6 +61,17 @@ load_trident_libraries(_repo_root)
 ROOT.gROOT.SetBatch(True)
 
 
+PRESETS = {
+    "nu14_2022": {
+        "input": "/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/[1-1000]/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root",
+        "tree": "truth",
+        "description": "2022 Downward 15000fb-1 Nu14 volTarget (truth-analyzed 2MuTrks)",
+    }
+}
+
+DEFAULT_INPUT_PATTERN = "/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/[1-1000]/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root"
+
+
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -68,10 +79,23 @@ def parse_arguments():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
+        "--preset",
+        type=str,
+        default=None,
+        choices=list(PRESETS.keys()),
+        help="Use a predefined input configuration preset (e.g. nu14_2022)",
+    )
+    parser.add_argument(
         "-i", "--input",
         type=str,
         default=None,
-        help="Input ROOT file path or pattern (supports wildcard '*' and '%%s' placeholder)",
+        help="Input ROOT file path or pattern (supports wildcard '*', range '[1-1000]', and '%%s' placeholder)",
+    )
+    parser.add_argument(
+        "--tree",
+        type=str,
+        default=None,
+        help="TTree name to load (default: auto-detect 'truth' if available, otherwise 'cbmsim')",
     )
     parser.add_argument(
         "-n", "--entries",
@@ -94,7 +118,7 @@ def parse_arguments():
     parser.add_argument(
         "-c", "--config",
         type=str,
-        default=os.path.join(_repo_root, "config", "filter_numu_charm_config.yaml"),
+        default=os.path.join(_repo_root, "config", "muon_neutrino_truth_config.yaml"),
         help="Path to YAML configuration file",
     )
     parser.add_argument(
@@ -134,12 +158,17 @@ def main():
     cfg = load_config(config_path)
 
     input_cfg = cfg.get("input", {})
-    file_pattern = args.input if args.input is not None else input_cfg.get(
-        "file_pattern",
-        "/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/"
-        "sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/*/sndLHC.Genie-TGeant4_digCPP.root"
-    )
-    tree_name = input_cfg.get("tree_name", "cbmsim")
+    if args.preset:
+        preset_info = PRESETS[args.preset]
+        file_pattern = preset_info["input"]
+        tree_name = args.tree or preset_info.get("tree", "truth")
+        print(f"Applying preset '{args.preset}': {preset_info.get('description', '')}")
+    else:
+        file_pattern = args.input if args.input is not None else input_cfg.get(
+            "file_pattern",
+            DEFAULT_INPUT_PATTERN,
+        )
+        tree_name = args.tree if args.tree is not None else input_cfg.get("tree_name", "truth")
     max_files = input_cfg.get("max_files", -1)
 
     output_cfg = cfg.get("output", {})
@@ -177,22 +206,34 @@ def main():
     if not input_files:
         raise FileNotFoundError(f"No files matched input pattern: {file_pattern}")
 
-    # Check MuFilterPoint branch in first file to enable DS acceptance processor
+    # Inspect first file to detect available TTrees and branches
+    has_truth_tree = False
     has_mufilter = False
+    actual_tree_name = tree_name
+
     f_test = ROOT.TFile.Open(input_files[0])
     if f_test and not f_test.IsZombie():
-        actual_tree_name = tree_name
-        if not f_test.Get(actual_tree_name):
-            for alt_name in ["cbmsim", "rawConv"]:
-                if f_test.Get(alt_name):
-                    actual_tree_name = alt_name
-                    break
+        if f_test.Get("truth"):
+            has_truth_tree = True
+        if not args.tree:
+            # Auto-detect best tree: prefer pre-analyzed 'truth' tree if present
+            if has_truth_tree:
+                actual_tree_name = "truth"
+            elif f_test.Get(tree_name):
+                actual_tree_name = tree_name
+            else:
+                for alt_name in ["cbmsim", "rawConv"]:
+                    if f_test.Get(alt_name):
+                        actual_tree_name = alt_name
+                        break
         t_check = f_test.Get(actual_tree_name)
         if t_check and t_check.GetBranch("MuFilterPoint"):
             has_mufilter = True
         f_test.Close()
 
-    print(f"MuFilterPoint branch available: {has_mufilter} (DS acceptance tracking enabled: {has_mufilter})")
+    print(f"Loaded TTree       : {actual_tree_name}")
+    print(f"Pre-analyzed truth : {has_truth_tree}")
+    print(f"MuFilter available : {has_mufilter} (DS acceptance tracking enabled: {has_mufilter or actual_tree_name == 'truth'})")
 
     # 3. Configure MuonNeutrinoTruthProcessor identically to filter_signal_numu_charm.py
     proc_cfg = cfg.get("processor", {})
@@ -203,7 +244,7 @@ def main():
     # 4. Initialize DataManager for dataset loading
     dm = DataManager(
         source=input_files,
-        tree_name=tree_name,
+        tree_name=actual_tree_name,
         num_threads=effective_threads,
         n_files=max_files if max_files > 0 else -1,
         load_libraries=True,
@@ -211,180 +252,229 @@ def main():
     df = dm.rdf(range_limit=args.entries if args.entries > 0 else None)
 
     # 5. Define Truth Observables
-    if has_mufilter:
-        proc_ds = ROOT.snd.MuonNeutrinoTruthWithDSProcessor(processor)
-        df_base = df.Define("truth", proc_ds, ["MCTrack", "MuFilterPoint"])
+    existing_cols = set(df.GetColumnNames())
+
+    def safe_def(curr_df, col_name, expr):
+        if col_name in existing_cols:
+            return curr_df
+        return curr_df.Define(col_name, expr)
+
+    if actual_tree_name == "truth" or ("nu_e" in existing_cols and "is_numu_cc" in existing_cols):
+        # Input TTree already contains pre-computed truth observables!
+        df_truth = df
+        df_truth = safe_def(df_truth, "mu1_track_id", "primary_lepton_track_id")
+        df_truth = safe_def(df_truth, "mu1_pdg", "primary_lepton_pdg")
+        df_truth = safe_def(df_truth, "mu1_charge", "primary_lepton_charge")
+        df_truth = safe_def(df_truth, "abs_charm_pdg", "std::abs(charm_pdg)")
+        df_truth = safe_def(df_truth, "dimuon_e_sum", "mu1_e + mu2_e")
+        df_truth = safe_def(df_truth, "dimuon_delta_e", "mu1_e - mu2_e")
+        df_truth = safe_def(df_truth, "dimuon_abs_delta_e", "std::abs(mu1_e - mu2_e)")
+        df_truth = safe_def(df_truth, "dimuon_delta_p", "mu1_p - mu2_p")
+        df_truth = safe_def(df_truth, "dimuon_abs_delta_p", "std::abs(mu1_p - mu2_p)")
+        df_truth = safe_def(df_truth, "dimuon_delta_pt", "mu1_pt - mu2_pt")
+        df_truth = safe_def(df_truth, "dimuon_e_ratio", "(mu1_e > 1e-6) ? (mu2_e / mu1_e) : 0.0")
+        df_truth = safe_def(df_truth, "dimuon_e_frac_nu", "(nu_e > 1e-6) ? (mu1_e + mu2_e) / nu_e : 0.0")
+        df_truth = safe_def(df_truth, "mu2_e_frac_charm", "(charm_e > 1e-6) ? mu2_e / charm_e : 0.0")
+        df_truth = safe_def(df_truth, "mu1_e_frac_nu", "(nu_e > 1e-6) ? mu1_e / nu_e : 0.0")
+        df_truth = safe_def(df_truth, "mu2_e_frac_nu", "(nu_e > 1e-6) ? mu2_e / nu_e : 0.0")
+        df_truth = safe_def(df_truth, "dimuon_in_ds_acc_double", "dimuon_in_ds_acceptance ? 1.0 : 0.0")
+        df_truth = safe_def(df_truth, "mu1_in_ds_acc_double", "mu1_in_ds_acceptance ? 1.0 : 0.0")
+        df_truth = safe_def(df_truth, "mu2_in_ds_acc_double", "mu2_in_ds_acceptance ? 1.0 : 0.0")
     else:
-        df_base = df.Define("truth", processor, ["MCTrack"])
+        # Raw TTree: define truth via C++ processor
+        if has_mufilter:
+            proc_ds = ROOT.snd.MuonNeutrinoTruthWithDSProcessor(processor)
+            df_base = df.Define("truth", proc_ds, ["MCTrack", "MuFilterPoint"])
+        else:
+            df_base = df.Define("truth", processor, ["MCTrack"])
 
-    df_truth = (
-        df_base
-              # Event and selection flags
-              .Define("nu_pdg", "truth.nuPdg")
-              .Define("is_cc", "truth.isCC")
-              .Define("is_nc", "truth.isNC")
-              .Define("is_numu_cc", "truth.isNuMuCC")
-              .Define("is_anti_numu_cc", "truth.isAntiNuMuCC")
-              .Define("is_fiducial", "truth.isFiducial")
-              .Define("has_charm", "truth.hasCharm")
-              .Define("has_prompt_charm_muon", "truth.hasPromptCharmMuon")
-              .Define("is_opposite_sign", "truth.isOppositeSignDimuon")
-              .Define("has_candidate", "truth.hasCandidate")
-              .Define("mc_weight", "truth.mcWeight")
-              .Define("raw_weight", "truth.rawWeight")
-              .Define("interaction_type", "truth.interactionType")
-              .Define("region_type", "truth.regionType")
-              .Define("n_primary_tracks", "truth.nPrimaryTracks")
-              .Define("n_primary_hadrons", "truth.nPrimaryHadrons")
+        df_truth = (
+            df_base
+                  # Event and selection flags
+                  .Define("nu_pdg", "truth.nuPdg")
+                  .Define("is_cc", "truth.isCC")
+                  .Define("is_nc", "truth.isNC")
+                  .Define("is_numu_cc", "truth.isNuMuCC")
+                  .Define("is_anti_numu_cc", "truth.isAntiNuMuCC")
+                  .Define("is_fiducial", "truth.isFiducial")
+                  .Define("has_charm", "truth.hasCharm")
+                  .Define("has_prompt_charm_muon", "truth.hasPromptCharmMuon")
+                  .Define("is_opposite_sign", "truth.isOppositeSignDimuon")
+                  .Define("has_candidate", "truth.hasCandidate")
+                  .Define("mc_weight", "truth.mcWeight")
+                  .Define("raw_weight", "truth.rawWeight")
+                  .Define("interaction_type", "truth.interactionType")
+                  .Define("region_type", "truth.regionType")
+                  .Define("n_primary_tracks", "truth.nPrimaryTracks")
+                  .Define("n_primary_hadrons", "truth.nPrimaryHadrons")
 
-              # Primary incoming neutrino
-              .Define("nu_e", "truth.nuE")
-              .Define("nu_p", "truth.nuP")
-              .Define("nu_px", "truth.nuPx")
-              .Define("nu_py", "truth.nuPy")
-              .Define("nu_pz", "truth.nuPz")
-              .Define("nu_pt", "truth.nuPt")
-              .Define("nu_eta", "truth.nuEta")
-              .Define("nu_phi", "truth.nuPhi")
-              .Define("nu_theta", "truth.nuTheta")
-              .Define("vtx_x", "truth.vtxX")
-              .Define("vtx_y", "truth.vtxY")
-              .Define("vtx_z", "truth.vtxZ")
-              .Define("vtx_t", "truth.vtxT")
+                  # Primary incoming neutrino
+                  .Define("nu_e", "truth.nuE")
+                  .Define("nu_p", "truth.nuP")
+                  .Define("nu_px", "truth.nuPx")
+                  .Define("nu_py", "truth.nuPy")
+                  .Define("nu_pz", "truth.nuPz")
+                  .Define("nu_pt", "truth.nuPt")
+                  .Define("nu_eta", "truth.nuEta")
+                  .Define("nu_phi", "truth.nuPhi")
+                  .Define("nu_theta", "truth.nuTheta")
+                  .Define("vtx_x", "truth.vtxX")
+                  .Define("vtx_y", "truth.vtxY")
+                  .Define("vtx_z", "truth.vtxZ")
+                  .Define("vtx_t", "truth.vtxT")
 
-              # DIS Kinematics
-              .Define("q2", "truth.Q2")
-              .Define("bjorken_x", "truth.BjorkenX")
-              .Define("inelasticity_y", "truth.InelasticityY")
-              .Define("hadronic_w", "truth.HadronicW")
-              .Define("hadronic_e_total", "truth.hadronicEnergyTotal")
-              .Define("hadronic_pt", "truth.hadronicRecoilPt")
-              .Define("missing_pt", "truth.missingPt")
+                  # DIS Kinematics
+                  .Define("q2", "truth.Q2")
+                  .Define("bjorken_x", "truth.BjorkenX")
+                  .Define("inelasticity_y", "truth.InelasticityY")
+                  .Define("hadronic_w", "truth.HadronicW")
+                  .Define("hadronic_e_total", "truth.hadronicEnergyTotal")
+                  .Define("hadronic_pt", "truth.hadronicRecoilPt")
+                  .Define("missing_pt", "truth.missingPt")
 
-              # Primary Muon (mu_1) from Neutrino Interaction Vertex
-              .Define("primary_lepton_track_id", "truth.primaryLeptonTrackId")
-              .Define("primary_lepton_pdg", "truth.primaryLeptonPdg")
-              .Define("primary_lepton_charge", "truth.primaryLeptonCharge")
-              .Define("mu1_track_id", "truth.mu1TrackId")
-              .Define("mu1_pdg", "truth.mu1Pdg")
-              .Define("mu1_charge", "truth.mu1Charge")
-              .Define("mu1_e", "truth.mu1E")
-              .Define("mu1_p", "truth.mu1P")
-              .Define("mu1_pt", "truth.mu1Pt")
-              .Define("mu1_px", "truth.mu1Px")
-              .Define("mu1_py", "truth.mu1Py")
-              .Define("mu1_pz", "truth.mu1Pz")
-              .Define("mu1_eta", "truth.mu1Eta")
-              .Define("mu1_phi", "truth.mu1Phi")
-              .Define("mu1_theta", "truth.mu1Theta")
-              .Define("mu1_slope_xz", "truth.mu1SlopeXZ")
-              .Define("mu1_slope_yz", "truth.mu1SlopeYZ")
-              .Define("mu1_n_ds_points", "truth.mu1nDSPoints")
-              .Define("mu1_n_ds_hor_points", "truth.mu1nDSHorizontalPoints")
-              .Define("mu1_n_ds_ver_points", "truth.mu1nDSVerticalPoints")
-              .Define("mu1_in_ds_acceptance", "truth.mu1InDS")
+                  # Primary Muon (mu_1) from Neutrino Interaction Vertex
+                  .Define("primary_lepton_track_id", "truth.primaryLeptonTrackId")
+                  .Define("primary_lepton_pdg", "truth.primaryLeptonPdg")
+                  .Define("primary_lepton_charge", "truth.primaryLeptonCharge")
+                  .Define("mu1_track_id", "truth.mu1TrackId")
+                  .Define("mu1_pdg", "truth.mu1Pdg")
+                  .Define("mu1_charge", "truth.mu1Charge")
+                  .Define("mu1_e", "truth.mu1E")
+                  .Define("mu1_p", "truth.mu1P")
+                  .Define("mu1_pt", "truth.mu1Pt")
+                  .Define("mu1_px", "truth.mu1Px")
+                  .Define("mu1_py", "truth.mu1Py")
+                  .Define("mu1_pz", "truth.mu1Pz")
+                  .Define("mu1_eta", "truth.mu1Eta")
+                  .Define("mu1_phi", "truth.mu1Phi")
+                  .Define("mu1_theta", "truth.mu1Theta")
+                  .Define("mu1_slope_xz", "truth.mu1SlopeXZ")
+                  .Define("mu1_slope_yz", "truth.mu1SlopeYZ")
+                  .Define("mu1_n_ds_points", "truth.mu1nDSPoints")
+                  .Define("mu1_n_ds_hor_points", "truth.mu1nDSHorizontalPoints")
+                  .Define("mu1_n_ds_ver_points", "truth.mu1nDSVerticalPoints")
+                  .Define("mu1_in_ds_acceptance", "truth.mu1InDS")
 
-              # Charmed Hadron Properties
-              .Define("charm_track_id", "truth.charmTrackId")
-              .Define("charm_pdg", "truth.charmPdg")
-              .Define("abs_charm_pdg", "std::abs(truth.charmPdg)")
-              .Define("charm_quark_content", "truth.charmQuarkContent")
-              .Define("n_charm_daughters", "truth.nCharmDecayDaughters")
-              .Define("charm_has_kaon", "truth.charmHasKaonDaughter")
-              .Define("charm_kaon_pdg", "truth.charmKaonPdg")
-              .Define("n_charmed_hadrons", "truth.nCharmedHadronsInEvent")
-              .Define("charm_mass", "truth.charmMass")
-              .Define("charm_e", "truth.charmE")
-              .Define("charm_p", "truth.charmP")
-              .Define("charm_pt", "truth.charmPt")
-              .Define("charm_px", "truth.charmPx")
-              .Define("charm_py", "truth.charmPy")
-              .Define("charm_pz", "truth.charmPz")
-              .Define("charm_eta", "truth.charmEta")
-              .Define("charm_phi", "truth.charmPhi")
-              .Define("charm_theta", "truth.charmTheta")
-              .Define("charm_z_frac", "truth.charmEnergyFractionZ")
-              .Define("decay_length_3d", "truth.decayLength3D")
-              .Define("charm_decay_length", "truth.decayLength3D")
-              .Define("decay_length_xy", "truth.decayLengthXY")
-              .Define("decay_length_z", "truth.decayLengthZ")
-              .Define("proper_time_ctau", "truth.properDecayTimeCTau")
-              .Define("proper_lifetime_ps", "truth.properLifetimePs")
-              .Define("charm_decay_x", "truth.charmDecayX")
-              .Define("charm_decay_y", "truth.charmDecayY")
-              .Define("charm_decay_z", "truth.charmDecayZ")
-              .Define("charm_decay_t", "truth.charmDecayT")
-              .Define("charm_species_id", """
-                  int pdg = std::abs(truth.charmPdg);
-                  if (pdg == 421) return 1;
-                  if (pdg == 411) return 2;
-                  if (pdg == 431) return 3;
-                  if (pdg == 4122) return 4;
-                  if (pdg > 4000) return 5;
-                  if (pdg > 0) return 6;
-                  return 0;
-              """)
+                  # Charmed Hadron Properties
+                  .Define("charm_track_id", "truth.charmTrackId")
+                  .Define("charm_pdg", "truth.charmPdg")
+                  .Define("abs_charm_pdg", "std::abs(truth.charmPdg)")
+                  .Define("charm_quark_content", "truth.charmQuarkContent")
+                  .Define("n_charm_daughters", "truth.nCharmDecayDaughters")
+                  .Define("charm_has_kaon", "truth.charmHasKaonDaughter")
+                  .Define("charm_kaon_pdg", "truth.charmKaonPdg")
+                  .Define("n_charmed_hadrons", "truth.nCharmedHadronsInEvent")
+                  .Define("charm_mass", "truth.charmMass")
+                  .Define("charm_e", "truth.charmE")
+                  .Define("charm_p", "truth.charmP")
+                  .Define("charm_pt", "truth.charmPt")
+                  .Define("charm_px", "truth.charmPx")
+                  .Define("charm_py", "truth.charmPy")
+                  .Define("charm_pz", "truth.charmPz")
+                  .Define("charm_eta", "truth.charmEta")
+                  .Define("charm_phi", "truth.charmPhi")
+                  .Define("charm_theta", "truth.charmTheta")
+                  .Define("charm_z_frac", "truth.charmEnergyFractionZ")
+                  .Define("decay_length_3d", "truth.decayLength3D")
+                  .Define("charm_decay_length", "truth.decayLength3D")
+                  .Define("decay_length_xy", "truth.decayLengthXY")
+                  .Define("decay_length_z", "truth.decayLengthZ")
+                  .Define("proper_time_ctau", "truth.properDecayTimeCTau")
+                  .Define("proper_lifetime_ps", "truth.properLifetimePs")
+                  .Define("charm_decay_x", "truth.charmDecayX")
+                  .Define("charm_decay_y", "truth.charmDecayY")
+                  .Define("charm_decay_z", "truth.charmDecayZ")
+                  .Define("charm_decay_t", "truth.charmDecayT")
+                  .Define("charm_species_id", """
+                      int pdg = std::abs(truth.charmPdg);
+                      if (pdg == 421) return 1;
+                      if (pdg == 411) return 2;
+                      if (pdg == 431) return 3;
+                      if (pdg == 4122) return 4;
+                      if (pdg > 4000) return 5;
+                      if (pdg > 0) return 6;
+                      return 0;
+                  """)
 
-              # Secondary Muon (mu_2) from Prompt Charm Decay
-              .Define("mu2_track_id", "truth.mu2TrackId")
-              .Define("mu2_pdg", "truth.mu2Pdg")
-              .Define("mu2_charge", "truth.mu2Charge")
-              .Define("mu2_mother_track_id", "truth.mu2MotherTrackId")
-              .Define("mu2_mother_pdg", "truth.mu2MotherPdg")
-              .Define("mu2_e", "truth.mu2E")
-              .Define("mu2_p", "truth.mu2P")
-              .Define("mu2_pt", "truth.mu2Pt")
-              .Define("mu2_px", "truth.mu2Px")
-              .Define("mu2_py", "truth.mu2Py")
-              .Define("mu2_pz", "truth.mu2Pz")
-              .Define("mu2_eta", "truth.mu2Eta")
-              .Define("mu2_phi", "truth.mu2Phi")
-              .Define("mu2_theta", "truth.mu2Theta")
-              .Define("mu2_slope_xz", "truth.mu2SlopeXZ")
-              .Define("mu2_slope_yz", "truth.mu2SlopeYZ")
-              .Define("mu2_ptrel", "truth.mu2PtRel")
-              .Define("mu2_ip3d", "truth.mu2IP3D")
-              .Define("mu2_ipxy", "truth.mu2IPXY")
-              .Define("mu2_opening_angle_charm", "truth.mu2OpeningAngleWithCharm")
-              .Define("mu2_n_ds_points", "truth.mu2nDSPoints")
-              .Define("mu2_n_ds_hor_points", "truth.mu2nDSHorizontalPoints")
-              .Define("mu2_n_ds_ver_points", "truth.mu2nDSVerticalPoints")
-              .Define("mu2_in_ds_acceptance", "truth.mu2InDS")
+                  # Secondary Muon (mu_2) from Prompt Charm Decay
+                  .Define("mu2_track_id", "truth.mu2TrackId")
+                  .Define("mu2_pdg", "truth.mu2Pdg")
+                  .Define("mu2_charge", "truth.mu2Charge")
+                  .Define("mu2_mother_track_id", "truth.mu2MotherTrackId")
+                  .Define("mu2_mother_pdg", "truth.mu2MotherPdg")
+                  .Define("mu2_e", "truth.mu2E")
+                  .Define("mu2_p", "truth.mu2P")
+                  .Define("mu2_pt", "truth.mu2Pt")
+                  .Define("mu2_px", "truth.mu2Px")
+                  .Define("mu2_py", "truth.mu2Py")
+                  .Define("mu2_pz", "truth.mu2Pz")
+                  .Define("mu2_eta", "truth.mu2Eta")
+                  .Define("mu2_phi", "truth.mu2Phi")
+                  .Define("mu2_theta", "truth.mu2Theta")
+                  .Define("mu2_slope_xz", "truth.mu2SlopeXZ")
+                  .Define("mu2_slope_yz", "truth.mu2SlopeYZ")
+                  .Define("mu2_ptrel", "truth.mu2PtRel")
+                  .Define("mu2_ip3d", "truth.mu2IP3D")
+                  .Define("mu2_ipxy", "truth.mu2IPXY")
+                  .Define("mu2_opening_angle_charm", "truth.mu2OpeningAngleWithCharm")
+                  .Define("mu2_n_ds_points", "truth.mu2nDSPoints")
+                  .Define("mu2_n_ds_hor_points", "truth.mu2nDSHorizontalPoints")
+                  .Define("mu2_n_ds_ver_points", "truth.mu2nDSVerticalPoints")
+                  .Define("mu2_in_ds_acceptance", "truth.mu2InDS")
 
-              # Composite Dimuon System (mu_1 + mu_2)
-              .Define("dimuon_in_ds_acceptance", "truth.dimuonInDSAcceptance")
-              .Define("n_muons_in_event", "truth.nMuonsInEvent")
-              .Define("dimuon_mass", "truth.dimuonInvMass")
-              .Define("dimuon_pt", "truth.dimuonPt")
-              .Define("dimuon_p", "truth.dimuonP")
-              .Define("dimuon_opening_angle", "truth.dimuonOpeningAngle")
-              .Define("dimuon_opening_angle_mrad", "truth.dimuonOpeningAngleMrad")
-              .Define("dimuon_delta_phi", "truth.dimuonDeltaPhi")
-              .Define("dimuon_delta_eta", "truth.dimuonDeltaEta")
-              .Define("dimuon_delta_r", "truth.dimuonDeltaR")
-              .Define("dimuon_energy_asym", "truth.dimuonEnergyAsymmetry")
-              .Define("dimuon_p_ratio", "truth.dimuonMomentumRatio")
+                  # Composite Dimuon System (mu_1 + mu_2)
+                  .Define("dimuon_in_ds_acceptance", "truth.dimuonInDSAcceptance")
+                  .Define("n_muons_in_event", "truth.nMuonsInEvent")
+                  .Define("dimuon_mass", "truth.dimuonInvMass")
+                  .Define("dimuon_pt", "truth.dimuonPt")
+                  .Define("dimuon_p", "truth.dimuonP")
+                  .Define("dimuon_opening_angle", "truth.dimuonOpeningAngle")
+                  .Define("dimuon_opening_angle_mrad", "truth.dimuonOpeningAngleMrad")
+                  .Define("dimuon_delta_phi", "truth.dimuonDeltaPhi")
+                  .Define("dimuon_delta_eta", "truth.dimuonDeltaEta")
+                  .Define("dimuon_delta_r", "truth.dimuonDeltaR")
+                  .Define("dimuon_energy_asym", "truth.dimuonEnergyAsymmetry")
+                  .Define("dimuon_p_ratio", "truth.dimuonMomentumRatio")
 
-              # Derived composite and acceptance indicators for histograms & TProfiles
-              .Define("dimuon_e_sum", "mu1_e + mu2_e")
-              .Define("dimuon_delta_e", "mu1_e - mu2_e")
-              .Define("dimuon_abs_delta_e", "std::abs(mu1_e - mu2_e)")
-              .Define("dimuon_delta_p", "mu1_p - mu2_p")
-              .Define("dimuon_abs_delta_p", "std::abs(mu1_p - mu2_p)")
-              .Define("dimuon_delta_pt", "mu1_pt - mu2_pt")
-              .Define("dimuon_e_ratio", "(mu1_e > 1e-6) ? (mu2_e / mu1_e) : 0.0")
-              .Define("dimuon_e_frac_nu", "(nu_e > 1e-6) ? (mu1_e + mu2_e) / nu_e : 0.0")
-              .Define("mu2_e_frac_charm", "(charm_e > 1e-6) ? mu2_e / charm_e : 0.0")
-              .Define("mu1_e_frac_nu", "(nu_e > 1e-6) ? mu1_e / nu_e : 0.0")
-              .Define("mu2_e_frac_nu", "(nu_e > 1e-6) ? mu2_e / nu_e : 0.0")
-              .Define("dimuon_in_ds_acc_double", "dimuon_in_ds_acceptance ? 1.0 : 0.0")
-              .Define("mu1_in_ds_acc_double", "mu1_in_ds_acceptance ? 1.0 : 0.0")
-              .Define("mu2_in_ds_acc_double", "mu2_in_ds_acceptance ? 1.0 : 0.0")
-    )
+                  # Derived composite and acceptance indicators for histograms & TProfiles
+                  .Define("dimuon_e_sum", "mu1_e + mu2_e")
+                  .Define("dimuon_delta_e", "mu1_e - mu2_e")
+                  .Define("dimuon_abs_delta_e", "std::abs(mu1_e - mu2_e)")
+                  .Define("dimuon_delta_p", "mu1_p - mu2_p")
+                  .Define("dimuon_abs_delta_p", "std::abs(mu1_p - mu2_p)")
+                  .Define("dimuon_delta_pt", "mu1_pt - mu2_pt")
+                  .Define("dimuon_e_ratio", "(mu1_e > 1e-6) ? (mu2_e / mu1_e) : 0.0")
+                  .Define("dimuon_e_frac_nu", "(nu_e > 1e-6) ? (mu1_e + mu2_e) / nu_e : 0.0")
+                  .Define("mu2_e_frac_charm", "(charm_e > 1e-6) ? mu2_e / charm_e : 0.0")
+                  .Define("mu1_e_frac_nu", "(nu_e > 1e-6) ? mu1_e / nu_e : 0.0")
+                  .Define("mu2_e_frac_nu", "(nu_e > 1e-6) ? mu2_e / nu_e : 0.0")
+                  .Define("dimuon_in_ds_acc_double", "dimuon_in_ds_acceptance ? 1.0 : 0.0")
+                  .Define("mu1_in_ds_acc_double", "mu1_in_ds_acceptance ? 1.0 : 0.0")
+                  .Define("mu2_in_ds_acc_double", "mu2_in_ds_acceptance ? 1.0 : 0.0")
+        )
 
     # 6. Define Filtered Subsamples
-    df_numu_cc = df_truth.Filter("(std::abs(nu_pdg) == 14) && (is_numu_cc || is_anti_numu_cc)", "All Nu_mu CC")
-    df_fiducial = df_numu_cc.Filter("is_fiducial", "Target Fiducial Volume")
+    # All Interacting Muon Neutrinos in the Detector (CC + NC, nu_mu and anti-nu_mu)
+    df_numu_all = df_truth.Filter(
+        "(std::abs(nu_pdg) == 14) || is_numu_cc || is_anti_numu_cc",
+        "All Interacting Nu_mu in Detector (CC + NC)"
+    )
+    df_numu_all_fiducial = df_numu_all.Filter("is_fiducial", "Fiducial Interacting Nu_mu (CC + NC)")
+
+    # Breakdown by interaction type (CC vs NC)
+    df_numu_cc = df_numu_all.Filter("is_cc || is_numu_cc || is_anti_numu_cc", "All Nu_mu CC")
+    df_numu_nc = df_numu_all.Filter("is_nc", "All Nu_mu NC")
+    df_numu_cc_fiducial = df_numu_all_fiducial.Filter("is_cc || is_numu_cc || is_anti_numu_cc", "Fiducial Nu_mu CC")
+    df_numu_nc_fiducial = df_numu_all_fiducial.Filter("is_nc", "Fiducial Nu_mu NC")
+
+    # Breakdown by neutrino vs anti-neutrino
+    df_numu_nu = df_numu_all.Filter("nu_pdg == 14", "Nu_mu (PDG +14)")
+    df_numu_antinu = df_numu_all.Filter("nu_pdg == -14", "Anti-Nu_mu (PDG -14)")
+    df_numu_nu_fiducial = df_numu_all_fiducial.Filter("nu_pdg == 14", "Fiducial Nu_mu (PDG +14)")
+    df_numu_antinu_fiducial = df_numu_all_fiducial.Filter("nu_pdg == -14", "Fiducial Anti-Nu_mu (PDG -14)")
+
+    # Target Fiducial Volume Nu_mu CC
+    df_fiducial = df_numu_cc.Filter("is_fiducial", "Target Fiducial Volume Nu_mu CC")
     df_charm = df_numu_cc.Filter("has_charm", "Nu_mu CC with Charmed Hadron")
 
     # Candidate Signal (Nu_mu CC + charm + opposite-sign prompt dimuons)
@@ -414,7 +504,12 @@ def main():
     # Register filter nodes for booking
     filter_nodes = {
         "all": df_truth,
+        "all_numu": df_numu_all,
+        "all_numu_fiducial": df_numu_all_fiducial,
         "numu_cc": df_numu_cc,
+        "numu_nc": df_numu_nc,
+        "numu_nu": df_numu_nu,
+        "numu_antinu": df_numu_antinu,
         "fiducial": df_fiducial,
         "charm": df_charm,
         "candidate": df_candidate,
@@ -433,7 +528,12 @@ def main():
 
     # 7. Book Counters
     c_total = df_truth.Count()
+    c_all_numu = df_numu_all.Count()
+    c_all_numu_fid = df_numu_all_fiducial.Count()
     c_numu_cc = df_numu_cc.Count()
+    c_numu_nc = df_numu_nc.Count()
+    c_numu_nu = df_numu_nu.Count()
+    c_numu_antinu = df_numu_antinu.Count()
     c_fiducial = df_fiducial.Count()
     c_charm = df_charm.Count()
     c_candidate = df_candidate.Count()
@@ -447,7 +547,8 @@ def main():
     c_lambdac = df_lambdac.Count()
 
     booked_counters = [
-        c_total, c_numu_cc, c_fiducial, c_charm, c_candidate,
+        c_total, c_all_numu, c_all_numu_fid, c_numu_cc, c_numu_nc,
+        c_numu_nu, c_numu_antinu, c_fiducial, c_charm, c_candidate,
         c_in_acc, c_out_acc, c_mu1_in_acc, c_mu2_in_acc,
         c_d0, c_dplus, c_ds, c_lambdac
     ]
@@ -485,7 +586,40 @@ def main():
             booked_profiles[name] = node.Profile1D(model, xcol, ycol)
 
     # --------------------------------------------------------------------------
-    # 8a. Primary Muon (mu1) and Decay Muon (mu2) Energies & Kinematics
+    # 8a. Energy Distributions of All Muon Neutrinos Interacting in Detector
+    # --------------------------------------------------------------------------
+    # 1. Total Interacting Muon Neutrinos (CC + NC, inclusive across full detector)
+    book_1d("h_all_numu_nu_e", "Energy of All Interacting #nu_{#mu} (CC+NC);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_all, 100, 0.0, 1000.0)
+    book_1d("h_all_numu_nu_e_wide", "Energy of All Interacting #nu_{#mu} (CC+NC, Wide);E_{#nu} [GeV];Events / 20 GeV", "nu_e", df_numu_all, 150, 0.0, 3000.0)
+    book_1d("h_all_numu_nu_e_fine", "Energy of All Interacting #nu_{#mu} (CC+NC, Fine);E_{#nu} [GeV];Events / 5 GeV", "nu_e", df_numu_all, 200, 0.0, 1000.0)
+    book_1d("h_all_numu_nu_e_unweighted", "Energy of All Interacting #nu_{#mu} (Unweighted);E_{#nu} [GeV];Raw Counts / 10 GeV", "nu_e", df_numu_all, 100, 0.0, 1000.0, weight=None)
+    book_1d("h_all_numu_nu_e_wide_unweighted", "Energy of All Interacting #nu_{#mu} (Wide, Unweighted);E_{#nu} [GeV];Raw Counts / 20 GeV", "nu_e", df_numu_all, 150, 0.0, 3000.0, weight=None)
+
+    # 2. Fiducial Interacting Muon Neutrinos (Target Fiducial Volume, CC + NC)
+    book_1d("h_all_numu_fiducial_nu_e", "Energy of Fiducial Interacting #nu_{#mu} (CC+NC);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_all_fiducial, 100, 0.0, 1000.0)
+    book_1d("h_all_numu_fiducial_nu_e_wide", "Energy of Fiducial Interacting #nu_{#mu} (CC+NC, Wide);E_{#nu} [GeV];Events / 20 GeV", "nu_e", df_numu_all_fiducial, 150, 0.0, 3000.0)
+    book_1d("h_all_numu_fiducial_nu_e_fine", "Energy of Fiducial Interacting #nu_{#mu} (CC+NC, Fine);E_{#nu} [GeV];Events / 5 GeV", "nu_e", df_numu_all_fiducial, 200, 0.0, 1000.0)
+    book_1d("h_all_numu_fiducial_nu_e_unweighted", "Energy of Fiducial Interacting #nu_{#mu} (Unweighted);E_{#nu} [GeV];Raw Counts / 10 GeV", "nu_e", df_numu_all_fiducial, 100, 0.0, 1000.0, weight=None)
+
+    # 3. Interaction Mode Breakdown: Charged Current (CC) vs Neutral Current (NC)
+    book_1d("h_all_numu_cc_nu_e", "Energy of Interacting #nu_{#mu} CC;E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_cc, 100, 0.0, 1000.0)
+    book_1d("h_all_numu_cc_nu_e_wide", "Energy of Interacting #nu_{#mu} CC (Wide);E_{#nu} [GeV];Events / 20 GeV", "nu_e", df_numu_cc, 150, 0.0, 3000.0)
+    book_1d("h_all_numu_nc_nu_e", "Energy of Interacting #nu_{#mu} NC;E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_nc, 100, 0.0, 1000.0)
+    book_1d("h_all_numu_nc_nu_e_wide", "Energy of Interacting #nu_{#mu} NC (Wide);E_{#nu} [GeV];Events / 20 GeV", "nu_e", df_numu_nc, 150, 0.0, 3000.0)
+
+    # 4. Neutrino (#nu_{#mu}, PDG +14) vs Anti-Neutrino (#bar{#nu}_{#mu}, PDG -14)
+    book_1d("h_all_numu_pdg14_nu_e", "Energy of Interacting #nu_{#mu} (PDG +14);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_nu, 100, 0.0, 1000.0)
+    book_1d("h_all_numu_pdg14_nu_e_wide", "Energy of Interacting #nu_{#mu} (PDG +14, Wide);E_{#nu} [GeV];Events / 20 GeV", "nu_e", df_numu_nu, 150, 0.0, 3000.0)
+    book_1d("h_all_numu_pdg_minus14_nu_e", "Energy of Interacting #bar{#nu}_{#mu} (PDG -14);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_antinu, 100, 0.0, 1000.0)
+    book_1d("h_all_numu_pdg_minus14_nu_e_wide", "Energy of Interacting #bar{#nu}_{#mu} (PDG -14, Wide);E_{#nu} [GeV];Events / 20 GeV", "nu_e", df_numu_antinu, 150, 0.0, 3000.0)
+
+    # 5. Interaction Vertex and Kinematic Profiles for All Interacting Nu_mu
+    book_2d("h2_all_numu_vtx_xy", "Interaction Vertex Transverse Profile (All Nu_mu);x_{vtx} [cm];y_{vtx} [cm]", "vtx_x", "vtx_y", df_numu_all, 60, -60.0, 0.0, 60, 3.0, 63.0)
+    book_2d("h2_all_numu_vtx_z_vs_nu_e", "Interaction Vertex Z vs E_{#nu} (All Nu_mu);E_{#nu} [GeV];z_{vtx} [cm]", "nu_e", "vtx_z", df_numu_all, 50, 0.0, 1000.0, 50, 260.0, 360.0)
+    book_2d("h2_all_numu_q2_vs_nu_e", "Q^{2} vs E_{#nu} (All Nu_mu);E_{#nu} [GeV];Q^{2} [GeV^{2}]", "nu_e", "q2", df_numu_all, 50, 0.0, 1000.0, 50, 0.0, 50.0)
+
+    # --------------------------------------------------------------------------
+    # 8b. Primary Muon (mu1) and Decay Muon (mu2) Energies & Kinematics
     # Booked for: Inclusive Signal, In-Acceptance, and Outside-Acceptance
     # --------------------------------------------------------------------------
     samples_1d = [
@@ -779,7 +913,12 @@ def main():
 
     # 10. Print Comprehensive Cutflow, Acceptance, and Kinematic Summary
     n_tot = c_total.GetValue()
-    n_numu = c_numu_cc.GetValue()
+    n_all_numu = c_all_numu.GetValue()
+    n_all_numu_fid = c_all_numu_fid.GetValue()
+    n_numu_cc = c_numu_cc.GetValue()
+    n_numu_nc = c_numu_nc.GetValue()
+    n_numu_nu = c_numu_nu.GetValue()
+    n_numu_antinu = c_numu_antinu.GetValue()
     n_fid = c_fiducial.GetValue()
     n_chm = c_charm.GetValue()
     n_cand = c_candidate.GetValue()
@@ -793,12 +932,30 @@ def main():
     n_lambdac = c_lambdac.GetValue()
 
     print("\n" + "=" * 80)
-    print(" EVENT SUMMARY & CUTFLOW")
+    print(" ALL INTERACTING MUON NEUTRINOS IN DETECTOR")
     print("=" * 80)
     print(f"Total Events Processed       : {n_tot:8d}")
-    print(f"Muon Neutrino CC             : {n_numu:8d} ({100.0 * n_numu / max(n_tot, 1):6.2f}%)")
-    print(f"Target Fiducial Volume CC    : {n_fid:8d} ({100.0 * n_fid / max(n_numu, 1):6.2f}% of CC)")
-    print(f"Nu_mu CC with Charm Hadron   : {n_chm:8d} ({100.0 * n_chm / max(n_numu, 1):6.2f}% of CC)")
+    print(f"All Interacting Nu_mu (CC+NC): {n_all_numu:8d} ({100.0 * n_all_numu / max(n_tot, 1):6.2f}%)")
+    print(f"  - Target Fiducial (CC+NC)  : {n_all_numu_fid:8d} ({100.0 * n_all_numu_fid / max(n_all_numu, 1):6.2f}%)")
+    print(f"  - Charged Current (CC)     : {n_numu_cc:8d} ({100.0 * n_numu_cc / max(n_all_numu, 1):6.2f}%)")
+    print(f"  - Neutral Current (NC)     : {n_numu_nc:8d} ({100.0 * n_numu_nc / max(n_all_numu, 1):6.2f}%)")
+    print(f"  - Nu_mu (PDG +14)          : {n_numu_nu:8d} ({100.0 * n_numu_nu / max(n_all_numu, 1):6.2f}%)")
+    print(f"  - Anti-Nu_mu (PDG -14)     : {n_numu_antinu:8d} ({100.0 * n_numu_antinu / max(n_all_numu, 1):6.2f}%)")
+    if "h_all_numu_nu_e_wide" in booked_histograms_1d:
+        h_wide = booked_histograms_1d["h_all_numu_nu_e_wide"].GetValue()
+        print(f"Mean Nu_mu Energy (Inclusive): {h_wide.GetMean():8.2f} GeV (RMS: {h_wide.GetRMS():.2f} GeV)")
+    if "h_all_numu_fiducial_nu_e_wide" in booked_histograms_1d:
+        print(f"Mean Nu_mu Energy (Fiducial) : {booked_histograms_1d['h_all_numu_fiducial_nu_e_wide'].GetValue().GetMean():8.2f} GeV")
+    if "h_all_numu_cc_nu_e_wide" in booked_histograms_1d:
+        print(f"Mean Nu_mu Energy (CC)       : {booked_histograms_1d['h_all_numu_cc_nu_e_wide'].GetValue().GetMean():8.2f} GeV")
+    if "h_all_numu_nc_nu_e_wide" in booked_histograms_1d:
+        print(f"Mean Nu_mu Energy (NC)       : {booked_histograms_1d['h_all_numu_nc_nu_e_wide'].GetValue().GetMean():8.2f} GeV")
+    print("-" * 80)
+    print(" CHARM & SIGNAL DIMUON CUTFLOW")
+    print("-" * 80)
+    print(f"Muon Neutrino CC             : {n_numu_cc:8d} ({100.0 * n_numu_cc / max(n_tot, 1):6.2f}%)")
+    print(f"Target Fiducial Volume CC    : {n_fid:8d} ({100.0 * n_fid / max(n_numu_cc, 1):6.2f}% of CC)")
+    print(f"Nu_mu CC with Charm Hadron   : {n_chm:8d} ({100.0 * n_chm / max(n_numu_cc, 1):6.2f}% of CC)")
     print(f"Opposite-Sign Dimuon Signal  : {n_cand:8d} ({100.0 * n_cand / max(n_chm, 1):6.2f}% of charm)")
     print("-" * 80)
     print(" DOWNSTREAM (DS) MUFILTER ACCEPTANCE BREAKDOWN FOR SIGNAL DIMUONS")
@@ -858,15 +1015,16 @@ def main():
     if out_file and not out_file.IsZombie():
         out_file.cd()
 
-        # 11a. Write top-level key signal overview histograms
+        # 11a. Write top-level key neutrino & signal overview histograms
         for name, h_res in booked_histograms_1d.items():
-            if name.startswith("h_signal_"):
+            if name.startswith("h_all_numu_") or name.startswith("h_signal_"):
                 h_res.GetValue().Write()
         for name, p_res in booked_profiles.items():
             if name.startswith("p_acc_eff_"):
                 p_res.GetValue().Write()
 
         # 11b. Hierarchical structured subdirectories for TBrowser & rootls
+        d_numu = out_file.mkdir("all_muon_neutrinos")
         d_sig = out_file.mkdir("signal_inclusive")
         d_in = out_file.mkdir("in_acceptance")
         d_out = out_file.mkdir("outside_acceptance")
@@ -879,6 +1037,15 @@ def main():
         # Flat subdirectories for backward compatibility
         d_all_1d = out_file.mkdir("histograms_1d")
         d_all_2d = out_file.mkdir("histograms_2d")
+
+        # Populate all_muon_neutrinos
+        d_numu.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if name.startswith("h_all_numu_"):
+                h_res.GetValue().Write()
+        for name, h2_res in booked_histograms_2d.items():
+            if name.startswith("h2_all_numu_"):
+                h2_res.GetValue().Write()
 
         # Populate signal_inclusive
         d_sig.cd()

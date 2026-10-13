@@ -5,8 +5,8 @@
 # Input dataset specification
 input:
   # Pattern pointing to simulated GENIE files across all directory partitions
-  file_pattern: "/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/sndlhc_13TeV_down_volTarget_100fb-1_SNDG18_02a_01_000/*/sndLHC.Genie-TGeant4_digCPP.root"
-  tree_name: "cbmsim"
+  file_pattern: "/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/[1-1000]/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root"
+  tree_name: "truth"
   # Maximum number of partition files to process (-1 for all matched partitions)
   max_files: -1
 

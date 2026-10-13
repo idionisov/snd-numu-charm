@@ -27,12 +27,14 @@ def plot_cutflow_comparison(
     all_filepath: str,
     sig_filepath: str,
     output_filepath: str,
-    title: str = "SND@LHC Selection Cutflow: All Events vs Signal",
-    all_label: str = "All Events",
-    sig_label: str = "Signal (#nu_{#mu} Charm #rightarrow #mu_{2} in DS)",
+    indirect_filepath: Optional[str] = None,
+    title: str = "SND@LHC Selection Cutflow Comparison",
+    all_label: str = "All Events (Inclusive 2MuTrks)",
+    sig_label: str = "Direct Signal (Charm #rightarrow #mu_{2})",
+    indirect_label: str = "Indirect Fake Signal (Charm #rightarrow hadrons #rightarrow #mu_{2})",
 ) -> None:
     """
-    Load h_cutflow from both files and draw them on a single TCanvas.
+    Load h_cutflow from files and draw them on a single TCanvas.
     """
     f_all = ROOT.TFile.Open(all_filepath, "READ")
     if not f_all or f_all.IsZombie():
@@ -50,8 +52,20 @@ def plot_cutflow_comparison(
     if not h_sig:
         raise ValueError(f"Neither 'h_cutflow' nor 'h_cutflow_signal' found in {sig_filepath}")
 
+    h_ind = None
+    f_ind = None
+    if indirect_filepath:
+        f_ind = ROOT.TFile.Open(indirect_filepath, "READ")
+        if not f_ind or f_ind.IsZombie():
+            raise IOError(f"Could not open indirect file: {indirect_filepath}")
+        h_ind = f_ind.Get("h_cutflow")
+        if not h_ind:
+            h_ind = f_ind.Get("h_cutflow_indirect")
+        if not h_ind:
+            raise ValueError(f"'h_cutflow' not found in {indirect_filepath}")
+
     # Build canvas
-    c = ROOT.TCanvas("c_cutflow_comparison", title, 1100, 750)
+    c = ROOT.TCanvas("c_cutflow_comparison", title, 1150, 750)
     c.SetGridx(1)
     c.SetGridy(1)
     c.SetLogy(1)
@@ -78,25 +92,45 @@ def plot_cutflow_comparison(
     h_sig_draw.SetMarkerStyle(21)
     h_sig_draw.SetMarkerSize(1.2)
 
+    h_ind_draw = None
+    if h_ind:
+        h_ind_draw = h_ind.Clone("h_ind_draw")
+        h_ind_draw.SetDirectory(0)
+        h_ind_draw.SetLineColor(ROOT.kGreen + 2)
+        h_ind_draw.SetLineWidth(3)
+        h_ind_draw.SetMarkerColor(ROOT.kGreen + 2)
+        h_ind_draw.SetMarkerStyle(22)
+        h_ind_draw.SetMarkerSize(1.3)
+
     raw_all = h_all_draw.GetBinContent(1)
     raw_sig = h_sig_draw.GetBinContent(1)
+    raw_ind = h_ind_draw.GetBinContent(1) if h_ind_draw else 0.0
 
-    max_val = max(h_all_draw.GetMaximum(), h_sig_draw.GetMaximum(), 1.0)
+    max_candidates = [h_all_draw.GetMaximum(), h_sig_draw.GetMaximum(), 1.0]
+    if h_ind_draw:
+        max_candidates.append(h_ind_draw.GetMaximum())
+    max_val = max(max_candidates)
+
     h_all_draw.SetMinimum(0.1)
-    h_all_draw.SetMaximum(max_val * 8.0)
+    h_all_draw.SetMaximum(max_val * 10.0)
 
     h_all_draw.Draw("HIST")
     h_all_draw.Draw("E SAME")
     h_sig_draw.Draw("HIST SAME")
     h_sig_draw.Draw("E SAME")
+    if h_ind_draw:
+        h_ind_draw.Draw("HIST SAME")
+        h_ind_draw.Draw("E SAME")
 
-    leg = ROOT.TLegend(0.52, 0.76, 0.89, 0.88)
+    leg = ROOT.TLegend(0.45, 0.73, 0.90, 0.89)
     leg.SetBorderSize(1)
     leg.SetFillStyle(1001)
     leg.SetFillColor(ROOT.kWhite)
-    leg.SetTextSize(0.03)
+    leg.SetTextSize(0.026)
     leg.AddEntry(h_all_draw, f"{all_label} (Initial: {int(raw_all)})", "lp")
     leg.AddEntry(h_sig_draw, f"{sig_label} (Initial: {int(raw_sig)})", "lp")
+    if h_ind_draw:
+        leg.AddEntry(h_ind_draw, f"{indirect_label} (Initial: {int(raw_ind)})", "lp")
     leg.Draw()
 
     out_dir = os.path.dirname(os.path.abspath(output_filepath))
@@ -108,26 +142,32 @@ def plot_cutflow_comparison(
         c.Write("c_cutflow_comparison")
         h_all_draw.Write("h_cutflow_all")
         h_sig_draw.Write("h_cutflow_signal")
+        if h_ind_draw:
+            h_ind_draw.Write("h_cutflow_indirect")
         f_out.Close()
     else:
         c.SaveAs(output_filepath)
 
     f_all.Close()
     f_sig.Close()
+    if f_ind:
+        f_ind.Close()
     print(f"[Done] Cutflow comparison saved to: {output_filepath}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Overlay All Events vs Signal selection cutflow on a single canvas.",
+        description="Overlay selection cutflows (All Events vs Direct Signal vs Indirect Fake Signal) on a single canvas.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("-c", "--combined", default=None, help="Path to combined cutflow ROOT file containing both all-events and signal cutflow")
     parser.add_argument("-a", "--all", default=None, help="Path to all-events cutflow ROOT file")
-    parser.add_argument("-s", "--signal", default=None, help="Path to signal cutflow ROOT file")
+    parser.add_argument("-s", "--signal", default=None, help="Path to direct signal cutflow ROOT file")
+    parser.add_argument("-i", "--indirect", default=None, help="Path to indirect fake signal cutflow ROOT file")
     parser.add_argument("-o", "--output", default="cutflow_comparison.png", help="Output file path (.root, .png, .pdf)")
-    parser.add_argument("--all-label", default="All Events", help="Legend label for all events")
-    parser.add_argument("--sig-label", default="Signal (#nu_{#mu} Charm #rightarrow #mu_{2} in DS)", help="Legend label for signal")
+    parser.add_argument("--all-label", default="All Events (Inclusive 2MuTrks)", help="Legend label for all events")
+    parser.add_argument("--sig-label", default="Direct Signal (Charm #rightarrow #mu_{2})", help="Legend label for direct signal")
+    parser.add_argument("--indirect-label", default="Indirect Fake Signal (Charm #rightarrow hadrons #rightarrow #mu_{2})", help="Legend label for indirect fake signal")
     args = parser.parse_args()
 
     if args.combined:
@@ -143,8 +183,10 @@ def main():
         all_filepath=all_path,
         sig_filepath=sig_path,
         output_filepath=args.output,
+        indirect_filepath=args.indirect,
         all_label=args.all_label,
         sig_label=args.sig_label,
+        indirect_label=args.indirect_label,
     )
 
 

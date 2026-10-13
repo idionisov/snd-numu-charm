@@ -200,6 +200,11 @@ def main():
         help="Partition range or list (e.g. '1-1000', '1-10', '1,2,3', 'all'). Default: '1-1000'",
     )
     parser.add_argument(
+        "-i", "--input",
+        default=None,
+        help="Input file pattern or base directory (e.g. '/path/to/%%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root')",
+    )
+    parser.add_argument(
         "-b", "--base-dir",
         default="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget",
         help="Base directory containing partition folders [1-1000].",
@@ -223,13 +228,25 @@ def main():
 
     args = parser.parse_args()
 
+    base_dir = args.base_dir
+    if args.input:
+        inp = args.input.strip()
+        if "%s" in inp:
+            prefix = inp.split("%s")[0].rstrip("/")
+            if prefix and prefix != "/":
+                base_dir = prefix
+        elif os.path.isdir(inp):
+            base_dir = inp
+        elif os.path.isfile(inp):
+            base_dir = os.path.dirname(os.path.dirname(inp))
+
     partitions = parse_partitions(args.partitions)
     write_empty = not args.no_empty
 
     print("=" * 80)
     print(" CHARM DIMUON DIRECT & INDIRECT CATEGORY SKIMMER")
     print("=" * 80)
-    print(f" Base Directory       : {args.base_dir}")
+    print(f" Base Directory       : {base_dir}")
     print(f" Partition Selection  : {len(partitions)} partition(s) specified")
     print(f" Parallel Workers     : {args.jobs}")
     print(f" Skip Existing        : {args.skip_existing}")
@@ -247,7 +264,7 @@ def main():
     skipped_count = 0
 
     task_args = [
-        (p, args.base_dir, args.skip_existing, write_empty)
+        (p, base_dir, args.skip_existing, write_empty)
         for p in partitions
     ]
 

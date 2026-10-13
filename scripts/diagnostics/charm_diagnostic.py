@@ -152,15 +152,28 @@ SPECIES_NAMES: Dict[int, str] = {
     411: "Dplus",
     431: "Ds",
     4122: "Lambda_c",
+    -421: "anti_D0",
+    -411: "Dminus",
+    -431: "Ds_minus",
+    -4122: "anti_Lambda_c",
     413: "Dstar_plus",
+    -413: "Dstar_minus",
     423: "Dstar0",
+    -423: "anti_Dstar0",
     433: "Ds_star",
+    -433: "Ds_star_minus",
     4222: "Sigma_c_pp",
+    -4222: "anti_Sigma_c_mm",
     4212: "Sigma_c_p",
+    -4212: "anti_Sigma_c_m",
     4112: "Sigma_c_0",
+    -4112: "anti_Sigma_c_0",
     4232: "Xi_c_p",
+    -4232: "anti_Xi_c_m",
     4132: "Xi_c_0",
+    -4132: "anti_Xi_c_0",
     4332: "Omega_c_0",
+    -4332: "anti_Omega_c_0",
 }
 
 # Ground state charm hadrons that decay weakly
@@ -199,6 +212,10 @@ SPECIES_COLORS: Dict[int, int] = {
     411: ROOT.kAzure + 1,     # D+
     431: ROOT.kGreen + 2,     # Ds
     4122: ROOT.kMagenta + 1,  # Lambda_c
+    -421: ROOT.kRed + 1,      # anti-D0
+    -411: ROOT.kAzure + 1,    # D-
+    -431: ROOT.kGreen + 2,    # Ds-
+    -4122: ROOT.kMagenta + 1, # anti-Lambda_c
 }
 
 # Pale pastel fill colors for model 1-sigma uncertainty bands
@@ -207,6 +224,10 @@ SPECIES_FILL_COLORS: Dict[int, int] = {
     411: ROOT.kBlue - 10,      # D+ pale pastel blue
     431: ROOT.kGreen - 10,     # Ds pale pastel green
     4122: ROOT.kMagenta - 10,  # Lambda_c pale pastel magenta
+    -421: ROOT.kRed - 10,
+    -411: ROOT.kBlue - 10,
+    -431: ROOT.kGreen - 10,
+    -4122: ROOT.kMagenta - 10,
 }
 
 # Darker prominent colors for external CHORUS measurements
@@ -215,6 +236,10 @@ CHORUS_COLORS: Dict[int, int] = {
     411: ROOT.kBlue + 3,       # D+ deep dark navy blue
     431: ROOT.kGreen + 3,      # Ds deep dark forest green
     4122: ROOT.kMagenta + 3,   # Lambda_c deep dark violet
+    -421: ROOT.kRed + 3,
+    -411: ROOT.kBlue + 3,
+    -431: ROOT.kGreen + 3,
+    -4122: ROOT.kMagenta + 3,
 }
 
 # ROOT TLatex formatted titles for charm hadron species
@@ -223,6 +248,10 @@ SPECIES_LATEX: Dict[int, str] = {
     411: "D^{+}",
     431: "D_{s}^{+}",
     4122: "#Lambda_{c}^{+}",
+    -421: "#bar{D}^{0}",
+    -411: "D^{-}",
+    -431: "D_{s}^{-}",
+    -4122: "#bar{#Lambda}_{c}^{-}",
 }
 
 # CHORUS measured fractions: (mean, stat+syst err) from New J. Phys. 13 (2011) 093002
@@ -341,6 +370,50 @@ def get_conjugate_channel_str(channel_str: str) -> str:
             else:
                 cc_parts.append(p)
     return " + ".join(sorted(cc_parts))
+
+
+def get_conjugate_mode_label(mode_str: str) -> str:
+    """
+    Computes the CP / charge-conjugate label for an inclusive decay mode.
+    e.g. 'e+ anything' -> 'e- anything'
+         'K- anything' -> 'K+ anything'
+         'p anything'  -> 'anti_p anything'
+         '2pi+ pi- anything' -> '2pi- pi+ anything'
+    """
+    clean = mode_str.strip()
+    has_anything = clean.endswith(" anything")
+    if has_anything:
+        prefix = clean[:-len(" anything")].strip()
+    else:
+        prefix = clean
+    tokens = prefix.split()
+    cc_tokens = []
+    for tok in tokens:
+        m = re.match(r"^(\d+)(.+)$", tok)
+        if m and m.group(1).isdigit():
+            num_str, p_name = m.groups()
+        else:
+            num_str, p_name = "", tok
+        pdg = NAME_TO_PDG.get(p_name)
+        if pdg is not None:
+            cc_pdg = pdg if abs(pdg) in SELF_CONJUGATE_PDGS else -pdg
+            cc_p_name = PDG_NAMES.get(cc_pdg, p_name)
+        else:
+            if p_name.startswith("anti_"):
+                cc_p_name = p_name[5:]
+            elif p_name.startswith("anti-"):
+                cc_p_name = p_name[5:]
+            elif p_name.endswith("+"):
+                cc_p_name = p_name[:-1] + "-"
+            elif p_name.endswith("-"):
+                cc_p_name = p_name[:-1] + "+"
+            else:
+                cc_p_name = p_name
+        cc_tokens.append(f"{num_str}{cc_p_name}")
+    res = " ".join(cc_tokens)
+    if has_anything:
+        res += " anything"
+    return res
 
 
 def normalize_channel_photons(channel_str: str) -> str:
@@ -537,6 +610,7 @@ def load_pdg_summary_tables(tables_dir: Optional[str]) -> Dict[int, Dict[str, An
         "branching_ratio_DsPlus.csv": 431,
         "branching_ratio_Ds.csv": 431,
         "branching_ratio_Lambda_c.csv": 4122,
+        "branching_ratio_DsMinus.csv": -431,
     }
 
     result: Dict[int, Dict[str, Any]] = {}
@@ -573,6 +647,15 @@ def load_pdg_summary_tables(tables_dir: Optional[str]) -> Dict[int, Dict[str, An
             "modes_by_label": modes_by_label,
             "modes_list": modes_list,
         }
+
+    # Automatically add CP-conjugate anti-charm species if not already present
+    for sp_pdg in list(result.keys()):
+        anti_pdg = -sp_pdg
+        if anti_pdg not in result:
+            result[anti_pdg] = {
+                "modes_by_label": dict(result[sp_pdg]["modes_by_label"]),
+                "modes_list": list(result[sp_pdg]["modes_list"]),
+            }
 
     return result
 
@@ -1062,6 +1145,8 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
         # Species counts
         "species_hadron_counts": Counter(),
         "species_nu_ebin_counts": {i: Counter() for i in range(n_nu_ebins)},
+        "species_nu_ebin_counts_nu": {i: Counter() for i in range(n_nu_ebins)},
+        "species_nu_ebin_counts_antinu": {i: Counter() for i in range(n_nu_ebins)},
         "species_charm_ebin_counts": {i: Counter() for i in range(n_ch_ebins)},
         # Decay channels
         "decay_channels_by_species": {},            # abs_pdg -> Counter of tuples
@@ -1303,6 +1388,10 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
 
                 if nu_ebin_idx >= 0:
                     local_data["species_nu_ebin_counts"][nu_ebin_idx][abs_charm_pdg] += 1
+                    if nu_pdg > 0:
+                        local_data["species_nu_ebin_counts_nu"][nu_ebin_idx][charm_pdg] += 1
+                    else:
+                        local_data["species_nu_ebin_counts_antinu"][nu_ebin_idx][charm_pdg] += 1
                 if charm_ebin_idx >= 0:
                     local_data["species_charm_ebin_counts"][charm_ebin_idx][abs_charm_pdg] += 1
 
@@ -1352,24 +1441,32 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
                     local_data["species_weight_sq_sum"][abs_charm_pdg] += mc_weight * mc_weight
                     local_data["species_decay_count"][abs_charm_pdg] += 1
 
+                    # Track signed charm_pdg for particle vs antiparticle separation
+                    local_data["total_decays_by_species"][charm_pdg] += 1
+                    local_data["species_weight_sum"][charm_pdg] += mc_weight
+                    local_data["species_weight_sq_sum"][charm_pdg] += mc_weight * mc_weight
+                    local_data["species_decay_count"][charm_pdg] += 1
+
                     # Evaluate inclusive decay modes from PDG table
                     sp_modes = pdg_inclusive_modes.get(abs_charm_pdg, {}).get("modes_list", [])
                     if sp_modes:
-                        if abs_charm_pdg not in local_data["inclusive_mode_w"]:
-                            local_data["inclusive_mode_w"][abs_charm_pdg] = Counter()
-                            local_data["inclusive_mode_w2y2"][abs_charm_pdg] = Counter()
-                            local_data["inclusive_mode_w2y"][abs_charm_pdg] = Counter()
-                            local_data["inclusive_mode_raw_count"][abs_charm_pdg] = Counter()
+                        for sp_k in (abs_charm_pdg, charm_pdg):
+                            if sp_k not in local_data["inclusive_mode_w"]:
+                                local_data["inclusive_mode_w"][sp_k] = Counter()
+                                local_data["inclusive_mode_w2y2"][sp_k] = Counter()
+                                local_data["inclusive_mode_w2y"][sp_k] = Counter()
+                                local_data["inclusive_mode_raw_count"][sp_k] = Counter()
 
                         for m_obj in sp_modes:
                             m_name = m_obj.pdg_mode if hasattr(m_obj, "pdg_mode") else m_obj["pdg_mode"]
                             req_p = m_obj.req_particles if hasattr(m_obj, "req_particles") else m_obj["req_particles"]
                             mult = count_inclusive_multiplicity(daughters, charm_pdg, req_p)
                             if mult > 0:
-                                local_data["inclusive_mode_w"][abs_charm_pdg][m_name] += mult * mc_weight
-                                local_data["inclusive_mode_w2y2"][abs_charm_pdg][m_name] += ((mult * mc_weight) ** 2)
-                                local_data["inclusive_mode_w2y"][abs_charm_pdg][m_name] += (mc_weight ** 2) * mult
-                                local_data["inclusive_mode_raw_count"][abs_charm_pdg][m_name] += mult
+                                for sp_k in (abs_charm_pdg, charm_pdg):
+                                    local_data["inclusive_mode_w"][sp_k][m_name] += mult * mc_weight
+                                    local_data["inclusive_mode_w2y2"][sp_k][m_name] += ((mult * mc_weight) ** 2)
+                                    local_data["inclusive_mode_w2y"][sp_k][m_name] += (mc_weight ** 2) * mult
+                                    local_data["inclusive_mode_raw_count"][sp_k][m_name] += mult
 
                     ch_tuple = tuple(sorted(daughters))
 
@@ -1487,6 +1584,8 @@ def merge_worker_results(
         "cc_dimuon_antinu_per_ebin": [0] * n_nu_ebins,
         "species_hadron_counts": Counter(),
         "species_nu_ebin_counts": {i: Counter() for i in range(n_nu_ebins)},
+        "species_nu_ebin_counts_nu": {i: Counter() for i in range(n_nu_ebins)},
+        "species_nu_ebin_counts_antinu": {i: Counter() for i in range(n_nu_ebins)},
         "species_charm_ebin_counts": {i: Counter() for i in range(n_ch_ebins)},
         "decay_channels_by_species": {},
         "decay_channels_by_species_nu_ebin": {},
@@ -1567,6 +1666,8 @@ def merge_worker_results(
             merged["charm_in_ds_per_ebin"][i] += r.get("charm_in_ds_per_ebin", [0] * n_nu_ebins)[i]
             merged["charm_candidate_per_ebin"][i] += r.get("charm_candidate_per_ebin", [0] * n_nu_ebins)[i]
             merged["species_nu_ebin_counts"][i].update(r["species_nu_ebin_counts"][i])
+            merged["species_nu_ebin_counts_nu"][i].update(r.get("species_nu_ebin_counts_nu", {}).get(i, Counter()))
+            merged["species_nu_ebin_counts_antinu"][i].update(r.get("species_nu_ebin_counts_antinu", {}).get(i, Counter()))
 
         for i in range(n_ch_ebins):
             merged["species_charm_ebin_counts"][i].update(r["species_charm_ebin_counts"][i])
@@ -1649,6 +1750,7 @@ def write_histograms_and_canvases(
     arr_ch_edges = array.array("d", charm_bin_edges)
 
     species_order = [421, 411, 431, 4122]
+    anti_species_order = [-421, -411, -431, -4122]
     other_species = [s for s in data["species_hadron_counts"].keys() if s not in species_order]
     all_species_display = species_order + other_species
     n_sp_bins = max(1, len(all_species_display))
@@ -1867,49 +1969,66 @@ def write_histograms_and_canvases(
             h2_species_charm_ebin.SetBinContent(x_idx + 1, y_idx, frac)
     h2_species_charm_ebin.Write()
 
-    # 1D Species Fraction vs E_nu for each major ground state
-    species_frac_nu_hists: Dict[int, ROOT.TH1D] = {}
-    species_frac_nu_graphs: Dict[int, ROOT.TGraphAsymmErrors] = {}
-    for idx_sp, abs_c in enumerate(species_order):
-        sp_name = get_species_name(abs_c)
-        h_frac_vs_e = ROOT.TH1D(
-            f"h_fraction_{sp_name}_vs_nu_energy",
-            f"{sp_name} Fraction vs Neutrino Energy;E_{{#nu}} [GeV];f({sp_name}) = N({sp_name}) / N_{{charm}}",
-            n_nu_ebins, arr_nu_edges
-        )
-        g_frac_vs_e = ROOT.TGraphAsymmErrors(n_nu_ebins)
-        g_frac_vs_e.SetName(f"g_fraction_{sp_name}_vs_nu_energy")
-        g_frac_vs_e.SetTitle(f"{sp_name} Fraction vs Neutrino Energy;E_{{#nu}} [GeV];f({sp_name}) = N({sp_name}) / N_{{charm}}")
-        for i_b in range(n_nu_ebins):
-            ebin_tot = sum(data["species_nu_ebin_counts"][i_b].values())
-            c_cnt = data["species_nu_ebin_counts"][i_b].get(abs_c, 0)
-            val_pct, lo_pct, hi_pct = clopper_pearson_errors(c_cnt, ebin_tot, 0.6827)
-            val = val_pct / 100.0
-            err_lo = lo_pct / 100.0
-            err_hi = hi_pct / 100.0
-            x_c = 0.5 * (nu_bin_edges[i_b] + nu_bin_edges[i_b + 1])
-            dx_lo = x_c - nu_bin_edges[i_b]
-            dx_hi = nu_bin_edges[i_b + 1] - x_c
-            h_frac_vs_e.SetBinContent(i_b + 1, val)
-            h_frac_vs_e.SetBinError(i_b + 1, max(err_lo, err_hi))
-            g_frac_vs_e.SetPoint(i_b, x_c, val)
-            g_frac_vs_e.SetPointError(i_b, dx_lo, dx_hi, err_lo, err_hi)
+    # 1D Species Fraction vs E_nu for each major ground state (Inclusive, nu-only, and antinu-only)
+    def _create_species_frac_graphs(counts_per_ebin, species_list=None, name_suffix="", title_suffix=""):
+        if species_list is None:
+            species_list = species_order
+        h_map: Dict[int, ROOT.TH1D] = {}
+        g_map: Dict[int, ROOT.TGraphAsymmErrors] = {}
+        for idx_sp, sp_pdg in enumerate(species_list):
+            sp_name = get_species_name(sp_pdg)
+            sp_latex = SPECIES_LATEX.get(sp_pdg, sp_name)
+            h_name = f"h_fraction_{sp_name}_vs_nu_energy{name_suffix}"
+            g_name = f"g_fraction_{sp_name}_vs_nu_energy{name_suffix}"
+            t_str = f"{sp_latex} Fraction vs Neutrino Energy{title_suffix};E_{{#nu}} [GeV];f({sp_latex}) = N({sp_latex}) / N_{{charm}}"
 
-        col = SPECIES_COLORS.get(abs_c, ROOT.kBlack)
-        h_frac_vs_e.SetLineColor(col)
-        h_frac_vs_e.SetMarkerColor(col)
-        h_frac_vs_e.SetMarkerStyle(20 + idx_sp)
-        h_frac_vs_e.SetLineWidth(2)
-        h_frac_vs_e.Write()
-        species_frac_nu_hists[abs_c] = h_frac_vs_e
+            h_frac = ROOT.TH1D(h_name, t_str, n_nu_ebins, arr_nu_edges)
+            g_frac = ROOT.TGraphAsymmErrors(n_nu_ebins)
+            g_frac.SetName(g_name)
+            g_frac.SetTitle(t_str)
 
-        g_frac_vs_e.SetLineColor(col)
-        g_frac_vs_e.SetMarkerColor(col)
-        g_frac_vs_e.SetMarkerStyle(20 + idx_sp)
-        g_frac_vs_e.SetMarkerSize(1.15)
-        g_frac_vs_e.SetLineWidth(2)
-        g_frac_vs_e.Write()
-        species_frac_nu_graphs[abs_c] = g_frac_vs_e
+            for i_b in range(n_nu_ebins):
+                b_cnts = counts_per_ebin.get(i_b, {})
+                ebin_tot = sum(b_cnts.values())
+                c_cnt = b_cnts.get(sp_pdg, 0)
+                val_pct, lo_pct, hi_pct = clopper_pearson_errors(c_cnt, ebin_tot, 0.6827)
+                val = val_pct / 100.0
+                err_lo = lo_pct / 100.0
+                err_hi = hi_pct / 100.0
+                x_c = 0.5 * (nu_bin_edges[i_b] + nu_bin_edges[i_b + 1])
+                dx_lo = x_c - nu_bin_edges[i_b]
+                dx_hi = nu_bin_edges[i_b + 1] - x_c
+                h_frac.SetBinContent(i_b + 1, val)
+                h_frac.SetBinError(i_b + 1, max(err_lo, err_hi))
+                g_frac.SetPoint(i_b, x_c, val)
+                g_frac.SetPointError(i_b, dx_lo, dx_hi, err_lo, err_hi)
+
+            col = SPECIES_COLORS.get(sp_pdg, ROOT.kBlack)
+            h_frac.SetLineColor(col)
+            h_frac.SetMarkerColor(col)
+            h_frac.SetMarkerStyle(20 + idx_sp)
+            h_frac.SetLineWidth(2)
+            h_frac.Write()
+            h_map[sp_pdg] = h_frac
+
+            g_frac.SetLineColor(col)
+            g_frac.SetMarkerColor(col)
+            g_frac.SetMarkerStyle(20 + idx_sp)
+            g_frac.SetMarkerSize(1.15)
+            g_frac.SetLineWidth(2)
+            g_frac.Write()
+            g_map[sp_pdg] = g_frac
+        return h_map, g_map
+
+    species_frac_nu_hists, species_frac_nu_graphs = _create_species_frac_graphs(
+        data["species_nu_ebin_counts"], species_order, "", ""
+    )
+    species_frac_nu_hists_nu, species_frac_nu_graphs_nu = _create_species_frac_graphs(
+        data.get("species_nu_ebin_counts_nu", {}), species_order, "_nu_only", " (#nu_{#mu} CC)"
+    )
+    species_frac_nu_hists_antinu, species_frac_nu_graphs_antinu = _create_species_frac_graphs(
+        data.get("species_nu_ebin_counts_antinu", {}), anti_species_order, "_antinu_only", " (#bar{#nu}_{#mu} CC)"
+    )
 
     # 1D Species Fraction vs E_charm for each major ground state
     species_frac_ch_hists: Dict[int, ROOT.TH1D] = {}
@@ -2895,17 +3014,13 @@ def write_histograms_and_canvases(
     g_sr_2mu_w_nu_inner.Draw("3 same")
     f_sr_2mu_iso_nu.Draw("same")
     f_sr_2mu_w_nu.Draw("same")
-    for g_dim in dimuon_graphs.values():
-        g_dim.Draw("P E1 same")
     g_dimuon_rate_mc_nu.Draw("P E1 same")
 
-    leg_dimuon_nu = ROOT.TLegend(0.44, 0.48, 0.92, 0.89)
+    leg_dimuon_nu = ROOT.TLegend(0.48, 0.62, 0.92, 0.89)
     leg_dimuon_nu.SetBorderSize(1)
     leg_dimuon_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_dimuon_nu.SetTextSize(0.020)
+    leg_dimuon_nu.SetTextSize(0.022)
     leg_dimuon_nu.AddEntry(g_dimuon_rate_mc_nu, "MC #nu_{#mu} Dimuon CC", "lep")
-    for g_dim in dimuon_graphs.values():
-        leg_dimuon_nu.AddEntry(g_dim, g_dim.GetTitle(), "lep")
     leg_dimuon_nu.AddEntry(f_sr_2mu_w_nu, "Slow Rescaling #times #LTB_{#mu}#GT (W, #nu_{#mu})", "l")
     leg_dimuon_nu.AddEntry(g_sr_2mu_w_nu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
     leg_dimuon_nu.AddEntry(g_sr_2mu_w_nu_outer, "+ High-E QCD / Sea Evolution", "f")
@@ -3002,6 +3117,18 @@ def write_histograms_and_canvases(
         g_b.Write(f"g_model_band_fraction_{sp_name}_vs_nu_energy")
     g_model_bmu.Write("g_model_effective_bmu_vs_nu_energy")
     g_model_band_bmu.Write("g_model_band_effective_bmu_vs_nu_energy")
+
+    for abs_c in species_order:
+        sp_name = get_species_name(abs_c)
+        if abs_c in species_frac_nu_graphs:
+            species_frac_nu_graphs[abs_c].Write(f"g_fraction_{sp_name}_vs_nu_energy")
+        if abs_c in species_frac_nu_graphs_nu:
+            species_frac_nu_graphs_nu[abs_c].Write(f"g_fraction_{sp_name}_vs_nu_energy_nu_only")
+
+    for anti_c in anti_species_order:
+        sp_name = get_species_name(anti_c)
+        if anti_c in species_frac_nu_graphs_antinu:
+            species_frac_nu_graphs_antinu[anti_c].Write(f"g_fraction_{sp_name}_vs_nu_energy_antinu_only")
 
     # CHORUS experimental species fraction measurement graphs
     chorus_species_graphs: Dict[int, ROOT.TGraphAsymmErrors] = {}
@@ -3107,6 +3234,91 @@ def write_histograms_and_canvases(
 
     leg_sp_nu.Draw("same")
     c_sp_nu.Write()
+
+    # --- Canvas 3b: Species Fractions vs E_nu (Neutrino Only, nu_mu CC) ---
+    c_sp_nu_nu = ROOT.TCanvas("c_species_fractions_vs_nu_energy_nu_only", "Charm Species Fractions vs Neutrino Energy (nu_mu CC)", 1000, 700)
+    c_sp_nu_nu.SetLeftMargin(0.12)
+    c_sp_nu_nu.SetRightMargin(0.06)
+    c_sp_nu_nu.SetTopMargin(0.08)
+    c_sp_nu_nu.SetBottomMargin(0.12)
+    c_sp_nu_nu.SetLogx()
+    c_sp_nu_nu.SetGrid()
+
+    h_sp_nu_frame_nu = c_sp_nu_nu.DrawFrame(4.5, 0.0, x_max_sp, 1.05)
+    h_sp_nu_frame_nu.SetTitle("Charm Species Fragmentation Fractions vs Neutrino Energy (#nu_{#mu} CC);E_{#nu} [GeV];Fraction f_{i} = N_{i} / N_{charm}")
+    h_sp_nu_frame_nu.GetYaxis().SetTitleOffset(1.25)
+
+    for abs_c in species_order:
+        if abs_c in model_bands:
+            model_bands[abs_c].Draw("3 same")
+    for abs_c in species_order:
+        if abs_c in model_curves:
+            model_curves[abs_c].Draw("L same")
+    for abs_c in species_order:
+        g = species_frac_nu_graphs_nu.get(abs_c)
+        if g:
+            g.Draw("P E1 same")
+
+    leg_sp_nu_nu = ROOT.TLegend(0.50, 0.65, 0.92, 0.90)
+    leg_sp_nu_nu.SetBorderSize(1)
+    leg_sp_nu_nu.SetFillColorAlpha(ROOT.kWhite, 0.94)
+    leg_sp_nu_nu.SetTextSize(0.021)
+    leg_sp_nu_nu.SetNColumns(2)
+
+    for abs_c in species_order:
+        g_mc = species_frac_nu_graphs_nu.get(abs_c)
+        sp_latex = SPECIES_LATEX.get(abs_c, get_species_name(abs_c))
+        if g_mc:
+            leg_sp_nu_nu.AddEntry(g_mc, f"{sp_latex} (MC)", "lep")
+        if abs_c in model_bands:
+            leg_sp_nu_nu.AddEntry(model_bands[abs_c], f"{sp_latex} (Model 1#sigma)", "f")
+
+    leg_sp_nu_nu.Draw("same")
+    c_sp_nu_nu.Write()
+
+    # --- Canvas 3c: Species Fractions vs E_nu (Antineutrino Only, anti_nu_mu CC) ---
+    c_sp_nu_antinu = ROOT.TCanvas("c_species_fractions_vs_nu_energy_antinu_only", "Charm Species Fractions vs Neutrino Energy (anti_nu_mu CC)", 1000, 700)
+    c_sp_nu_antinu.SetLeftMargin(0.12)
+    c_sp_nu_antinu.SetRightMargin(0.06)
+    c_sp_nu_antinu.SetTopMargin(0.08)
+    c_sp_nu_antinu.SetBottomMargin(0.12)
+    c_sp_nu_antinu.SetLogx()
+    c_sp_nu_antinu.SetGrid()
+
+    h_sp_nu_frame_antinu = c_sp_nu_antinu.DrawFrame(4.5, 0.0, x_max_sp, 1.05)
+    h_sp_nu_frame_antinu.SetTitle("Charm Species Fragmentation Fractions vs Neutrino Energy (#bar{#nu}_{#mu} CC);E_{#nu} [GeV];Fraction f_{i} = N_{i} / N_{charm}")
+    h_sp_nu_frame_antinu.GetYaxis().SetTitleOffset(1.25)
+
+    for anti_c in anti_species_order:
+        abs_c = abs(anti_c)
+        if abs_c in model_bands:
+            model_bands[abs_c].Draw("3 same")
+    for anti_c in anti_species_order:
+        abs_c = abs(anti_c)
+        if abs_c in model_curves:
+            model_curves[abs_c].Draw("L same")
+    for anti_c in anti_species_order:
+        g = species_frac_nu_graphs_antinu.get(anti_c)
+        if g:
+            g.Draw("P E1 same")
+
+    leg_sp_nu_antinu = ROOT.TLegend(0.50, 0.65, 0.92, 0.90)
+    leg_sp_nu_antinu.SetBorderSize(1)
+    leg_sp_nu_antinu.SetFillColorAlpha(ROOT.kWhite, 0.94)
+    leg_sp_nu_antinu.SetTextSize(0.021)
+    leg_sp_nu_antinu.SetNColumns(2)
+
+    for anti_c in anti_species_order:
+        g_mc = species_frac_nu_graphs_antinu.get(anti_c)
+        abs_c = abs(anti_c)
+        sp_latex = SPECIES_LATEX.get(anti_c, get_species_name(anti_c))
+        if g_mc:
+            leg_sp_nu_antinu.AddEntry(g_mc, f"{sp_latex} (MC)", "lep")
+        if abs_c in model_bands:
+            leg_sp_nu_antinu.AddEntry(model_bands[abs_c], f"{sp_latex} (Model 1#sigma)", "f")
+
+    leg_sp_nu_antinu.Draw("same")
+    c_sp_nu_antinu.Write()
 
     # --- Canvas 4: Superimposed Species Fractions vs E_charm ---
     c_sp_ce = ROOT.TCanvas("c_species_fractions_vs_charm_energy", "Charm Species Fractions vs Charm Hadron Energy", 950, 700)
@@ -3270,28 +3482,35 @@ def write_histograms_and_canvases(
     pdg_comparison_canvases: Dict[int, ROOT.TCanvas] = {}
     pdg_sp_drawables: Dict[int, Tuple[ROOT.TH1D, ROOT.TGraphAsymmErrors, ROOT.TGraphAsymmErrors, ROOT.TLegend]] = {}
 
-    for abs_c in species_order:
-        sp_name = get_species_name(abs_c)
-        sp_modes = pdg_data.get(abs_c, {}).get("modes_list", []) if pdg_data else []
+    species_order = [421, 411, 431, 4122]
+    anti_species_order = [-421, -411, -431, -4122]
+    all_pdg_order = species_order + anti_species_order
+
+    for sp_pdg in all_pdg_order:
+        abs_c = abs(sp_pdg)
+        sp_name = get_species_name(sp_pdg)
+        sp_modes = pdg_data.get(sp_pdg, {}).get("modes_list", []) if pdg_data else []
+        if not sp_modes and pdg_data:
+            sp_modes = pdg_data.get(abs_c, {}).get("modes_list", [])
         if not sp_modes:
             continue
 
-        w_tot = data.get("species_weight_sum", Counter()).get(abs_c, 0.0)
-        w2_tot = data.get("species_weight_sq_sum", Counter()).get(abs_c, 0.0)
-        n_tot = data.get("species_decay_count", Counter()).get(abs_c, 0)
+        w_tot = data.get("species_weight_sum", Counter()).get(sp_pdg, 0.0)
+        w2_tot = data.get("species_weight_sq_sum", Counter()).get(sp_pdg, 0.0)
+        n_tot = data.get("species_decay_count", Counter()).get(sp_pdg, 0)
         if w_tot <= 0.0:
-            w_tot = float(data.get("total_decays_by_species", Counter()).get(abs_c, 0))
+            w_tot = float(data.get("total_decays_by_species", Counter()).get(sp_pdg, 0))
             w2_tot = w_tot
             n_tot = int(w_tot)
 
         all_candidates: List[Dict[str, Any]] = []
 
         for m_obj in sp_modes:
-            lbl = m_obj.pdg_mode
-            w_sum = data.get("inclusive_mode_w", {}).get(abs_c, Counter()).get(lbl, 0.0)
-            w2y2_sum = data.get("inclusive_mode_w2y2", {}).get(abs_c, Counter()).get(lbl, 0.0)
-            w2y_sum = data.get("inclusive_mode_w2y", {}).get(abs_c, Counter()).get(lbl, 0.0)
-            raw_cnt = data.get("inclusive_mode_raw_count", {}).get(abs_c, Counter()).get(lbl, 0)
+            lbl = get_conjugate_mode_label(m_obj.pdg_mode) if sp_pdg < 0 else m_obj.pdg_mode
+            w_sum = data.get("inclusive_mode_w", {}).get(sp_pdg, Counter()).get(m_obj.pdg_mode, 0.0)
+            w2y2_sum = data.get("inclusive_mode_w2y2", {}).get(sp_pdg, Counter()).get(m_obj.pdg_mode, 0.0)
+            w2y_sum = data.get("inclusive_mode_w2y", {}).get(sp_pdg, Counter()).get(m_obj.pdg_mode, 0.0)
+            raw_cnt = data.get("inclusive_mode_raw_count", {}).get(sp_pdg, Counter()).get(m_obj.pdg_mode, 0)
 
             br_sim, err_lo, err_hi = calculate_weighted_yield_and_error(
                 w_sum, w2y2_sum, w2y_sum, w_tot, w2_tot
@@ -3385,11 +3604,13 @@ def write_histograms_and_canvases(
         leg_pdg_sp.Draw("same")
 
         c_pdg_sp.Write()
-        pdg_comparison_canvases[abs_c] = c_pdg_sp
-        pdg_sp_drawables[abs_c] = (h_sim_comp, g_err_comp, g_pdg_comp, leg_pdg_sp)
+        pdg_comparison_canvases[sp_pdg] = c_pdg_sp
+        pdg_sp_drawables[sp_pdg] = (h_sim_comp, g_err_comp, g_pdg_comp, leg_pdg_sp)
         keep_alive_pdg.extend([h_sim_comp, g_err_comp, g_pdg_comp, leg_pdg_sp, c_pdg_sp])
 
         dir_sp = dir_species_root.GetDirectory(sp_name)
+        if not dir_sp:
+            dir_sp = dir_species_root.mkdir(sp_name)
         if dir_sp:
             dir_sp.cd()
             h_sim_comp.Write(f"h_br_sim_vs_pdg_{sp_name}")
@@ -3404,28 +3625,31 @@ def write_histograms_and_canvases(
     pdg_count_comparison_canvases: Dict[int, ROOT.TCanvas] = {}
     pdg_count_sp_drawables: Dict[int, Tuple[ROOT.TH1D, ROOT.TGraphAsymmErrors, ROOT.TGraphAsymmErrors, ROOT.TLegend]] = {}
 
-    for abs_c in species_order:
-        sp_name = get_species_name(abs_c)
-        sp_modes = pdg_data.get(abs_c, {}).get("modes_list", []) if pdg_data else []
+    for sp_pdg in all_pdg_order:
+        abs_c = abs(sp_pdg)
+        sp_name = get_species_name(sp_pdg)
+        sp_modes = pdg_data.get(sp_pdg, {}).get("modes_list", []) if pdg_data else []
+        if not sp_modes and pdg_data:
+            sp_modes = pdg_data.get(abs_c, {}).get("modes_list", [])
         if not sp_modes:
             continue
 
-        w_tot = data.get("species_weight_sum", Counter()).get(abs_c, 0.0)
-        w2_tot = data.get("species_weight_sq_sum", Counter()).get(abs_c, 0.0)
-        n_tot = data.get("species_decay_count", Counter()).get(abs_c, 0)
+        w_tot = data.get("species_weight_sum", Counter()).get(sp_pdg, 0.0)
+        w2_tot = data.get("species_weight_sq_sum", Counter()).get(sp_pdg, 0.0)
+        n_tot = data.get("species_decay_count", Counter()).get(sp_pdg, 0)
         if w_tot <= 0.0:
-            w_tot = float(data.get("total_decays_by_species", Counter()).get(abs_c, 0))
+            w_tot = float(data.get("total_decays_by_species", Counter()).get(sp_pdg, 0))
             w2_tot = w_tot
             n_tot = int(w_tot)
 
         all_candidates_cnt: List[Dict[str, Any]] = []
 
         for m_obj in sp_modes:
-            lbl = m_obj.pdg_mode
-            w_sum = data.get("inclusive_mode_w", {}).get(abs_c, Counter()).get(lbl, 0.0)
-            w2y2_sum = data.get("inclusive_mode_w2y2", {}).get(abs_c, Counter()).get(lbl, 0.0)
-            w2y_sum = data.get("inclusive_mode_w2y", {}).get(abs_c, Counter()).get(lbl, 0.0)
-            raw_cnt = data.get("inclusive_mode_raw_count", {}).get(abs_c, Counter()).get(lbl, 0)
+            lbl = get_conjugate_mode_label(m_obj.pdg_mode) if sp_pdg < 0 else m_obj.pdg_mode
+            w_sum = data.get("inclusive_mode_w", {}).get(sp_pdg, Counter()).get(m_obj.pdg_mode, 0.0)
+            w2y2_sum = data.get("inclusive_mode_w2y2", {}).get(sp_pdg, Counter()).get(m_obj.pdg_mode, 0.0)
+            w2y_sum = data.get("inclusive_mode_w2y", {}).get(sp_pdg, Counter()).get(m_obj.pdg_mode, 0.0)
+            raw_cnt = data.get("inclusive_mode_raw_count", {}).get(sp_pdg, Counter()).get(m_obj.pdg_mode, 0)
 
             br_sim, err_lo, err_hi = calculate_weighted_yield_and_error(
                 w_sum, w2y2_sum, w2y_sum, w_tot, w2_tot
@@ -3526,11 +3750,13 @@ def write_histograms_and_canvases(
         leg_pdg_cnt.Draw("same")
 
         c_pdg_cnt_sp.Write()
-        pdg_count_comparison_canvases[abs_c] = c_pdg_cnt_sp
-        pdg_count_sp_drawables[abs_c] = (h_cnt_comp, g_cnt_err_comp, g_pdg_cnt_comp, leg_pdg_cnt)
+        pdg_count_comparison_canvases[sp_pdg] = c_pdg_cnt_sp
+        pdg_count_sp_drawables[sp_pdg] = (h_cnt_comp, g_cnt_err_comp, g_pdg_cnt_comp, leg_pdg_cnt)
         keep_alive_pdg.extend([h_cnt_comp, g_cnt_err_comp, g_pdg_cnt_comp, leg_pdg_cnt, c_pdg_cnt_sp])
 
         dir_sp = dir_species_root.GetDirectory(sp_name)
+        if not dir_sp:
+            dir_sp = dir_species_root.mkdir(sp_name)
         if dir_sp:
             dir_sp.cd()
             h_cnt_comp.Write(f"h_cnt_sim_vs_pdg_{sp_name}")
@@ -3541,13 +3767,13 @@ def write_histograms_and_canvases(
         if export_png_dir:
             c_pdg_cnt_sp.SaveAs(os.path.join(export_png_dir, f"c_decay_counts_vs_pdg_{sp_name}.png"))
 
-    # Summary 2x2 Canvas: All 4 Species Branching Ratios vs PDG
-    if len(pdg_comparison_canvases) > 0:
+    # Summary 2x2 Canvas: All 4 Charmed Hadron Species Branching Ratios vs PDG (D0, D+, Ds+, Lambda_c+)
+    if any(sp in pdg_sp_drawables for sp in species_order):
         dir_canvases.cd()
-        c_all_sp = ROOT.TCanvas("c_branching_ratios_vs_pdg_all_species", "All Charmed Hadron Branching Ratios vs PDG", 1400, 1000)
+        c_all_sp = ROOT.TCanvas("c_branching_ratios_vs_pdg_all_species", "All Charmed Hadron Branching Ratios vs PDG (D^{0}, D^{+}, D_{s}^{+}, #Lambda_{c}^{+})", 1400, 1000)
         c_all_sp.Divide(2, 2)
-        for pad_idx, abs_c in enumerate(species_order, start=1):
-            if abs_c not in pdg_sp_drawables:
+        for pad_idx, sp_pdg in enumerate(species_order, start=1):
+            if sp_pdg not in pdg_sp_drawables:
                 continue
             pad = c_all_sp.cd(pad_idx)
             pad.SetLeftMargin(0.12)
@@ -3556,7 +3782,7 @@ def write_histograms_and_canvases(
             pad.SetBottomMargin(0.34)
             pad.SetGridy()
 
-            h_sc, g_ec, g_pc, l_pc = pdg_sp_drawables[abs_c]
+            h_sc, g_ec, g_pc, l_pc = pdg_sp_drawables[sp_pdg]
             h_sc.Draw("HIST")
             g_ec.Draw("2 same")
             h_sc.Draw("HIST same")
@@ -3568,13 +3794,42 @@ def write_histograms_and_canvases(
         if export_png_dir:
             c_all_sp.SaveAs(os.path.join(export_png_dir, "c_branching_ratios_vs_pdg_all_species.png"))
 
-    # Summary 2x2 Canvas: All 4 Species Absolute Decay Counts vs PDG Expected
-    if len(pdg_count_comparison_canvases) > 0:
+    # Summary 2x2 Canvas: All 4 Anti-Charmed Hadron Species Branching Ratios vs PDG (anti-D0, D-, Ds-, Lambda_c-)
+    if any(sp in pdg_sp_drawables for sp in anti_species_order):
         dir_canvases.cd()
-        c_all_cnt_sp = ROOT.TCanvas("c_decay_counts_vs_pdg_all_species", "All Charmed Hadron Decay Counts vs PDG Expected", 1400, 1000)
+        c_all_anti_sp = ROOT.TCanvas("c_branching_ratios_vs_pdg_all_anti_species", "All Anti-Charmed Hadron Branching Ratios vs PDG (#bar{D}^{0}, D^{-}, D_{s}^{-}, #bar{#Lambda}_{c}^{-})", 1400, 1000)
+        c_all_anti_sp.Divide(2, 2)
+        for pad_idx, sp_pdg in enumerate(anti_species_order, start=1):
+            if sp_pdg not in pdg_sp_drawables:
+                continue
+            pad = c_all_anti_sp.cd(pad_idx)
+            pad.SetLeftMargin(0.12)
+            pad.SetRightMargin(0.06)
+            pad.SetTopMargin(0.08)
+            pad.SetBottomMargin(0.34)
+            pad.SetGridy()
+
+            h_sc, g_ec, g_pc, l_pc = pdg_sp_drawables[sp_pdg]
+            h_sc.Draw("HIST")
+            g_ec.Draw("2 same")
+            h_sc.Draw("HIST same")
+            g_pc.Draw("P E1 same")
+            l_pc.Draw("same")
+
+        c_all_anti_sp.Write()
+        c_all_anti_sp.Write("c_branching_ratios_vs_pdg_all_species_anti")
+        keep_alive_pdg.append(c_all_anti_sp)
+        if export_png_dir:
+            c_all_anti_sp.SaveAs(os.path.join(export_png_dir, "c_branching_ratios_vs_pdg_all_anti_species.png"))
+            c_all_anti_sp.SaveAs(os.path.join(export_png_dir, "c_branching_ratios_vs_pdg_all_species_anti.png"))
+
+    # Summary 2x2 Canvas: All 4 Species Absolute Decay Counts vs PDG Expected
+    if any(sp in pdg_count_sp_drawables for sp in species_order):
+        dir_canvases.cd()
+        c_all_cnt_sp = ROOT.TCanvas("c_decay_counts_vs_pdg_all_species", "All Charmed Hadron Decay Counts vs PDG Expected (D^{0}, D^{+}, D_{s}^{+}, #Lambda_{c}^{+})", 1400, 1000)
         c_all_cnt_sp.Divide(2, 2)
-        for pad_idx, abs_c in enumerate(species_order, start=1):
-            if abs_c not in pdg_count_sp_drawables:
+        for pad_idx, sp_pdg in enumerate(species_order, start=1):
+            if sp_pdg not in pdg_count_sp_drawables:
                 continue
             pad = c_all_cnt_sp.cd(pad_idx)
             pad.SetLeftMargin(0.12)
@@ -3583,7 +3838,7 @@ def write_histograms_and_canvases(
             pad.SetBottomMargin(0.34)
             pad.SetGridy()
 
-            h_cc, g_cec, g_cpc, l_cpc = pdg_count_sp_drawables[abs_c]
+            h_cc, g_cec, g_cpc, l_cpc = pdg_count_sp_drawables[sp_pdg]
             h_cc.Draw("HIST")
             g_cec.Draw("2 same")
             h_cc.Draw("HIST same")
@@ -3594,6 +3849,35 @@ def write_histograms_and_canvases(
         keep_alive_pdg.append(c_all_cnt_sp)
         if export_png_dir:
             c_all_cnt_sp.SaveAs(os.path.join(export_png_dir, "c_decay_counts_vs_pdg_all_species.png"))
+
+    # Summary 2x2 Canvas: All 4 Anti-Species Absolute Decay Counts vs PDG Expected
+    if any(sp in pdg_count_sp_drawables for sp in anti_species_order):
+        dir_canvases.cd()
+        c_all_cnt_anti_sp = ROOT.TCanvas("c_decay_counts_vs_pdg_all_anti_species", "All Anti-Charmed Hadron Decay Counts vs PDG Expected (#bar{D}^{0}, D^{-}, D_{s}^{-}, #bar{#Lambda}_{c}^{-})", 1400, 1000)
+        c_all_cnt_anti_sp.Divide(2, 2)
+        for pad_idx, sp_pdg in enumerate(anti_species_order, start=1):
+            if sp_pdg not in pdg_count_sp_drawables:
+                continue
+            pad = c_all_cnt_anti_sp.cd(pad_idx)
+            pad.SetLeftMargin(0.12)
+            pad.SetRightMargin(0.06)
+            pad.SetTopMargin(0.08)
+            pad.SetBottomMargin(0.34)
+            pad.SetGridy()
+
+            h_cc, g_cec, g_cpc, l_cpc = pdg_count_sp_drawables[sp_pdg]
+            h_cc.Draw("HIST")
+            g_cec.Draw("2 same")
+            h_cc.Draw("HIST same")
+            g_cpc.Draw("P E1 same")
+            l_cpc.Draw("same")
+
+        c_all_cnt_anti_sp.Write()
+        c_all_cnt_anti_sp.Write("c_decay_counts_vs_pdg_all_species_anti")
+        keep_alive_pdg.append(c_all_cnt_anti_sp)
+        if export_png_dir:
+            c_all_cnt_anti_sp.SaveAs(os.path.join(export_png_dir, "c_decay_counts_vs_pdg_all_anti_species.png"))
+            c_all_cnt_anti_sp.SaveAs(os.path.join(export_png_dir, "c_decay_counts_vs_pdg_all_species_anti.png"))
 
     # --- Canvas 7: Reconstructed Track Multiplicity and Dimuon Tracking Efficiency ---
     if any(c > 0 for c in data.get("reco_tracks_cc_all", Counter()).values()):

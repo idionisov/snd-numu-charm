@@ -16,6 +16,7 @@ set(ANALYSIS_HEADERS
   DSDimuonActivityCut.h
   SciFiDSTimeCut.h
   DSActivityCut.h
+  DSHoughTrackCut.h
   EventHeaderCuts.h
 )
 

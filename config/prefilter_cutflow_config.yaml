@@ -40,7 +40,7 @@ cuts:
   - id: "step4_scifi_fiducial"
     name: "SciFi Fiducial"
     filter: "pass_scifi_fiducial"
-    enabled: true
+    enabled: false
     description: "Average SciFi channel within horizontal and vertical fiducial boundaries"
     vertical_min: 200.0
     vertical_max: 1200.0
@@ -51,7 +51,7 @@ cuts:
   - id: "step5_ds_fiducial"
     name: "DS Fiducial"
     filter: "pass_ds_fiducial"
-    enabled: true
+    enabled: false
     description: "Average DS bar number within vertical [70, 105] and horizontal [10, 50] fiducial boundaries"
     vertical_min: 70.0
     vertical_max: 105.0
@@ -92,7 +92,7 @@ cuts:
   - id: "step9_ds_activity"
     name: "DS+US Activity"
     filter: "pass_ds_activity_cut"
-    enabled: true
+    enabled: false
     description: "If there are DS hits, all 5 US planes must have valid hits"
     min_us_planes: 5
     require_ds_hits: true
@@ -106,6 +106,16 @@ cuts:
     description: "Require latest DS hit time > earliest SciFi hit time"
     min_delta_t: 0.0
     require_valid: true
+    reversed: false
+
+  - id: "step11_two_ds_tracks"
+    name: "Two DS Tracks"
+    filter: "pass_two_ds_tracks_cut"
+    enabled: true
+    description: "Require exactly two reconstructed DS Hough transform tracks (Reco_MuonTracks with getTrackType() == 13)"
+    min_tracks: 2
+    max_tracks: 2
+    track_type: 13
     reversed: false
 
 # Diagnostic Histograms booked at each incremental cut stage
@@ -504,6 +514,13 @@ histograms:
     bins: 5
     xmin: -0.5
     xmax: 4.5
+
+  - name: "h_ds_hough_tracks"
+    title: "Reconstructed DS Hough Tracks;N_{tracks}^{DS};Events"
+    var: "n_ds_hough_tracks"
+    bins: 6
+    xmin: -0.5
+    xmax: 5.5
 
   - name: "h_ds_planes_hit"
     title: "DS Planes Hit;N_{planes}^{DS};Events"

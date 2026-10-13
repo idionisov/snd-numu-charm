@@ -331,6 +331,42 @@ class DSActivityCut:
         )
 
 
+def get_ds_hough_track_cut(
+    min_tracks: int = 2,
+    max_tracks: int = 2,
+    track_type: int = 13,
+    reversed: bool = False,
+) -> ROOT.snd.DSHoughTrackCut:
+    """
+    Instantiate and return the C++ snd::DSHoughTrackCut object for RDataFrame.
+    Requires events to have between min_tracks and max_tracks reconstructed tracks of track_type in Reco_MuonTracks.
+    """
+    load_trident_libraries()
+    return ROOT.snd.DSHoughTrackCut(
+        int(min_tracks),
+        int(max_tracks),
+        int(track_type),
+        bool(reversed),
+    )
+
+
+class DSHoughTrackCut:
+    """Python wrapper for snd::DSHoughTrackCut."""
+    def __new__(
+        cls,
+        min_tracks: int = 2,
+        max_tracks: int = 2,
+        track_type: int = 13,
+        reversed: bool = False,
+    ):
+        return get_ds_hough_track_cut(
+            min_tracks=min_tracks,
+            max_tracks=max_tracks,
+            track_type=track_type,
+            reversed=reversed,
+        )
+
+
 def get_event_header_ip1_cut(
     reversed: bool = False,
 ) -> ROOT.snd.EventHeaderIP1Cut:
@@ -559,6 +595,13 @@ SHORT_CUT_LABEL_MAP = {
     "scifi to ds hit timing sequence": "SciFi-DS Timing",
     "scifi-downstream timing coincidence": "SciFi-DS Timing",
     "scifi-ds timing": "SciFi-DS Timing",
+
+    "step11_two_ds_tracks": "2 DS Tracks",
+    "two_ds_tracks": "2 DS Tracks",
+    "ds_hough_tracks": "2 DS Tracks",
+    "two reconstructed ds tracks": "2 DS Tracks",
+    "two ds tracks": "2 DS Tracks",
+    "2 ds tracks": "2 DS Tracks",
 }
 
 

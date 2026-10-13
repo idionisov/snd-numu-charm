@@ -51,6 +51,7 @@ from snd import (
     DSDimuonActivityCut,
     SciFiDSTimeCut,
     DSActivityCut,
+    DSHoughTrackCut,
     EventHeaderIP1Cut,
     StableBeamsCut,
     EventDeltatCut,
@@ -199,6 +200,7 @@ def prefilter_file(
     cut_ds_dimuon: Optional[ROOT.snd.DSDimuonActivityCut] = None,
     cut_ds_activity: Optional[ROOT.snd.DSActivityCut] = None,
     cut_scifi_ds_timing: Optional[ROOT.snd.SciFiDSTimeCut] = None,
+    cut_two_ds_tracks: Optional[ROOT.snd.DSHoughTrackCut] = None,
     cut_ip1: Optional[ROOT.snd.EventHeaderIP1Cut] = None,
     cut_stable_beams: Optional[ROOT.snd.StableBeamsCut] = None,
     cut_event_deltat: Optional[ROOT.snd.EventDeltatCut] = None,
@@ -273,6 +275,7 @@ def prefilter_file(
                 {"id": "step8_ds_dimuon", "name": "DS Dimuon", "filter": "pass_ds_dimuon_cut"},
                 {"id": "step9_ds_activity", "name": "DS+US Activity", "filter": "pass_ds_activity_cut"},
                 {"id": "step10_scifi_ds_timing", "name": "SciFi-DS Timing", "filter": "pass_scifi_ds_timing_cut"},
+                {"id": "step11_two_ds_tracks", "name": "Two DS Tracks", "filter": "pass_two_ds_tracks_cut"},
             ]
 
         # On Monte Carlo, data-only cuts (IP1, Stable Beams, Delta-t) are preserved in the
@@ -359,6 +362,18 @@ def prefilter_file(
             df_processed = df_processed.Define("pass_scifi_ds_timing_cut", cut_scifi_ds_timing, ["Digi_ScifiHits", "Digi_MuFilterHits"])
         else:
             df_processed = df_processed.Define("pass_scifi_ds_timing_cut", "true")
+
+        # Define Reconstructed DS Hough tracks observable and cut boolean
+        has_reco_tracks = dm.has_branch("Reco_MuonTracks")
+        if has_reco_tracks:
+            df_processed = df_processed.Define("n_ds_hough_tracks", ROOT.snd.DSHoughTrackCounter(), ["Reco_MuonTracks"])
+            if cut_two_ds_tracks is not None:
+                df_processed = df_processed.Define("pass_two_ds_tracks_cut", cut_two_ds_tracks, ["Reco_MuonTracks"])
+            else:
+                df_processed = df_processed.Define("pass_two_ds_tracks_cut", "true")
+        else:
+            df_processed = df_processed.Define("n_ds_hough_tracks", "0")
+            df_processed = df_processed.Define("pass_two_ds_tracks_cut", "true")
 
         # 5. Build incremental cut nodes and book histograms
         hist_configs = cutflow_config.get("histograms", []) if cutflow_config else []
@@ -707,6 +722,14 @@ def main():
         reversed=timing_cfg.get("reversed", False),
     )
 
+    two_ds_cfg = next((c for c in cuts_list if c.get("filter") == "pass_two_ds_tracks_cut" or "two_ds_tracks" in c.get("id", "") or "hough" in c.get("id", "")), {})
+    cut_two_ds_tracks = DSHoughTrackCut(
+        min_tracks=two_ds_cfg.get("min_tracks", 2),
+        max_tracks=two_ds_cfg.get("max_tracks", 2),
+        track_type=two_ds_cfg.get("track_type", 13),
+        reversed=two_ds_cfg.get("reversed", False),
+    )
+
     active_cut_list = [c["name"] for c in cutflow_cfg.get("cuts", []) if c.get("enabled", True)]
 
     print("=" * 80)
@@ -754,6 +777,7 @@ def main():
                 cut_ds_dimuon=cut_ds_dimuon,
                 cut_ds_activity=cut_ds_activity,
                 cut_scifi_ds_timing=cut_scifi_ds_timing,
+                cut_two_ds_tracks=cut_two_ds_tracks,
                 cut_ip1=cut_ip1,
                 cut_stable_beams=cut_stable_beams,
                 cutflow_config=cutflow_cfg,
@@ -789,6 +813,7 @@ def main():
             cut_ds_dimuon=cut_ds_dimuon,
             cut_ds_activity=cut_ds_activity,
             cut_scifi_ds_timing=cut_scifi_ds_timing,
+            cut_two_ds_tracks=cut_two_ds_tracks,
             cut_ip1=cut_ip1,
             cut_stable_beams=cut_stable_beams,
             cutflow_config=cutflow_cfg,
@@ -828,6 +853,7 @@ def main():
                     cut_ds_dimuon=cut_ds_dimuon,
                     cut_ds_activity=cut_ds_activity,
                     cut_scifi_ds_timing=cut_scifi_ds_timing,
+                    cut_two_ds_tracks=cut_two_ds_tracks,
                     cut_ip1=cut_ip1,
                     cut_stable_beams=cut_stable_beams,
                     cutflow_config=cutflow_cfg,

@@ -36,6 +36,8 @@
 #pragma link C++ class snd::DSDimuonActivityCut+;
 #pragma link C++ class snd::SciFiDSTimeCut+;
 #pragma link C++ class snd::DSActivityCut+;
+#pragma link C++ class snd::DSHoughTrackCut+;
+#pragma link C++ class snd::DSHoughTrackCounter+;
 #pragma link C++ class snd::EventHeaderIP1Cut+;
 #pragma link C++ class snd::StableBeamsCut+;
 #pragma link C++ class snd::EventDeltatCut+;
@@ -46,6 +48,8 @@
 #pragma link C++ class snd::analysis_cuts::SciFiStationCut+;
 #pragma link C++ class snd::analysis_cuts::DSDimuonActivityCut+;
 #pragma link C++ class snd::analysis_cuts::SciFiDSTimeCut+;
+#pragma link C++ class snd::analysis_cuts::DSHoughTrackCut+;
+#pragma link C++ class snd::analysis_cuts::DSHoughTrackCounter+;
 #pragma link C++ class snd::analysis_cuts::EventHeaderIP1Cut+;
 #pragma link C++ class snd::analysis_cuts::StableBeamsCut+;
 #pragma link C++ class snd::analysis_cuts::EventDeltatCut+;

@@ -36,19 +36,24 @@ else
     echo " Output directory not yet created: ${DATA_DIR}"
 fi
 
+DISP_DIR="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions"
+MASTER_DIRECT="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_displays_charmDimuonDirect.root"
+MASTER_INDIRECT="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_displays_charmDimuonIndirect.root"
+
 if [ -d "$DISP_DIR" ]; then
-    DISP_DONE=$(find "$DISP_DIR" -maxdepth 1 -name "displays_part*.root" -type f -size +500c 2>/dev/null | wc -l)
-    DISP_PCT=$(awk "BEGIN {printf \"%.1f\", ($DISP_DONE / $TOTAL_COUNT) * 100}")
-    echo " Step 3 (Event Displays)     : ${DISP_DONE} / ${TOTAL_COUNT} (${DISP_PCT}%)"
-else
-    echo " Step 3 (Event Displays)     : 0 / ${TOTAL_COUNT} (0.0%)"
+    DISP_DIR_DONE=$(find "$DISP_DIR/direct" -maxdepth 1 -name "displays_part*.root" -type f -size +500c 2>/dev/null | wc -l)
+    DISP_INDIR_DONE=$(find "$DISP_DIR/indirect" -maxdepth 1 -name "displays_part*.root" -type f -size +500c 2>/dev/null | wc -l)
+    echo " Step 4a (Direct Displays)    : ${DISP_DIR_DONE} partitions with signal displays"
+    echo " Step 4b (Indirect Displays)  : ${DISP_INDIR_DONE} partitions with indirect displays"
 fi
 
-if [ -f "$MASTER_DISP" ]; then
-    SIZE=$(ls -lh "$MASTER_DISP" | awk '{print $5}')
-    echo " Master Displays File        : ${MASTER_DISP} (${SIZE})"
-else
-    echo " Master Displays File        : Not yet merged (run: ./htcondor/tracking_and_truth_all_events/merge_displays_nu14_2022.sh)"
+if [ -f "$MASTER_DIRECT" ]; then
+    SIZE=$(ls -lh "$MASTER_DIRECT" | awk '{print $5}')
+    echo " Master Direct Displays       : ${MASTER_DIRECT} (${SIZE})"
+fi
+if [ -f "$MASTER_INDIRECT" ]; then
+    SIZE=$(ls -lh "$MASTER_INDIRECT" | awk '{print $5}')
+    echo " Master Indirect Displays     : ${MASTER_INDIRECT} (${SIZE})"
 fi
 
 echo "----------------------------------------------------------"

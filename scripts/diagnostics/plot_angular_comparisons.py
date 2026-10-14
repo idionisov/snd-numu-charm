@@ -16,10 +16,10 @@ For each stage, generates three 2-panel comparison figures:
   - Figure B: theta_YZ(mu1) and theta_YZ(mu2) [-300, 300] mrad (log-scale)
   - Figure C: Delta theta_XZ and Delta theta_YZ [0, 300] mrad (linear-scale)
 
-Outputs are saved as ROOT TCanvases in a ROOT file and exported to high-resolution PNG and PDF.
+Outputs are saved directly and exclusively as ROOT TCanvases inside a structured ROOT file.
 
 Usage:
-  python3 scripts/diagnostics/plot_angular_comparisons.py -i output_hists.root -o plots/angular_comparisons
+  python3 scripts/diagnostics/plot_angular_comparisons.py -i output_hists.root -o angular_comparisons.root
   python3 scripts/diagnostics/plot_angular_comparisons.py --help
 """
 
@@ -91,7 +91,6 @@ def draw_two_panel_comparison(
     sig_label: str = "numu -> c -> mu",
     bkg_label: str = "Signal-Like (2 muons traversing DS)",
     out_prefix: str = "canvas",
-    out_dir: str = "plots",
 ) -> ROOT.TCanvas:
     """
     Renders a 2-pad comparison canvas:
@@ -101,7 +100,6 @@ def draw_two_panel_comparison(
       - Signal: Black solid line (HIST)
       - Background / Signal-Like: Red markers with error bars (E1)
     """
-    os.makedirs(out_dir, exist_ok=True)
     cname = f"c_{out_prefix}"
     c = ROOT.TCanvas(cname, cname, 1300, 560)
     c.Divide(2, 1, 0.002, 0.002)
@@ -159,49 +157,55 @@ def draw_two_panel_comparison(
         hb_draw.SetMarkerStyle(20)
         hb_draw.SetMarkerSize(0.8)
 
+        # Clear default titles
+        hs_draw.SetTitle("")
+        hb_draw.SetTitle("")
+
         # Draw
         hs_draw.Draw("HIST")
         hb_draw.Draw("E1 SAME")
 
-        # Text labels on pads
+        # Clean Legend
+        leg = ROOT.TLegend(0.38, 0.72, 0.92, 0.88)
+        leg.SetBorderSize(0)
+        leg.SetFillStyle(0)
+        leg.SetTextFont(42)
+        leg.SetTextSize(0.040)
+        leg.AddEntry(hs_draw, sig_label, "l")
+        leg.AddEntry(hb_draw, bkg_label, "lep")
+        leg.Draw()
+        pad._leg = leg
+
+        # Stage header
         lat = ROOT.TLatex()
         lat.SetNDC(True)
-        lat.SetTextFont(42)
-        lat.SetTextSize(0.048)
-
-        # Red label (Signal-Like / Background)
-        lat.SetTextColor(ROOT.kRed + 1)
-        lat.SetTextAngle(22)
-        lat.DrawLatex(0.20, 0.68, bkg_label)
-
-        # Black label (Signal)
+        lat.SetTextFont(62)
+        lat.SetTextSize(0.042)
         lat.SetTextColor(ROOT.kBlack)
-        lat.SetTextAngle(18)
-        lat.DrawLatex(0.35, 0.22, sig_label)
-
-        # Stage watermark
-        lat.SetTextAngle(0)
-        lat.SetTextSize(0.040)
-        lat.SetTextColor(ROOT.kGray + 2)
-        lat.DrawLatex(0.18, 0.86, stage_label)
+        lat.DrawLatex(0.18, 0.93, stage_label)
 
     c.Update()
-    c.SaveAs(os.path.join(out_dir, f"{out_prefix}.png"))
-    c.SaveAs(os.path.join(out_dir, f"{out_prefix}.pdf"))
     return c
 
 
 def run_angular_comparisons(
     input_file: str,
-    output_dir: str,
+    output_path: str = "angular_comparisons_all_stages.root",
     sig_key: str = "direct",
     bkg_key: str = "signal_like",
     sig_label: str = "numu -> c -> mu",
     bkg_label: str = "Signal-Like (2 muons traversing DS)",
 ):
-    """Generates all 4 stages of angular comparison plots from the input ROOT file."""
+    """Generates all 4 stages of angular comparison plots and saves them exclusively into a ROOT file."""
     setup_style()
-    os.makedirs(output_dir, exist_ok=True)
+    if output_path.endswith(".root"):
+        out_root_path = output_path
+        out_dir = os.path.dirname(os.path.abspath(out_root_path))
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+    else:
+        os.makedirs(output_path, exist_ok=True)
+        out_root_path = os.path.join(output_path, "angular_comparisons_all_stages.root")
 
     print(f"[1/3] Opening input ROOT file: {input_file}")
     f = ROOT.TFile.Open(input_file, "READ")
@@ -209,7 +213,6 @@ def run_angular_comparisons(
         print(f"[Error] Could not open {input_file}")
         sys.exit(1)
 
-    out_root_path = os.path.join(output_dir, "angular_comparisons_all_stages.root")
     f_out = ROOT.TFile.Open(out_root_path, "RECREATE")
 
     stages = [
@@ -283,7 +286,6 @@ def run_angular_comparisons(
                 sig_label=sig_label,
                 bkg_label=bkg_label,
                 out_prefix=f"{tag}_theta_xz",
-                out_dir=output_dir,
             )
             st_dir.cd()
             cA.Write(f"c_{tag}_theta_xz")
@@ -313,7 +315,6 @@ def run_angular_comparisons(
                 sig_label=sig_label,
                 bkg_label=bkg_label,
                 out_prefix=f"{tag}_theta_yz",
-                out_dir=output_dir,
             )
             st_dir.cd()
             cB.Write(f"c_{tag}_theta_yz")
@@ -343,7 +344,6 @@ def run_angular_comparisons(
                 sig_label=sig_label,
                 bkg_label=bkg_label,
                 out_prefix=f"{tag}_delta_theta",
-                out_dir=output_dir,
             )
             st_dir.cd()
             cC.Write(f"c_{tag}_delta_theta")
@@ -353,17 +353,16 @@ def run_angular_comparisons(
 
     f_out.Close()
     f.Close()
-    print(f"\n[3/3] Successfully saved {len(canvases)} canvases to:")
-    print(f"  - ROOT file : {out_root_path}")
-    print(f"  - PNG & PDF : {output_dir}/")
+    print(f"\n[3/3] Successfully saved {len(canvases)} canvases into ROOT file:")
+    print(f"  - Output ROOT file: {out_root_path}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Plot 2-panel angular comparisons across 4 analysis stages.")
+    parser = argparse.ArgumentParser(description="Generate 2-panel angular comparison canvases saved exclusively to a ROOT file.")
     parser.add_argument("-i", "--input", default="/eos/user/i/idioniso/snd-numu-charm/output_nu14_all_hists.root",
                         help="Input ROOT file containing truth and reco histograms")
-    parser.add_argument("-o", "--output-dir", default="plots/angular_comparisons",
-                        help="Output directory for canvases and figures")
+    parser.add_argument("-o", "--output", default="angular_comparisons_all_stages.root",
+                        help="Output ROOT file path (default: angular_comparisons_all_stages.root)")
     parser.add_argument("--sig-key", default="direct",
                         help="Histogram prefix for signal (default: direct)")
     parser.add_argument("--bkg-key", default="signal_like",
@@ -376,7 +375,7 @@ def main():
 
     run_angular_comparisons(
         input_file=args.input,
-        output_dir=args.output_dir,
+        output_path=args.output,
         sig_key=args.sig_key,
         bkg_key=args.bkg_key,
         sig_label=args.sig_label,

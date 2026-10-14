@@ -204,26 +204,64 @@ echo " ~ Skim outputs verified:"
 echo "     Direct   : ${DIRECT_FILE}"
 echo "     Indirect : ${INDIRECT_FILE}"
 
-# 7. Step 4: Run 2D Event Display Generation (--mc-truth and --recoMuons enabled)
+# 7. Step 4: Run 2D Event Display Generation for Skimmed Signal & Signal-like Events
 if [ "${SKIP_DISPLAYS:-0}" = "1" ] || [ -z "${DISP_PATTERN}" ] || [ "${DISP_PATTERN}" = "none" ]; then
     echo " ~ [6/7] Skipping Event Displays generation (SKIP_DISPLAYS=${SKIP_DISPLAYS:-0})."
 else
-    echo " ~ [6/7] Step 4/4: Generating 2D Event Displays for partition ${PARTITION}..."
-    if [ "${FORCE:-0}" != "1" ] && [ "${FORCE_DISPLAYS:-0}" != "1" ] && [ -f "${DISP_FILE}" ] && [ $(stat -c%s "${DISP_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
-        echo " ~ Event display file already exists and is non-empty: ${DISP_FILE} (skipping)"
-    else
-        set +e
-        "${PYTHON_BIN}" "${DISP_SCRIPT}" \
-            -i "${TRUTH_FILE}" \
-            -o "${DISP_FILE}" \
-            --mc-truth \
-            --recoMuons \
-            -j 1
-        DISP_EXIT=$?
-        set -e
-        if [ $DISP_EXIT -ne 0 ]; then
-            echo "WARNING: Event display generation returned exit code ${DISP_EXIT} for partition ${PARTITION}." >&2
+    DISP_BASE_DIR="$(dirname "$DISP_FILE")"
+    DISP_DIRECT_DIR="${DISP_BASE_DIR}/direct"
+    DISP_INDIRECT_DIR="${DISP_BASE_DIR}/indirect"
+    mkdir -p "${DISP_DIRECT_DIR}" "${DISP_INDIRECT_DIR}"
+
+    DISP_DIRECT_FILE="${DISP_DIRECT_DIR}/displays_part${PARTITION}.root"
+    DISP_INDIRECT_FILE="${DISP_INDIRECT_DIR}/displays_part${PARTITION}.root"
+
+    # 1. Direct Signal Event Displays
+    N_DIRECT=$("${PYTHON_BIN}" -c "import ROOT; f=ROOT.TFile.Open('${DIRECT_FILE}'); t=f.Get('cbmsim') if f and not f.IsZombie() else None; print(t.GetEntries() if t else 0)")
+    if [ "$N_DIRECT" -gt 0 ]; then
+        if [ "${FORCE:-0}" != "1" ] && [ "${FORCE_DISPLAYS:-0}" != "1" ] && [ -f "${DISP_DIRECT_FILE}" ] && [ $(stat -c%s "${DISP_DIRECT_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
+            echo " ~ [6/7] Direct signal display file already exists: ${DISP_DIRECT_FILE} (skipping)"
+        else
+            echo " ~ [6/7] Generating 2D displays for ${N_DIRECT} direct charm dimuon signal event(s)..."
+            set +e
+            "${PYTHON_BIN}" "${DISP_SCRIPT}" \
+                -i "${DIRECT_FILE}" \
+                -o "${DISP_DIRECT_FILE}" \
+                --mc-truth \
+                --recoMuons \
+                -j 1
+            DISP_EXIT=$?
+            set -e
+            if [ $DISP_EXIT -ne 0 ]; then
+                echo "WARNING: Direct display generation returned exit code ${DISP_EXIT} for partition ${PARTITION}." >&2
+            fi
         fi
+    else
+        echo " ~ [6/7] Direct signal events: 0 (no displays needed)."
+    fi
+
+    # 2. Indirect Signal-like Event Displays
+    N_INDIRECT=$("${PYTHON_BIN}" -c "import ROOT; f=ROOT.TFile.Open('${INDIRECT_FILE}'); t=f.Get('cbmsim') if f and not f.IsZombie() else None; print(t.GetEntries() if t else 0)")
+    if [ "$N_INDIRECT" -gt 0 ]; then
+        if [ "${FORCE:-0}" != "1" ] && [ "${FORCE_DISPLAYS:-0}" != "1" ] && [ -f "${DISP_INDIRECT_FILE}" ] && [ $(stat -c%s "${DISP_INDIRECT_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
+            echo " ~ [6/7] Indirect signal-like display file already exists: ${DISP_INDIRECT_FILE} (skipping)"
+        else
+            echo " ~ [6/7] Generating 2D displays for ${N_INDIRECT} indirect charm dimuon event(s)..."
+            set +e
+            "${PYTHON_BIN}" "${DISP_SCRIPT}" \
+                -i "${INDIRECT_FILE}" \
+                -o "${DISP_INDIRECT_FILE}" \
+                --mc-truth \
+                --recoMuons \
+                -j 1
+            DISP_EXIT=$?
+            set -e
+            if [ $DISP_EXIT -ne 0 ]; then
+                echo "WARNING: Indirect display generation returned exit code ${DISP_EXIT} for partition ${PARTITION}." >&2
+            fi
+        fi
+    else
+        echo " ~ [6/7] Indirect signal-like events: 0 (no displays needed)."
     fi
 fi
 
@@ -233,8 +271,11 @@ echo "   1) Tracked ROOT file : ${TRACK_FILE}"
 echo "   2) Truth ROOT file   : ${TRUTH_FILE}"
 echo "   3) Direct Skim ROOT  : ${DIRECT_FILE}"
 echo "   4) Indirect Skim ROOT: ${INDIRECT_FILE}"
-if [ -f "${DISP_FILE}" ]; then
-    echo "   5) Display ROOT file : ${DISP_FILE}"
+if [ -f "${DISP_DIRECT_FILE}" ]; then
+    echo "   5) Direct Displays   : ${DISP_DIRECT_FILE}"
+fi
+if [ -f "${DISP_INDIRECT_FILE}" ]; then
+    echo "   6) Indirect Displays : ${DISP_INDIRECT_FILE}"
 fi
 echo "======================================================================"
 exit 0

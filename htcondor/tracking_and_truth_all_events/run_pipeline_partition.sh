@@ -30,7 +30,10 @@ if [ ! -d "$REPO_DIR" ]; then
 fi
 
 
-if [ -f "${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh" ]; then
+if [ -f "${SCRIPT_DIR}/sndswEnv.sh" ]; then
+    echo " ~ [1/6] Sourcing local static environment: ${SCRIPT_DIR}/sndswEnv.sh"
+    source "${SCRIPT_DIR}/sndswEnv.sh"
+elif [ -f "${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh" ]; then
     echo " ~ [1/6] Sourcing repository environment: ${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh"
     source "${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh"
 elif [ -f "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh" ]; then

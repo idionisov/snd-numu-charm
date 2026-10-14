@@ -15,7 +15,7 @@ executable              = $(base_dir)/run_pipeline_partition.sh
 arguments               = $(partition) $(input_pattern) $(track_pattern) $(truth_pattern) $(disp_pattern) all
 environment             = "FORCE=1 ALL_EVENTS=1"
 
-flavour                 = $(flavour:longlunch)
+flavour                 = $(flavour:microcentury)
 args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
 
 input_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig.root
@@ -32,18 +32,19 @@ notification            = Never
 requirements            = (OpSysAndVer =?= "AlmaLinux9")
 
 # CERN Job Flavours:
-#   microcentury : 1 hour
-#   longlunch    : 2 hours (default - recommended for combined tracking + truth + displays)
+#   microcentury : 1 hour (default - recommended for combined tracking + truth + displays)
+#   longlunch    : 2 hours
 #   workday      : 8 hours
 +JobFlavour             = "$(flavour)"
 +AccountingGroup        = "group_u_SNDLHC.users"
+MY.JobRequiresAFS       = True
 
 should_transfer_files   = YES
 when_to_transfer_output = ON_EXIT
-transfer_input_files    = $(base_dir)/sndswEnv.sh
+transfer_input_files    = $(base_dir)/sndswEnv.sh, /afs/cern.ch/user/i/idioniso/ddfUtils
 
 request_cpus            = 1
-request_memory          = 4GB
-max_retries             = 2
+request_memory          = 2GB
+max_retries             = 3
 
 queue partition from $(args_file)

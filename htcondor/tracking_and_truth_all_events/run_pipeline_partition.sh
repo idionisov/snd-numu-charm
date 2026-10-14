@@ -29,23 +29,26 @@ if [ ! -d "$REPO_DIR" ]; then
     REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 fi
 
-# 1. Setup sndsw environment (only if not already loaded in current shell)
-if [ -z "${SNDSW_ROOT}" ]; then
-    if [ -f "${REPO_DIR}/htcondor/stracking_and_truth_all_events/sndswEnv.sh" ]; then
-        echo " ~ [1/6] Sourcing tracking_and_truth_all_events environment: ${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh"
-        source "${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh"
-    elif [ -f "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh" ]; then
-        echo " ~ [1/6] Sourcing CVMFS stack fallback: /cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
-        source "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
-    fi
-else
-    echo " ~ [1/6] Using existing environment (SNDSW_ROOT=${SNDSW_ROOT})"
+
+if [ -f "${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh" ]; then
+    echo " ~ [1/6] Sourcing repository environment: ${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh"
+    source "${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh"
+elif [ -f "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh" ]; then
+    echo " ~ [1/6] Sourcing CVMFS stack fallback: /cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
+    source "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
 fi
 
-# 2. Configure repository environment paths
-echo " ~ [2/6] Repository root: ${REPO_DIR}"
-export PYTHONPATH="${REPO_DIR}:${PYTHONPATH}"
-export LD_LIBRARY_PATH="${REPO_DIR}/build/lib:${REPO_DIR}:${LD_LIBRARY_PATH}"
+if [ -d "${SCRIPT_DIR}/ddfUtils" ]; then
+    export ddfUtils="${SCRIPT_DIR}/ddfUtils"
+else
+    export ddfUtils="${DDFUTILS:-/afs/cern.ch/user/i/idioniso/ddfUtils}"
+fi
+
+echo " ~ [2/6] Environment configured (SNDSW_ROOT=${SNDSW_ROOT})"
+echo "         Repository root: ${REPO_DIR}"
+echo "         ddfUtils path  : ${ddfUtils}"
+export PYTHONPATH="${SCRIPT_DIR}:${REPO_DIR}:${SNDSW_SRC}/python:${SNDSW_SRC}/shipLHC/scripts:${SNDSW_ROOT}/python:${ddfUtils}:${PYTHONPATH}"
+export LD_LIBRARY_PATH="${REPO_DIR}/build/lib:${SNDSW_ROOT}/lib:${LD_LIBRARY_PATH}"
 
 # 3. Path patterns (defaults configured for 2022 nu14 volTarget production with MCEB)
 DEFAULT_INPUT="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig.root"

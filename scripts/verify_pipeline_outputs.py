@@ -112,8 +112,14 @@ def verify_single_partition(partition: int, base_dir: str) -> Dict[str, Any]:
         if ok:
             res["raw_entries"] = trees.get("cbmsim", 0)
 
+    # Determine prefix (prefer MCEB if present)
+    prefix = "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks"
+    if not os.path.isfile(os.path.join(part_dir, f"{prefix}.root")):
+        if os.path.isfile(os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig_2MuTrks.root")):
+            prefix = "sndLHC.Genie-TGeant4_dig_2MuTrks"
+
     # 2. Tracked 2MuTrks
-    track_path = os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig_2MuTrks.root")
+    track_path = os.path.join(part_dir, f"{prefix}.root")
     ok, msg, trees = check_file(track_path, ["cbmsim"])
     if not ok:
         res["valid"] = False
@@ -125,7 +131,7 @@ def verify_single_partition(partition: int, base_dir: str) -> Dict[str, Any]:
             res["errors"].append(f"ENTRY_MISMATCH:raw={res['raw_entries']}!=track={res['tracked_entries']}")
 
     # 3. MCTruth
-    truth_path = os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root")
+    truth_path = os.path.join(part_dir, f"{prefix}_truth.root")
     ok, msg, trees = check_file(truth_path, ["cbmsim", "truth"])
     if not ok:
         res["valid"] = False
@@ -149,7 +155,7 @@ def verify_single_partition(partition: int, base_dir: str) -> Dict[str, Any]:
             tf.Close()
 
     # 4. Direct Skim
-    direct_path = os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonDirect.root")
+    direct_path = os.path.join(part_dir, f"{prefix}_truth_charmDimuonDirect.root")
     ok, msg, trees = check_file(direct_path, ["cbmsim", "truth"])
     if not ok:
         res["valid"] = False
@@ -161,7 +167,7 @@ def verify_single_partition(partition: int, base_dir: str) -> Dict[str, Any]:
             res["errors"].append(f"DIRECT_YIELD_MISMATCH:got={res['direct_entries']}!=expected={res['truth_expected_direct']}")
 
     # 5. Indirect Skim
-    indirect_path = os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonIndirect.root")
+    indirect_path = os.path.join(part_dir, f"{prefix}_truth_charmDimuonIndirect.root")
     ok, msg, trees = check_file(indirect_path, ["cbmsim", "truth"])
     if not ok:
         res["valid"] = False

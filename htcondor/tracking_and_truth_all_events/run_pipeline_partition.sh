@@ -52,8 +52,8 @@ export LD_LIBRARY_PATH="${REPO_DIR}/build/lib:${REPO_DIR}:${LD_LIBRARY_PATH}"
 
 # 3. Path patterns (defaults configured for 2022 nu14 volTarget production with MCEB)
 DEFAULT_INPUT="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig.root"
-DEFAULT_TRACK="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks.root"
-DEFAULT_TRUTH="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root"
+DEFAULT_TRACK="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks.root"
+DEFAULT_TRUTH="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root"
 DEFAULT_DISP="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions/displays_part%s.root"
 
 INPUT_PATTERN="${2:-$DEFAULT_INPUT}"
@@ -193,8 +193,9 @@ if [ ! -f "${TRUTH_FILE}" ]; then
 fi
 echo " ~ Truth input verified: ${TRUTH_FILE}"
 
-DIRECT_FILE="${OUTPUT_DIR}/sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonDirect.root"
-INDIRECT_FILE="${OUTPUT_DIR}/sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonIndirect.root"
+TRUTH_BASE=$(basename "${TRUTH_FILE}" .root)
+DIRECT_FILE="${OUTPUT_DIR}/${TRUTH_BASE}_charmDimuonDirect.root"
+INDIRECT_FILE="${OUTPUT_DIR}/${TRUTH_BASE}_charmDimuonIndirect.root"
 
 if [ ! -f "${DIRECT_FILE}" ] || [ ! -f "${INDIRECT_FILE}" ]; then
     echo "ERROR: Expected charm skim file(s) missing in ${OUTPUT_DIR}." >&2

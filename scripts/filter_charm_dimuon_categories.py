@@ -63,13 +63,35 @@ def process_single_partition(
     base_dir: str,
     skip_existing: bool = False,
     write_empty: bool = True,
+    input_pattern: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Processes a single partition and produces direct and indirect skimmed ROOT files."""
     part_dir = os.path.join(base_dir, str(partition))
-    input_file = os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root")
 
-    out_direct = os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonDirect.root")
-    out_indirect = os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonIndirect.root")
+    input_file = None
+    if input_pattern:
+        if "%s" in input_pattern:
+            input_file = input_pattern % str(partition)
+        else:
+            input_file = input_pattern
+    else:
+        for cand in [
+            "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root",
+            "sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root",
+        ]:
+            cand_path = os.path.join(part_dir, cand)
+            if os.path.isfile(cand_path):
+                input_file = cand_path
+                break
+        if not input_file:
+            input_file = os.path.join(part_dir, "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root")
+
+    prefix = os.path.basename(input_file)
+    if prefix.endswith(".root"):
+        prefix = prefix[:-5]
+
+    out_direct = os.path.join(part_dir, f"{prefix}_charmDimuonDirect.root")
+    out_indirect = os.path.join(part_dir, f"{prefix}_charmDimuonIndirect.root")
 
     if not os.path.isfile(input_file):
         return {
@@ -264,7 +286,7 @@ def main():
     skipped_count = 0
 
     task_args = [
-        (p, base_dir, args.skip_existing, write_empty)
+        (p, base_dir, args.skip_existing, write_empty, args.input)
         for p in partitions
     ]
 

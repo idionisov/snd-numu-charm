@@ -5,7 +5,7 @@
 # ==============================================================================
 
 CVMFS_SW="/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/sw/slc9_x86-64"
-USER_SNDSW_BUILD="/afs/cern.ch/user/i/idioniso/snd_master/sw3.12/slc9_x86-64/sndsw/master-local1"
+USER_SNDSW_BUILD="/afs/cern.ch/user/i/idioniso/snd_master/sw/slc9_x86-64/sndsw/master-local1"
 USER_SNDSW_SRC="/afs/cern.ch/user/i/idioniso/snd_master/sndsw"
 
 # 1. Base SNDSW & FairRoot Core Paths

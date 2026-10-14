@@ -245,12 +245,92 @@ def main():
     print(f"Pre-analyzed truth : {has_truth_tree}")
     print(f"MuFilter available : {has_mufilter} (DS acceptance tracking enabled: {has_mufilter or actual_tree_name == 'truth' or actual_tree_name == 'cbmsim'})")
 
-    # Declare C++ helper functions for unified 3D kinematics across direct and indirect charm decays
+    # Declare C++ helper functions for unified 3D kinematics and reconstructed track projections
     ROOT.gInterpreter.Declare("""
     #include "TClonesArray.h"
+    #include "TVector3.h"
     #include "ShipMCTrack.h"
+    #include "sndRecoTrack.h"
     #include <cmath>
     #include <algorithm>
+
+    namespace RecoTracksExt {
+        inline int count_total_tracks(const TClonesArray& tracks) {
+            return tracks.GetEntriesFast();
+        }
+
+        inline int count_ds_tracks(const TClonesArray& tracks) {
+            int count = 0;
+            const int nTracks = tracks.GetEntriesFast();
+            for (int i = 0; i < nTracks; ++i) {
+                auto* trk = const_cast<sndRecoTrack*>(static_cast<const sndRecoTrack*>(tracks.At(i)));
+                if (!trk) continue;
+                if (trk->getTrackType() == 13) count++;
+            }
+            return count;
+        }
+
+        struct CrossPoint {
+            double z_xz;
+            double z_yz;
+            double x_cross;
+            double y_cross;
+            double delta_z;
+            double abs_delta_z;
+            bool valid_xz;
+            bool valid_yz;
+        };
+
+        inline CrossPoint get_crossing(const TClonesArray& tracks) {
+            CrossPoint res = {-9999.0, -9999.0, -9999.0, -9999.0, -9999.0, -9999.0, false, false};
+            const int nTracks = tracks.GetEntriesFast();
+            sndRecoTrack* trk1 = nullptr;
+            sndRecoTrack* trk2 = nullptr;
+            for (int i = 0; i < nTracks; ++i) {
+                auto* trk = const_cast<sndRecoTrack*>(static_cast<const sndRecoTrack*>(tracks.At(i)));
+                if (!trk || trk->getTrackType() != 13) continue;
+                if (!trk1) trk1 = trk;
+                else if (!trk2) { trk2 = trk; break; }
+            }
+            if (!trk1 || !trk2) return res;
+
+            double m1x = trk1->getSlopeXZ();
+            double m2x = trk2->getSlopeXZ();
+            double m1y = trk1->getSlopeYZ();
+            double m2y = trk2->getSlopeYZ();
+
+            TVector3 p1 = trk1->getStart();
+            TVector3 p2 = trk2->getStart();
+
+            double x01 = p1.X() - m1x * p1.Z();
+            double x02 = p2.X() - m2x * p2.Z();
+            double y01 = p1.Y() - m1y * p1.Z();
+            double y02 = p2.Y() - m2y * p2.Z();
+
+            if (std::abs(m1x - m2x) > 1e-6) {
+                res.z_xz = (x02 - x01) / (m1x - m2x);
+                res.x_cross = x01 + m1x * res.z_xz;
+                res.valid_xz = true;
+            }
+            if (std::abs(m1y - m2y) > 1e-6) {
+                res.z_yz = (y02 - y01) / (m1y - m2y);
+                res.y_cross = y01 + m1y * res.z_yz;
+                res.valid_yz = true;
+            }
+            if (res.valid_xz && res.valid_yz) {
+                res.delta_z = res.z_xz - res.z_yz;
+                res.abs_delta_z = std::abs(res.delta_z);
+            }
+            return res;
+        }
+
+        inline double cross_z_xz(const TClonesArray& tracks) { return get_crossing(tracks).z_xz; }
+        inline double cross_z_yz(const TClonesArray& tracks) { return get_crossing(tracks).z_yz; }
+        inline double cross_x(const TClonesArray& tracks) { return get_crossing(tracks).x_cross; }
+        inline double cross_y(const TClonesArray& tracks) { return get_crossing(tracks).y_cross; }
+        inline double delta_z_cross(const TClonesArray& tracks) { return get_crossing(tracks).delta_z; }
+        inline double abs_delta_z_cross(const TClonesArray& tracks) { return get_crossing(tracks).abs_delta_z; }
+    }
 
     namespace TruthExt {
         inline double sec_mu_px(int has_dir, double mu2_px, int ds_id, const TClonesArray& tracks) {
@@ -316,6 +396,12 @@ def main():
             double dot = px1*px2 + py1*py2 + pz1*pz2;
             double cos_th = std::max(-1.0, std::min(1.0, dot / (p1 * p2)));
             return std::acos(cos_th) * 1000.0;
+        }
+        inline double projected_angle_diff_mrad(double px1, double py1, double pz1, double px2, double py2, double pz2, bool is_xz) {
+            if (std::abs(pz1) < 1e-9 || std::abs(pz2) < 1e-9) return 0.0;
+            double ang1 = is_xz ? std::atan2(px1, pz1) : std::atan2(py1, pz1);
+            double ang2 = is_xz ? std::atan2(px2, pz2) : std::atan2(py2, pz2);
+            return std::abs(ang1 - ang2) * 1000.0;
         }
         inline double inv_mass(double e1, double px1, double py1, double pz1, double e2, double px2, double py2, double pz2) {
             double etot = e1 + e2;
@@ -664,6 +750,68 @@ def main():
                   """)
         )
 
+    # Define XZ and YZ projected observables and separation at detector planes
+    df_truth = safe_def(df_truth, "mu1_slope_xz", "(std::abs(mu1_pz) > 1e-9) ? mu1_px / mu1_pz : 0.0")
+    df_truth = safe_def(df_truth, "mu1_slope_yz", "(std::abs(mu1_pz) > 1e-9) ? mu1_py / mu1_pz : 0.0")
+    df_truth = safe_def(df_truth, "mu1_theta_xz_mrad", "std::atan2(mu1_px, mu1_pz) * 1000.0")
+    df_truth = safe_def(df_truth, "mu1_theta_yz_mrad", "std::atan2(mu1_py, mu1_pz) * 1000.0")
+
+    df_truth = safe_def(df_truth, "sec_mu_slope_xz", "(std::abs(sec_mu_pz) > 1e-9) ? sec_mu_px / sec_mu_pz : 0.0")
+    df_truth = safe_def(df_truth, "sec_mu_slope_yz", "(std::abs(sec_mu_pz) > 1e-9) ? sec_mu_py / sec_mu_pz : 0.0")
+    df_truth = safe_def(df_truth, "sec_mu_theta_xz_mrad", "std::atan2(sec_mu_px, sec_mu_pz) * 1000.0")
+    df_truth = safe_def(df_truth, "sec_mu_theta_yz_mrad", "std::atan2(sec_mu_py, sec_mu_pz) * 1000.0")
+
+    df_truth = safe_def(df_truth, "dimuon_opening_angle_xz_mrad", "std::abs(mu1_theta_xz_mrad - sec_mu_theta_xz_mrad)")
+    df_truth = safe_def(df_truth, "dimuon_opening_angle_yz_mrad", "std::abs(mu1_theta_yz_mrad - sec_mu_theta_yz_mrad)")
+    df_truth = safe_def(df_truth, "dimuon_delta_slope_xz", "std::abs(mu1_slope_xz - sec_mu_slope_xz)")
+    df_truth = safe_def(df_truth, "dimuon_delta_slope_yz", "std::abs(mu1_slope_yz - sec_mu_slope_yz)")
+
+    # Spatial separations at detector planes (SciFi start ~300cm, SciFi exit ~390cm, DS entrance ~470cm)
+    df_truth = safe_def(df_truth, "dimuon_sep_x_scifi_entrance", "std::abs(mu1_slope_xz - sec_mu_slope_xz) * std::max(0.0, 300.0 - vtx_z)")
+    df_truth = safe_def(df_truth, "dimuon_sep_y_scifi_entrance", "std::abs(mu1_slope_yz - sec_mu_slope_yz) * std::max(0.0, 300.0 - vtx_z)")
+    df_truth = safe_def(df_truth, "dimuon_sep_3d_scifi_entrance", "std::sqrt(dimuon_sep_x_scifi_entrance * dimuon_sep_x_scifi_entrance + dimuon_sep_y_scifi_entrance * dimuon_sep_y_scifi_entrance)")
+
+    df_truth = safe_def(df_truth, "dimuon_sep_x_scifi_exit", "std::abs(mu1_slope_xz - sec_mu_slope_xz) * std::max(0.0, 390.0 - vtx_z)")
+    df_truth = safe_def(df_truth, "dimuon_sep_y_scifi_exit", "std::abs(mu1_slope_yz - sec_mu_slope_yz) * std::max(0.0, 390.0 - vtx_z)")
+    df_truth = safe_def(df_truth, "dimuon_sep_3d_scifi_exit", "std::sqrt(dimuon_sep_x_scifi_exit * dimuon_sep_x_scifi_exit + dimuon_sep_y_scifi_exit * dimuon_sep_y_scifi_exit)")
+
+    df_truth = safe_def(df_truth, "dimuon_sep_x_ds_entrance", "std::abs(mu1_slope_xz - sec_mu_slope_xz) * std::max(0.0, 470.0 - vtx_z)")
+    df_truth = safe_def(df_truth, "dimuon_sep_y_ds_entrance", "std::abs(mu1_slope_yz - sec_mu_slope_yz) * std::max(0.0, 470.0 - vtx_z)")
+    df_truth = safe_def(df_truth, "dimuon_sep_3d_ds_entrance", "std::sqrt(dimuon_sep_x_ds_entrance * dimuon_sep_x_ds_entrance + dimuon_sep_y_ds_entrance * dimuon_sep_y_ds_entrance)")
+
+    # Projected decay lengths
+    df_truth = safe_def(df_truth, "decay_length_xz", "std::sqrt((charm_decay_x - vtx_x)*(charm_decay_x - vtx_x) + (charm_decay_z - vtx_z)*(charm_decay_z - vtx_z))")
+    df_truth = safe_def(df_truth, "decay_length_yz", "std::sqrt((charm_decay_y - vtx_y)*(charm_decay_y - vtx_y) + (charm_decay_z - vtx_z)*(charm_decay_z - vtx_z))")
+
+    # Reco_MuonTracks definitions (when available)
+    has_reco_tracks_branch = ("Reco_MuonTracks" in existing_cols)
+    if has_reco_tracks_branch:
+        df_truth = safe_def(df_truth, "n_reco_muon_tracks", "RecoTracksExt::count_total_tracks(Reco_MuonTracks)")
+        df_truth = safe_def(df_truth, "n_ds_hough_tracks", "RecoTracksExt::count_ds_tracks(Reco_MuonTracks)")
+        df_truth = safe_def(df_truth, "has_two_ds_tracks", "n_ds_hough_tracks >= 2 ? 1 : 0")
+        df_truth = safe_def(df_truth, "has_exactly_two_ds_tracks", "n_ds_hough_tracks == 2 ? 1 : 0")
+        df_truth = safe_def(df_truth, "reco_ds_cross_z_xz", "RecoTracksExt::cross_z_xz(Reco_MuonTracks)")
+        df_truth = safe_def(df_truth, "reco_ds_cross_z_yz", "RecoTracksExt::cross_z_yz(Reco_MuonTracks)")
+        df_truth = safe_def(df_truth, "reco_ds_cross_x", "RecoTracksExt::cross_x(Reco_MuonTracks)")
+        df_truth = safe_def(df_truth, "reco_ds_cross_y", "RecoTracksExt::cross_y(Reco_MuonTracks)")
+        df_truth = safe_def(df_truth, "reco_ds_delta_z_cross", "RecoTracksExt::delta_z_cross(Reco_MuonTracks)")
+        df_truth = safe_def(df_truth, "reco_ds_abs_delta_z_cross", "RecoTracksExt::abs_delta_z_cross(Reco_MuonTracks)")
+        df_truth = safe_def(df_truth, "reco_ds_res_z_xz", "(reco_ds_cross_z_xz > -9000.0) ? (reco_ds_cross_z_xz - vtx_z) : -9999.0")
+        df_truth = safe_def(df_truth, "reco_ds_res_z_yz", "(reco_ds_cross_z_yz > -9000.0) ? (reco_ds_cross_z_yz - vtx_z) : -9999.0")
+    else:
+        df_truth = safe_def(df_truth, "n_reco_muon_tracks", "0")
+        df_truth = safe_def(df_truth, "n_ds_hough_tracks", "0")
+        df_truth = safe_def(df_truth, "has_two_ds_tracks", "0")
+        df_truth = safe_def(df_truth, "has_exactly_two_ds_tracks", "0")
+        df_truth = safe_def(df_truth, "reco_ds_cross_z_xz", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_ds_cross_z_yz", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_ds_cross_x", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_ds_cross_y", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_ds_delta_z_cross", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_ds_abs_delta_z_cross", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_ds_res_z_xz", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_ds_res_z_yz", "-9999.0")
+
     # 6. Define Filtered Subsamples
     # All Interacting Muon Neutrinos in the Detector (CC + NC, nu_mu and anti-nu_mu)
     df_numu_all = df_truth.Filter(
@@ -747,6 +895,19 @@ def main():
     df_indirect_kaon = df_indirect.Filter("std::abs(downstream_muon_mother_pdg) == 321 || std::abs(downstream_muon_mother_pdg) == 130 || std::abs(downstream_muon_mother_pdg) == 310", "Indirect via Kaon")
     df_indirect_other = df_indirect.Filter("std::abs(downstream_muon_mother_pdg) != 211 && std::abs(downstream_muon_mother_pdg) != 321 && std::abs(downstream_muon_mother_pdg) != 130 && std::abs(downstream_muon_mother_pdg) != 310", "Indirect via Other")
 
+    # Reconstructed 2 DS Tracks filters (when Reco_MuonTracks is present)
+    df_signal_2ds = df_candidate.Filter("has_two_ds_tracks == 1", "Signal with >=2 DS Tracks")
+    df_direct_2ds = df_direct.Filter("has_two_ds_tracks == 1", "Direct with >=2 DS Tracks")
+    df_indirect_2ds = df_indirect.Filter("has_two_ds_tracks == 1", "Indirect with >=2 DS Tracks")
+
+    df_signal_2ds_valid_cross = df_signal_2ds.Filter("reco_ds_cross_z_xz > -9000.0 && reco_ds_cross_z_yz > -9000.0", "Signal with Valid 2D Crossings")
+    df_direct_2ds_valid_cross = df_direct_2ds.Filter("reco_ds_cross_z_xz > -9000.0 && reco_ds_cross_z_yz > -9000.0", "Direct with Valid 2D Crossings")
+    df_indirect_2ds_valid_cross = df_indirect_2ds.Filter("reco_ds_cross_z_xz > -9000.0 && reco_ds_cross_z_yz > -9000.0", "Indirect with Valid 2D Crossings")
+
+    df_signal_2ds_in_acc = df_signal_2ds.Filter("dimuon_in_ds_acceptance", "Signal with >=2 DS Tracks In DS Acc")
+    df_direct_2ds_in_acc = df_direct_2ds.Filter("dimuon_in_ds_acceptance", "Direct with >=2 DS Tracks In DS Acc")
+    df_indirect_2ds_in_acc = df_indirect_2ds.Filter("dimuon_in_ds_acceptance", "Indirect with >=2 DS Tracks In DS Acc")
+
     # Register filter nodes for booking
     filter_nodes = {
         "all": df_truth,
@@ -787,6 +948,12 @@ def main():
         "indirect_pion": df_indirect_pion,
         "indirect_kaon": df_indirect_kaon,
         "indirect_other": df_indirect_other,
+        "signal_2ds": df_signal_2ds,
+        "direct_2ds": df_direct_2ds,
+        "indirect_2ds": df_indirect_2ds,
+        "signal_2ds_cross": df_signal_2ds_valid_cross,
+        "direct_2ds_cross": df_direct_2ds_valid_cross,
+        "indirect_2ds_cross": df_indirect_2ds_valid_cross,
     }
 
     # 7. Book Counters
@@ -826,6 +993,14 @@ def main():
     c_indirect_kaon = df_indirect_kaon.Count()
     c_indirect_other = df_indirect_other.Count()
 
+    # Reconstructed 2 DS tracks counters
+    c_2ds_signal = df_signal_2ds.Count()
+    c_2ds_direct = df_direct_2ds.Count()
+    c_2ds_indirect = df_indirect_2ds.Count()
+    c_2ds_signal_in_acc = df_signal_2ds_in_acc.Count()
+    c_2ds_direct_in_acc = df_direct_2ds_in_acc.Count()
+    c_2ds_indirect_in_acc = df_indirect_2ds_in_acc.Count()
+
     booked_counters = [
         c_total, c_all_numu, c_all_numu_fid, c_numu_cc, c_numu_nc,
         c_numu_nu, c_numu_antinu, c_fiducial, c_charm, c_candidate,
@@ -836,13 +1011,16 @@ def main():
         c_d0, c_dplus, c_ds, c_lambdac,
         c_direct_d0, c_direct_dplus, c_direct_ds, c_direct_lambdac,
         c_indirect_d0, c_indirect_dplus, c_indirect_ds, c_indirect_lambdac,
-        c_indirect_pion, c_indirect_kaon, c_indirect_other
+        c_indirect_pion, c_indirect_kaon, c_indirect_other,
+        c_2ds_signal, c_2ds_direct, c_2ds_indirect,
+        c_2ds_signal_in_acc, c_2ds_direct_in_acc, c_2ds_indirect_in_acc
     ]
 
     # 8. Book Comprehensive Suite of Histograms
     booked_histograms_1d = {}
     booked_histograms_2d = {}
     booked_profiles = {}
+    booked_teff_pairs = {}
 
     # Helper function to book 1D histogram
     def book_1d(name, title, col, node, nbins=50, xmin=0.0, xmax=1.0, weight="mc_weight"):
@@ -870,6 +1048,14 @@ def main():
             booked_profiles[name] = node.Profile1D(model, xcol, ycol, weight)
         else:
             booked_profiles[name] = node.Profile1D(model, xcol, ycol)
+
+    # Helper function to book TEfficiency pairs (unweighted for Clopper-Pearson frequentist evaluation)
+    def book_teff(name, title, col, node_pass, node_tot, nbins=40, xmin=0.0, xmax=1.0):
+        m_pass = ROOT.RDF.TH1DModel(f"{name}_pass", title, nbins, xmin, xmax)
+        m_tot = ROOT.RDF.TH1DModel(f"{name}_tot", title, nbins, xmin, xmax)
+        h_pass = node_pass.Histo1D(m_pass, col)
+        h_tot = node_tot.Histo1D(m_tot, col)
+        booked_teff_pairs[name] = (title, h_pass, h_tot)
 
     # --------------------------------------------------------------------------
     # 8a. Energy Distributions of All Muon Neutrinos Interacting in Detector
@@ -1000,8 +1186,6 @@ def main():
     # --------------------------------------------------------------------------
     # Core Dimuon Energy Correlation (E_mu2 vs E_mu1) across samples
     for prefix, node, label in samples_1d:
-        book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e", f"Dimuon Energy Correlation ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "sec_mu_e", node, 50, 0.0, 500.0, 50, 0.0, 10.0)
-        book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e_zoom", f"Dimuon Energy Correlation (Zoom) ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "sec_mu_e", node, 50, 0.0, 500.0, 60, 0.0, 3.0)
         book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e", f"Dimuon Energy Correlation ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "sec_mu_e", node, 35, 0.0, 700.0, 35, 0.0, 700.0)
         if prefix in ["signal", "direct", "indirect"]:
             book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e_zoom", f"Dimuon Energy Correlation (Zoom) ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "sec_mu_e", node, 35, 0.0, 700.0, 50, 0.0, 10.0)
@@ -1019,7 +1203,7 @@ def main():
 
     book_2d("h2_signal_dimuon_delta_e_vs_dimuon_mass", "Muon Energy Difference vs M_{#mu#mu};M_{#mu#mu} [GeV/c^{2}];E_{#mu1} - E_{#mu2} [GeV]", "dimuon_mass_unified", "dimuon_delta_e_unified", df_candidate, 60, 0.0, 15.0, 50, -50.0, 600.0)
     book_2d("h2_signal_dimuon_delta_e_vs_opening_angle", "Muon Energy Difference vs #theta_{#mu#mu};#theta_{#mu#mu} [mrad];E_{#mu1} - E_{#mu2} [GeV]", "dimuon_opening_angle_mrad_unified", "dimuon_delta_e_unified", df_candidate, 64, 0.0, 3200.0, 50, -50.0, 600.0)
-    book_2d("h2_signal_mu2_e_vs_delta_e", "Secondary #mu_{2} Energy vs (E_{#mu1} - E_{#mu2});E_{#mu1} - E_{#mu2} [GeV];E_{#mu2} [GeV]", "dimuon_delta_e_unified", "sec_mu_e", df_candidate, 50, -50.0, 600.0, 50, 0.0, 10.0)
+    book_2d("h2_signal_mu2_e_vs_delta_e", "Secondary #mu_{2} Energy vs (E_{#mu1} - E_{#mu2});E_{#mu1} - E_{#mu2} [GeV];E_{#mu2}} [GeV]", "dimuon_delta_e_unified", "sec_mu_e", df_candidate, 50, -50.0, 600.0, 50, 0.0, 10.0)
     book_2d("h2_signal_dimuon_mass_vs_opening_angle", "Dimuon Mass vs Opening Angle;#theta_{#mu#mu} [mrad];M_{#mu#mu} [GeV/c^{2}]", "dimuon_opening_angle_mrad_unified", "dimuon_mass_unified", df_candidate, 64, 0.0, 3200.0, 60, 0.0, 15.0)
     book_2d("h2_signal_dimuon_mass_vs_pt", "Dimuon Mass vs Pair p_{T};p_{T,#mu#mu} [GeV/c];M_{#mu#mu} [GeV/c^{2}]", "dimuon_pt_unified", "dimuon_mass_unified", df_candidate, 50, 0.0, 8.0, 60, 0.0, 15.0)
     book_2d("h2_signal_opening_angle_vs_delta_phi", "Opening Angle vs Azimuthal Separation;#Delta#phi_{#mu#mu} [rad];#theta_{#mu#mu} [mrad]", "dimuon_delta_phi_unified", "dimuon_opening_angle_mrad_unified", df_candidate, 50, 0.0, 3.14159, 64, 0.0, 3200.0)
@@ -1031,6 +1215,98 @@ def main():
     book_2d("h2_signal_mu1_nds_vs_mu1_e", "Primary #mu_{1} DS MCPoints vs Energy;E_{#mu1} [GeV];N_{DS}(#mu_{1})", "mu1_e", "mu1_n_ds_points", df_candidate, 50, 0.0, 800.0, 20, -0.5, 19.5)
     book_2d("h2_signal_mu2_nds_vs_mu2_e", "Secondary #mu_{2} DS MCPoints vs Energy;E_{#mu2} [GeV];N_{DS}(#mu_{2})", "sec_mu_e", "mu2_n_ds_points", df_candidate, 50, 0.0, 10.0, 20, -0.5, 19.5)
     book_2d("h2_signal_mu2_nds_vs_mu2_eta", "Secondary #mu_{2} DS MCPoints vs #eta;#eta_{#mu2};N_{DS}(#mu_{2})", "sec_mu_eta", "mu2_n_ds_points", df_candidate, 50, 4.0, 10.0, 20, -0.5, 19.5)
+
+    # --------------------------------------------------------------------------
+    # 8b-4. XZ and YZ Projected Observables (Truth 2D Projections)
+    # --------------------------------------------------------------------------
+    proj_samples = [
+        ("signal", df_candidate, "Inclusive"),
+        ("direct", df_direct, "Direct Signal"),
+        ("indirect", df_indirect, "Indirect Fake"),
+    ]
+
+    for pref, node, lbl in proj_samples:
+        # Angles and slopes in XZ projection
+        book_1d(f"h_{pref}_mu1_slope_xz", f"Primary #mu_{{1}} Slope XZ ({lbl});dx/dz (#mu_{{1}});Events", "mu1_slope_xz", node, 60, -0.3, 0.3)
+        book_1d(f"h_{pref}_sec_mu_slope_xz", f"Secondary #mu_{{2}} Slope XZ ({lbl});dx/dz (#mu_{{2}});Events", "sec_mu_slope_xz", node, 60, -0.3, 0.3)
+        book_1d(f"h_{pref}_dimuon_delta_slope_xz", f"Dimuon Slope Difference XZ ({lbl});|dx/dz_{{1}} - dx/dz_{{2}}|;Events", "dimuon_delta_slope_xz", node, 60, 0.0, 0.3)
+        book_1d(f"h_{pref}_mu1_theta_xz_mrad", f"Primary #mu_{{1}} #theta_{{XZ}} ({lbl});#theta_{{XZ}}(#mu_{{1}}) [mrad];Events", "mu1_theta_xz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_sec_mu_theta_xz_mrad", f"Secondary #mu_{{2}} #theta_{{XZ}} ({lbl});#theta_{{XZ}}(#mu_{{2}}) [mrad];Events", "sec_mu_theta_xz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_dimuon_opening_angle_xz_mrad", f"Dimuon Opening Angle in XZ ({lbl});#Delta#theta_{{XZ}} [mrad];Events", "dimuon_opening_angle_xz_mrad", node, 60, 0.0, 300.0)
+
+        # Angles and slopes in YZ projection
+        book_1d(f"h_{pref}_mu1_slope_yz", f"Primary #mu_{{1}} Slope YZ ({lbl});dy/dz (#mu_{{1}});Events", "mu1_slope_yz", node, 60, -0.3, 0.3)
+        book_1d(f"h_{pref}_sec_mu_slope_yz", f"Secondary #mu_{{2}} Slope YZ ({lbl});dy/dz (#mu_{{2}});Events", "sec_mu_slope_yz", node, 60, -0.3, 0.3)
+        book_1d(f"h_{pref}_dimuon_delta_slope_yz", f"Dimuon Slope Difference YZ ({lbl});|dy/dz_{{1}} - dy/dz_{{2}}|;Events", "dimuon_delta_slope_yz", node, 60, 0.0, 0.3)
+        book_1d(f"h_{pref}_mu1_theta_yz_mrad", f"Primary #mu_{{1}} #theta_{{YZ}} ({lbl});#theta_{{YZ}}(#mu_{{1}}) [mrad];Events", "mu1_theta_yz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_sec_mu_theta_yz_mrad", f"Secondary #mu_{{2}} #theta_{{YZ}} ({lbl});#theta_{{YZ}}(#mu_{{2}}) [mrad];Events", "sec_mu_theta_yz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_dimuon_opening_angle_yz_mrad", f"Dimuon Opening Angle in YZ ({lbl});#Delta#theta_{{YZ}} [mrad];Events", "dimuon_opening_angle_yz_mrad", node, 60, 0.0, 300.0)
+
+        # Projected flight lengths
+        book_1d(f"h_{pref}_decay_length_xz", f"Charm Flight Length in XZ ({lbl});L_{{XZ}} [cm];Events", "decay_length_xz", node, 50, 0.0, 5.0)
+        book_1d(f"h_{pref}_decay_length_yz", f"Charm Flight Length in YZ ({lbl});L_{{YZ}} [cm];Events", "decay_length_yz", node, 50, 0.0, 5.0)
+
+        # Spatial separations at detector planes
+        # SciFi Entrance (z = 300 cm)
+        book_1d(f"h_{pref}_sep_x_scifi_entrance", f"Dimuon Separation #Delta x at SciFi Entrance ({lbl});#Delta x [cm];Events", "dimuon_sep_x_scifi_entrance", node, 50, 0.0, 25.0)
+        book_1d(f"h_{pref}_sep_y_scifi_entrance", f"Dimuon Separation #Delta y at SciFi Entrance ({lbl});#Delta y [cm];Events", "dimuon_sep_y_scifi_entrance", node, 50, 0.0, 25.0)
+        book_1d(f"h_{pref}_sep_3d_scifi_entrance", f"Dimuon 3D Separation at SciFi Entrance ({lbl});#Delta R_{{3D}} [cm];Events", "dimuon_sep_3d_scifi_entrance", node, 50, 0.0, 35.0)
+
+        # SciFi Exit (z = 390 cm)
+        book_1d(f"h_{pref}_sep_x_scifi_exit", f"Dimuon Separation #Delta x at SciFi Exit ({lbl});#Delta x [cm];Events", "dimuon_sep_x_scifi_exit", node, 50, 0.0, 40.0)
+        book_1d(f"h_{pref}_sep_y_scifi_exit", f"Dimuon Separation #Delta y at SciFi Exit ({lbl});#Delta y [cm];Events", "dimuon_sep_y_scifi_exit", node, 50, 0.0, 40.0)
+        book_1d(f"h_{pref}_sep_3d_scifi_exit", f"Dimuon 3D Separation at SciFi Exit ({lbl});#Delta R_{{3D}} [cm];Events", "dimuon_sep_3d_scifi_exit", node, 50, 0.0, 50.0)
+
+        # DS Entrance (z = 470 cm)
+        book_1d(f"h_{pref}_sep_x_ds_entrance", f"Dimuon Separation #Delta x at DS Entrance ({lbl});#Delta x [cm];Events", "dimuon_sep_x_ds_entrance", node, 50, 0.0, 60.0)
+        book_1d(f"h_{pref}_sep_y_ds_entrance", f"Dimuon Separation #Delta y at DS Entrance ({lbl});#Delta y [cm];Events", "dimuon_sep_y_ds_entrance", node, 50, 0.0, 60.0)
+        book_1d(f"h_{pref}_sep_3d_ds_entrance", f"Dimuon 3D Separation at DS Entrance ({lbl});#Delta R_{{3D}} [cm];Events", "dimuon_sep_3d_ds_entrance", node, 50, 0.0, 80.0)
+
+        # 2D Correlations
+        book_2d(f"h2_{pref}_sec_mu_theta_xz_vs_mu1_theta_xz", f"#theta_{{XZ}}(#mu_{{2}}) vs #theta_{{XZ}}(#mu_{{1}}) ({lbl});#theta_{{XZ}}(#mu_{{1}}) [mrad];#theta_{{XZ}}(#mu_{{2}}) [mrad]", "mu1_theta_xz_mrad", "sec_mu_theta_xz_mrad", node, 50, -300.0, 300.0, 50, -300.0, 300.0)
+        book_2d(f"h2_{pref}_sec_mu_theta_yz_vs_mu1_theta_yz", f"#theta_{{YZ}}(#mu_{{2}}) vs #theta_{{YZ}}(#mu_{{1}}) ({lbl});#theta_{{YZ}}(#mu_{{1}}) [mrad];#theta_{{YZ}}(#mu_{{2}}) [mrad]", "mu1_theta_yz_mrad", "sec_mu_theta_yz_mrad", node, 50, -300.0, 300.0, 50, -300.0, 300.0)
+        book_2d(f"h2_{pref}_opening_angle_yz_vs_xz", f"Opening Angle YZ vs XZ ({lbl});#Delta#theta_{{XZ}} [mrad];#Delta#theta_{{YZ}} [mrad]", "dimuon_opening_angle_xz_mrad", "dimuon_opening_angle_yz_mrad", node, 50, 0.0, 300.0, 50, 0.0, 300.0)
+        book_2d(f"h2_{pref}_sep_ds_entrance_y_vs_x", f"Dimuon Separation at DS Entrance ({lbl});#Delta x [cm];#Delta y [cm]", "dimuon_sep_x_ds_entrance", "dimuon_sep_y_ds_entrance", node, 50, 0.0, 60.0, 50, 0.0, 60.0)
+
+    # --------------------------------------------------------------------------
+    # 8b-5. Reconstructed DS Hough Tracks & Crossing Points (Reco_MuonTracks)
+    # --------------------------------------------------------------------------
+    reco_samples = [
+        ("signal", df_candidate, df_signal_2ds, df_signal_2ds_valid_cross, "Inclusive"),
+        ("direct", df_direct, df_direct_2ds, df_direct_2ds_valid_cross, "Direct Signal"),
+        ("indirect", df_indirect, df_indirect_2ds, df_indirect_2ds_valid_cross, "Indirect Fake"),
+    ]
+
+    for pref, cand_node, node_2ds, node_cross, lbl in reco_samples:
+        # Multiplicities
+        book_1d(f"h_{pref}_n_reco_muon_tracks", f"Total Reconstructed Tracks ({lbl});N_{{tracks}};Events", "n_reco_muon_tracks", cand_node, 11, -0.5, 10.5)
+        book_1d(f"h_{pref}_n_ds_hough_tracks", f"Reconstructed DS Hough Tracks ({lbl});N_{{DS tracks}} (type 13);Events", "n_ds_hough_tracks", cand_node, 11, -0.5, 10.5)
+        book_1d(f"h_{pref}_has_two_ds_tracks", f"Has >=2 Reconstructed DS Tracks ({lbl});Has >=2 DS Tracks;Events", "has_two_ds_tracks", cand_node, 2, -0.5, 1.5)
+
+        # For events with >= 2 DS tracks: Crossing Points & Vertex Comparison
+        book_1d(f"h_{pref}_2ds_reco_cross_z_xz", f"DS Tracks Crossing z in XZ ({lbl});z_{{cross, XZ}} [cm];Events", "reco_ds_cross_z_xz", node_cross, 70, 150.0, 500.0)
+        book_1d(f"h_{pref}_2ds_reco_cross_z_yz", f"DS Tracks Crossing z in YZ ({lbl});z_{{cross, YZ}} [cm];Events", "reco_ds_cross_z_yz", node_cross, 70, 150.0, 500.0)
+        book_1d(f"h_{pref}_2ds_reco_cross_x", f"DS Tracks Crossing x ({lbl});x_{{cross}} [cm];Events", "reco_ds_cross_x", node_cross, 60, -60.0, 0.0)
+        book_1d(f"h_{pref}_2ds_reco_cross_y", f"DS Tracks Crossing y ({lbl});y_{{cross}} [cm];Events", "reco_ds_cross_y", node_cross, 60, 5.0, 65.0)
+
+        # True neutrino vertex z for the 2 DS track events
+        book_1d(f"h_{pref}_2ds_truth_vtx_z", f"True Neutrino Interaction Vertex z for 2 DS Track Events ({lbl});z_{{vtx}}^{{true}} [cm];Events", "vtx_z", node_cross, 50, 260.0, 360.0)
+
+        # Delta z between XZ and YZ crossings
+        book_1d(f"h_{pref}_2ds_delta_z_cross", f"Crossing z Difference XZ - YZ ({lbl});#Delta z_{{cross}} = z_{{cross, XZ}} - z_{{cross, YZ}} [cm];Events", "reco_ds_delta_z_cross", node_cross, 60, -150.0, 150.0)
+        book_1d(f"h_{pref}_2ds_abs_delta_z_cross", f"Absolute Crossing z Difference |XZ - YZ| ({lbl});|#Delta z_{{cross}}| [cm];Events", "reco_ds_abs_delta_z_cross", node_cross, 60, 0.0, 150.0)
+
+        # Residuals relative to true neutrino vertex z
+        book_1d(f"h_{pref}_2ds_res_z_xz", f"Crossing z Residual in XZ ({lbl});z_{{cross, XZ}} - z_{{vtx}}^{{true}} [cm];Events", "reco_ds_res_z_xz", node_cross, 60, -150.0, 150.0)
+        book_1d(f"h_{pref}_2ds_res_z_yz", f"Crossing z Residual in YZ ({lbl});z_{{cross, YZ}} - z_{{vtx}}^{{true}} [cm];Events", "reco_ds_res_z_yz", node_cross, 60, -150.0, 150.0)
+
+        # 2D Correlations
+        book_2d(f"h2_{pref}_2ds_cross_z_yz_vs_xz", f"DS Crossing z_{{YZ}} vs z_{{XZ}} ({lbl});z_{{cross, XZ}} [cm];z_{{cross, YZ}} [cm]", "reco_ds_cross_z_xz", "reco_ds_cross_z_yz", node_cross, 60, 150.0, 450.0, 60, 150.0, 450.0)
+        book_2d(f"h2_{pref}_2ds_cross_z_xz_vs_vtx_z", f"DS Crossing z_{{XZ}} vs True Vertex z ({lbl});z_{{vtx}}^{{true}} [cm];z_{{cross, XZ}} [cm]", "vtx_z", "reco_ds_cross_z_xz", node_cross, 50, 260.0, 360.0, 60, 150.0, 450.0)
+        book_2d(f"h2_{pref}_2ds_cross_z_yz_vs_vtx_z", f"DS Crossing z_{{YZ}} vs True Vertex z ({lbl});z_{{vtx}}^{{true}} [cm];z_{{cross, YZ}} [cm]", "vtx_z", "reco_ds_cross_z_yz", node_cross, 50, 260.0, 360.0, 60, 150.0, 450.0)
+        book_2d(f"h2_{pref}_2ds_cross_y_vs_x", f"DS Crossing y vs x ({lbl});x_{{cross}} [cm];y_{{cross}} [cm]", "reco_ds_cross_x", "reco_ds_cross_y", node_cross, 50, -60.0, 0.0, 50, 5.0, 65.0)
+
+
 
     # --------------------------------------------------------------------------
     # 8c. TProfiles: Kinematic Means & Acceptance Probability Profiles
@@ -1085,7 +1361,74 @@ def main():
     book_prof("p_mu2_acc_eff_vs_mu2_pt", "Secondary #mu_{2} DS Acceptance vs p_{T,#mu2};p_{T,#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "sec_mu_pt", "mu2_in_ds_acc_double", df_candidate, 50, 0.0, 5.0, 0.0, 1.0)
 
     # --------------------------------------------------------------------------
-    # 8d. Charmed Hadron Species Breakdowns
+    # 8d. TEfficiency with Clopper-Pearson Intervals
+    # --------------------------------------------------------------------------
+    # 1. DS Acceptance Efficiencies
+    eff_acc_targets = [
+        ("signal", df_in_acc, df_candidate, "Inclusive"),
+        ("direct", df_direct_in_acc, df_direct, "Direct Signal"),
+        ("indirect", df_indirect_in_acc, df_indirect, "Indirect Fake"),
+    ]
+
+    for pref, node_p, node_t, lbl in eff_acc_targets:
+        book_teff(f"teff_ds_acc_{pref}_vs_nu_e", f"DS Acceptance Efficiency vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{DS}}", "nu_e", node_p, node_t, 40, 0.0, 800.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_mu1_e", f"DS Acceptance Efficiency vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{DS}}", "mu1_e", node_p, node_t, 40, 0.0, 800.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_mu2_e", f"DS Acceptance Efficiency vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{DS}}", "sec_mu_e", node_p, node_t, 50, 0.0, 300.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_dimuon_delta_e", f"DS Acceptance Efficiency vs #Delta E ({lbl});E_{{#mu1}} - E_{{#mu2}} [GeV];#epsilon_{{DS}}", "dimuon_delta_e_unified", node_p, node_t, 40, -50.0, 600.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_dimuon_energy_asym", f"DS Acceptance Efficiency vs Energy Asymmetry ({lbl});A_{{E}};#epsilon_{{DS}}", "dimuon_energy_asym_unified", node_p, node_t, 40, -1.0, 1.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_vtx_z", f"DS Acceptance Efficiency vs z_{{vtx}} ({lbl});z_{{vtx}} [cm];#epsilon_{{DS}}", "vtx_z", node_p, node_t, 40, 260.0, 360.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_opening_angle_3d", f"DS Acceptance Efficiency vs #theta_{{3D}} ({lbl});#theta_{{#mu#mu}} [mrad];#epsilon_{{DS}}", "dimuon_opening_angle_mrad_unified", node_p, node_t, 50, 0.0, 2000.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_opening_angle_xz", f"DS Acceptance Efficiency vs #Delta#theta_{{XZ}} ({lbl});#Delta#theta_{{XZ}} [mrad];#epsilon_{{DS}}", "dimuon_opening_angle_xz_mrad", node_p, node_t, 50, 0.0, 500.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_opening_angle_yz", f"DS Acceptance Efficiency vs #Delta#theta_{{YZ}} ({lbl});#Delta#theta_{{YZ}} [mrad];#epsilon_{{DS}}", "dimuon_opening_angle_yz_mrad", node_p, node_t, 50, 0.0, 500.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_dimuon_mass", f"DS Acceptance Efficiency vs M_{{#mu#mu}} ({lbl});M_{{#mu#mu}} [GeV/c^{{2}}];#epsilon_{{DS}}", "dimuon_mass_unified", node_p, node_t, 50, 0.0, 15.0)
+
+    # Single muon acceptance
+    df_mu1_in_acc_node = df_candidate.Filter("mu1_in_ds_acceptance")
+    book_teff("teff_ds_acc_mu1_vs_mu1_e", "Primary #mu_{1} DS Acceptance vs E_{#mu1};E_{#mu1} [GeV];#epsilon_{DS}(#mu_{1})", "mu1_e", df_mu1_in_acc_node, df_candidate, 40, 0.0, 800.0)
+    book_teff("teff_ds_acc_mu1_vs_mu1_eta", "Primary #mu_{1} DS Acceptance vs #eta_{#mu1};#eta_{#mu1};#epsilon_{DS}(#mu_{1})", "mu1_eta", df_mu1_in_acc_node, df_candidate, 40, 4.0, 10.0)
+    book_teff("teff_ds_acc_mu2_vs_mu2_e", "Secondary #mu_{2} DS Acceptance vs E_{#mu2};E_{#mu2} [GeV];#epsilon_{DS}(#mu_{2})", "sec_mu_e", df_mu2_in_acc, df_candidate, 50, 0.0, 300.0)
+    book_teff("teff_ds_acc_mu2_vs_mu2_eta", "Secondary #mu_{2} DS Acceptance vs #eta_{#mu2};#eta_{#mu2};#epsilon_{DS}(#mu_{2})", "sec_mu_eta", df_mu2_in_acc, df_candidate, 40, 4.0, 10.0)
+
+    # 2. Reconstructed Two DS Tracks Overall Efficiency (relative to candidate sample)
+    eff_2ds_targets = [
+        ("signal", df_signal_2ds, df_candidate, "Inclusive"),
+        ("direct", df_direct_2ds, df_direct, "Direct Signal"),
+        ("indirect", df_indirect_2ds, df_indirect, "Indirect Fake"),
+    ]
+
+    for pref, node_p, node_t, lbl in eff_2ds_targets:
+        book_teff(f"teff_2ds_overall_{pref}_vs_nu_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{2 DS}}", "nu_e", node_p, node_t, 40, 0.0, 800.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_mu1_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{2 DS}}", "mu1_e", node_p, node_t, 40, 0.0, 800.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_mu2_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{2 DS}}", "sec_mu_e", node_p, node_t, 50, 0.0, 300.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_vtx_z", f"Two DS Tracks Efficiency (Overall) vs z_{{vtx}} ({lbl});z_{{vtx}} [cm];#epsilon_{{2 DS}}", "vtx_z", node_p, node_t, 40, 260.0, 360.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_opening_angle_3d", f"Two DS Tracks Efficiency (Overall) vs #theta_{{3D}} ({lbl});#theta_{{#mu#mu}} [mrad];#epsilon_{{2 DS}}", "dimuon_opening_angle_mrad_unified", node_p, node_t, 50, 0.0, 2000.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_opening_angle_xz", f"Two DS Tracks Efficiency (Overall) vs #Delta#theta_{{XZ}} ({lbl});#Delta#theta_{{XZ}} [mrad];#epsilon_{{2 DS}}", "dimuon_opening_angle_xz_mrad", node_p, node_t, 50, 0.0, 500.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_opening_angle_yz", f"Two DS Tracks Efficiency (Overall) vs #Delta#theta_{{YZ}} ({lbl});#Delta#theta_{{YZ}} [mrad];#epsilon_{{2 DS}}", "dimuon_opening_angle_yz_mrad", node_p, node_t, 50, 0.0, 500.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_sep_ds_entrance_x", f"Two DS Tracks Efficiency (Overall) vs #Delta x at DS ({lbl});#Delta x [cm];#epsilon_{{2 DS}}", "dimuon_sep_x_ds_entrance", node_p, node_t, 50, 0.0, 60.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_sep_ds_entrance_y", f"Two DS Tracks Efficiency (Overall) vs #Delta y at DS ({lbl});#Delta y [cm];#epsilon_{{2 DS}}", "dimuon_sep_y_ds_entrance", node_p, node_t, 50, 0.0, 60.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_sep_ds_entrance_3d", f"Two DS Tracks Efficiency (Overall) vs #Delta R_{{3D}} at DS ({lbl});#Delta R_{{3D}} [cm];#epsilon_{{2 DS}}", "dimuon_sep_3d_ds_entrance", node_p, node_t, 50, 0.0, 80.0)
+
+    # 3. Reconstructed Two DS Tracks Within DS Acceptance (reconstruction efficiency given both muons reach DS)
+    eff_2ds_in_acc_targets = [
+        ("signal", df_signal_2ds_in_acc, df_in_acc, "Inclusive In DS Acc"),
+        ("direct", df_direct_2ds_in_acc, df_direct_in_acc, "Direct Signal In DS Acc"),
+        ("indirect", df_indirect_2ds_in_acc, df_indirect_in_acc, "Indirect Fake In DS Acc"),
+    ]
+
+    for pref, node_p, node_t, lbl in eff_2ds_in_acc_targets:
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_nu_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{2 DS | DS Acc}}", "nu_e", node_p, node_t, 40, 0.0, 800.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_mu1_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{2 DS | DS Acc}}", "mu1_e", node_p, node_t, 40, 0.0, 800.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_mu2_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{2 DS | DS Acc}}", "sec_mu_e", node_p, node_t, 50, 0.0, 300.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_vtx_z", f"Two DS Tracks Reconstruction Efficiency vs z_{{vtx}} ({lbl});z_{{vtx}} [cm];#epsilon_{{2 DS | DS Acc}}", "vtx_z", node_p, node_t, 40, 260.0, 360.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_opening_angle_3d", f"Two DS Tracks Reconstruction Efficiency vs #theta_{{3D}} ({lbl});#theta_{{#mu#mu}} [mrad];#epsilon_{{2 DS | DS Acc}}", "dimuon_opening_angle_mrad_unified", node_p, node_t, 50, 0.0, 2000.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_opening_angle_xz", f"Two DS Tracks Reconstruction Efficiency vs #Delta#theta_{{XZ}} ({lbl});#Delta#theta_{{XZ}} [mrad];#epsilon_{{2 DS | DS Acc}}", "dimuon_opening_angle_xz_mrad", node_p, node_t, 50, 0.0, 500.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_opening_angle_yz", f"Two DS Tracks Reconstruction Efficiency vs #Delta#theta_{{YZ}} ({lbl});#Delta#theta_{{YZ}} [mrad];#epsilon_{{2 DS | DS Acc}}", "dimuon_opening_angle_yz_mrad", node_p, node_t, 50, 0.0, 500.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_sep_ds_entrance_x", f"Two DS Tracks Reconstruction Efficiency vs #Delta x ({lbl});#Delta x [cm];#epsilon_{{2 DS | DS Acc}}", "dimuon_sep_x_ds_entrance", node_p, node_t, 50, 0.0, 60.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_sep_ds_entrance_y", f"Two DS Tracks Reconstruction Efficiency vs #Delta y ({lbl});#Delta y [cm];#epsilon_{{2 DS | DS Acc}}", "dimuon_sep_y_ds_entrance", node_p, node_t, 50, 0.0, 60.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_sep_ds_entrance_3d", f"Two DS Tracks Reconstruction Efficiency vs #Delta R_{{3D}} ({lbl});#Delta R_{{3D}} [cm];#epsilon_{{2 DS | DS Acc}}", "dimuon_sep_3d_ds_entrance", node_p, node_t, 50, 0.0, 80.0)
+
+    # --------------------------------------------------------------------------
+    # 8e. Charmed Hadron Species Breakdowns
     # --------------------------------------------------------------------------
     species_samples = [
         ("d0", df_d0, "D^{0}"),
@@ -1219,11 +1562,28 @@ def main():
     all_actions.extend(booked_histograms_1d.values())
     all_actions.extend(booked_histograms_2d.values())
     all_actions.extend(booked_profiles.values())
+    for title, h_p, h_t in booked_teff_pairs.values():
+        all_actions.append(h_p)
+        all_actions.append(h_t)
 
-    n_total_plots = len(booked_histograms_1d) + len(booked_histograms_2d) + len(booked_profiles)
+    n_total_plots = len(booked_histograms_1d) + len(booked_histograms_2d) + len(booked_profiles) + len(booked_teff_pairs)
     print(f"\nRunning RDataFrame computation graph over {n_total_plots} booked objects "
-          f"({len(booked_histograms_1d)} 1D, {len(booked_histograms_2d)} 2D, {len(booked_profiles)} Profiles)...")
+          f"({len(booked_histograms_1d)} 1D, {len(booked_histograms_2d)} 2D, {len(booked_profiles)} Profiles, {len(booked_teff_pairs)} TEfficiencies)...")
     ROOT.RDF.RunGraphs(all_actions)
+
+    # Instantiate TEfficiency objects with Clopper-Pearson confidence intervals
+    teff_objects = {}
+    for name, (title, h_pass_res, h_tot_res) in booked_teff_pairs.items():
+        h_p = h_pass_res.GetValue()
+        h_t = h_tot_res.GetValue()
+        if ROOT.TEfficiency.CheckConsistency(h_p, h_t):
+            eff = ROOT.TEfficiency(h_p, h_t)
+            eff.SetName(name)
+            eff.SetTitle(title)
+            eff.SetStatisticOption(ROOT.TEfficiency.kFCP) # Clopper-Pearson
+            teff_objects[name] = eff
+        else:
+            print(f"Warning: Consistency check failed for TEfficiency {name}")
 
     # 10. Print Comprehensive Cutflow, Acceptance, and Kinematic Summary
     n_tot = c_total.GetValue()
@@ -1261,6 +1621,12 @@ def main():
     n_indir_dplus = c_indirect_dplus.GetValue()
     n_indir_ds = c_indirect_ds.GetValue()
     n_indir_lambdac = c_indirect_lambdac.GetValue()
+    n_2ds_signal = c_2ds_signal.GetValue()
+    n_2ds_direct = c_2ds_direct.GetValue()
+    n_2ds_indirect = c_2ds_indirect.GetValue()
+    n_2ds_signal_in_acc = c_2ds_signal_in_acc.GetValue()
+    n_2ds_direct_in_acc = c_2ds_direct_in_acc.GetValue()
+    n_2ds_indirect_in_acc = c_2ds_indirect_in_acc.GetValue()
 
     print("\n" + "=" * 80)
     print(" ALL INTERACTING MUON NEUTRINOS IN DETECTOR")
@@ -1302,6 +1668,36 @@ def main():
     print(f"Inclusive Outside DS         : {n_out_acc:8d} ({100.0 * n_out_acc / max(n_cand, 1):6.2f}% of inclusive)")
     print(f"Primary Muon (mu1) in DS     : {n_mu1_acc:8d} ({100.0 * n_mu1_acc / max(n_cand, 1):6.2f}% of inclusive)")
     print(f"Charm Decay Muon (mu2) in DS : {n_mu2_acc:8d} ({100.0 * n_mu2_acc / max(n_cand, 1):6.2f}% of inclusive)")
+    print("-" * 80)
+    print(" RECONSTRUCTED DS HOUGH TRACKS BREAKDOWN (sndRecoTrack::getTrackType() == 13)")
+    print("-" * 80)
+    print(f"Inclusive >=2 DS Tracks       : {n_2ds_signal:8d} ({100.0 * n_2ds_signal / max(n_cand, 1):6.2f}% of inclusive candidates)")
+    print(f"  - Direct Signal >=2 DS Tracks: {n_2ds_direct:8d} ({100.0 * n_2ds_direct / max(n_dir, 1):6.2f}% of direct signal)")
+    print(f"  - Indirect Fake >=2 DS Tracks: {n_2ds_indirect:8d} ({100.0 * n_2ds_indirect / max(n_indir, 1):6.2f}% of indirect fake)")
+    print(f"Within DS Acceptance:")
+    print(f"Inclusive >=2 DS Tracks In Acc: {n_2ds_signal_in_acc:8d} ({100.0 * n_2ds_signal_in_acc / max(n_in_acc, 1):6.2f}% of in-acc inclusive)")
+    print(f"  - Direct Signal In Acc       : {n_2ds_direct_in_acc:8d} ({100.0 * n_2ds_direct_in_acc / max(n_dir_in_acc, 1):6.2f}% of in-acc direct)")
+    print(f"  - Indirect Fake In Acc       : {n_2ds_indirect_in_acc:8d} ({100.0 * n_2ds_indirect_in_acc / max(n_indir_in_acc, 1):6.2f}% of in-acc indirect)")
+    if "h_signal_2ds_reco_cross_z_xz" in booked_histograms_1d:
+        print("-" * 80)
+        print(" RECONSTRUCTED DS TRACKS CROSSING VERTEX (FOR EVENTS WITH >= 2 DS TRACKS)")
+        print("-" * 80)
+        print(f"{'Observable':<36} | {'Inclusive':>13} | {'Direct Signal':>13} | {'Indirect Fake':>13}")
+        print("-" * 80)
+        reco_cross_obs = [
+            ("Crossing z in XZ [cm]", "h_signal_2ds_reco_cross_z_xz", "h_direct_2ds_reco_cross_z_xz", "h_indirect_2ds_reco_cross_z_xz"),
+            ("Crossing z in YZ [cm]", "h_signal_2ds_reco_cross_z_yz", "h_direct_2ds_reco_cross_z_yz", "h_indirect_2ds_reco_cross_z_yz"),
+            ("Delta z (XZ - YZ) [cm]", "h_signal_2ds_delta_z_cross", "h_direct_2ds_delta_z_cross", "h_indirect_2ds_delta_z_cross"),
+            ("|Delta z| (XZ - YZ) [cm]", "h_signal_2ds_abs_delta_z_cross", "h_direct_2ds_abs_delta_z_cross", "h_indirect_2ds_abs_delta_z_cross"),
+            ("True Vertex z [cm]", "h_signal_2ds_truth_vtx_z", "h_direct_2ds_truth_vtx_z", "h_indirect_2ds_truth_vtx_z"),
+            ("Residual z in XZ (z_xz - z_vtx)", "h_signal_2ds_res_z_xz", "h_direct_2ds_res_z_xz", "h_indirect_2ds_res_z_xz"),
+            ("Residual z in YZ (z_yz - z_vtx)", "h_signal_2ds_res_z_yz", "h_direct_2ds_res_z_yz", "h_indirect_2ds_res_z_yz"),
+        ]
+        for label_str, h_inc_name, h_dir_name, h_indir_name in reco_cross_obs:
+            m_inc = booked_histograms_1d[h_inc_name].GetValue().GetMean() if h_inc_name in booked_histograms_1d else 0.0
+            m_dir = booked_histograms_1d[h_dir_name].GetValue().GetMean() if h_dir_name in booked_histograms_1d else 0.0
+            m_indir = booked_histograms_1d[h_indir_name].GetValue().GetMean() if h_indir_name in booked_histograms_1d else 0.0
+            print(f"{label_str:<36} | {m_inc:13.2f} | {m_dir:13.2f} | {m_indir:13.2f}")
     print("-" * 80)
     print(" CHARMED HADRON SPECIES IN SIGNAL SAMPLE")
     print("-" * 80)
@@ -1379,7 +1775,7 @@ def main():
         print(f"{label_str:<32} | {m_inc:14.4f} | {m_dir:14.4f} | {m_indir:14.4f}")
     print("=" * 80)
 
-    # 11. Save Histograms & Profiles into Hierarchical Output ROOT File
+    # 11. Save Histograms, Profiles & TEfficiencies into Hierarchical Output ROOT File
     out_dir = os.path.dirname(output_file)
     if out_dir and not os.path.exists(out_dir):
         os.makedirs(out_dir, exist_ok=True)
@@ -1397,7 +1793,8 @@ def main():
             "h2_signal_mu2_e_vs_mu1_e_zoom",
             "h_signal_dimuon_opening_angle_mrad",
             "h_signal_dimuon_mass",
-            "p_acc_eff_vs_nu_e",
+            "teff_ds_acc_signal_vs_nu_e",
+            "teff_2ds_overall_signal_vs_nu_e",
         ]
         for key in top_overview_keys:
             if key in booked_histograms_1d:
@@ -1406,33 +1803,12 @@ def main():
                 booked_histograms_2d[key].GetValue().Write()
             elif key in booked_profiles:
                 booked_profiles[key].GetValue().Write()
+            elif key in teff_objects:
+                teff_objects[key].Write()
 
-        # 11b. Hierarchical structured subdirectories for TBrowser & rootls
+        # 11b. Hierarchical structured subdirectories
+        # 1. all_muon_neutrinos
         d_numu = out_file.mkdir("all_muon_neutrinos")
-        d_sig = out_file.mkdir("inclusive_signal")
-        d_sig_2d = d_sig.mkdir("correlations_2d")
-        d_sig_prof = d_sig.mkdir("profiles")
-
-        d_direct = out_file.mkdir("direct_signal")
-        d_direct_2d = d_direct.mkdir("correlations_2d")
-        d_direct_prof = d_direct.mkdir("profiles")
-
-        d_indirect = out_file.mkdir("indirect_fake_signal")
-        d_indirect_2d = d_indirect.mkdir("correlations_2d")
-        d_indirect_prof = d_indirect.mkdir("profiles")
-        d_intermediate = d_indirect.mkdir("intermediate_daughters")
-
-        d_comp_dir = out_file.mkdir("direct_vs_indirect")
-
-        d_acc = out_file.mkdir("acceptance")
-        d_in = d_acc.mkdir("in_acceptance")
-        d_out = d_acc.mkdir("outside_acceptance")
-        d_acc_prof = d_acc.mkdir("efficiency_profiles")
-
-        d_spec = out_file.mkdir("species")
-        d_cf = out_file.mkdir("cutflow")
-
-        # Populate all_muon_neutrinos
         d_numu.cd()
         for name, h_res in booked_histograms_1d.items():
             if name.startswith("h_all_numu_"):
@@ -1441,64 +1817,136 @@ def main():
             if name.startswith("h2_all_numu_"):
                 h2_res.GetValue().Write()
 
-        # Populate inclusive_signal
-        d_sig.cd()
+        # Helper to separate projected and reco variables from pure 3D folders
+        def is_proj_or_reco(n):
+            return any(x in n for x in ["_slope_", "_theta_xz", "_theta_yz", "_opening_angle_xz", "_opening_angle_yz", "_sep_", "_reco_", "_2ds_", "has_two_ds"])
+
+        # 2. truth_3d
+        d_truth3d = out_file.mkdir("truth_3d")
+        d_truth3d_inc = d_truth3d.mkdir("inclusive_signal")
+        d_truth3d_dir = d_truth3d.mkdir("direct_signal")
+        d_truth3d_indir = d_truth3d.mkdir("indirect_fake_signal")
+        d_truth3d_inter = d_truth3d_indir.mkdir("intermediate_daughters")
+        d_truth3d_2d = d_truth3d.mkdir("correlations_2d")
+        d_truth3d_prof = d_truth3d.mkdir("profiles")
+
+        d_truth3d_inc.cd()
         for name, h_res in booked_histograms_1d.items():
-            if name.startswith("h_signal_"):
+            if name.startswith("h_signal_") and not is_proj_or_reco(name):
                 h_res.GetValue().Write()
-        d_sig_2d.cd()
+
+        d_truth3d_dir.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if name.startswith("h_direct_") and not ("_in_acc" in name or "_out_acc" in name or is_proj_or_reco(name)):
+                h_res.GetValue().Write()
+
+        d_truth3d_indir.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if name.startswith("h_indirect_") and not ("_in_acc" in name or "_out_acc" in name or is_proj_or_reco(name) or any(x in name for x in ["downstream_muon", "mother", "pion", "kaon", "other"])):
+                h_res.GetValue().Write()
+
+        d_truth3d_inter.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if any(name.startswith(x) for x in ["h_indirect_downstream_muon_", "h_indirect_mother_", "h_indirect_pion_", "h_indirect_kaon_", "h_indirect_other_"]):
+                h_res.GetValue().Write()
+
+        d_truth3d_2d.cd()
         for name, h2_res in booked_histograms_2d.items():
-            if name.startswith("h2_signal_"):
+            if (name.startswith("h2_signal_") or name.startswith("h2_direct_") or name.startswith("h2_indirect_")) and not is_proj_or_reco(name):
                 h2_res.GetValue().Write()
-        d_sig_prof.cd()
+
+        d_truth3d_prof.cd()
         for name, p_res in booked_profiles.items():
-            if name.startswith("p_signal_"):
+            if (name.startswith("p_signal_") or name.startswith("p_direct_") or name.startswith("p_indirect_")) and not ("acc_eff" in name):
                 p_res.GetValue().Write()
 
-        # Populate direct_signal
-        d_direct.cd()
+        # 3. truth_projections_xz_yz
+        d_proj = out_file.mkdir("truth_projections_xz_yz")
+        d_proj_xz = d_proj.mkdir("angles_and_slopes_xz")
+        d_proj_yz = d_proj.mkdir("angles_and_slopes_yz")
+        d_proj_sep = d_proj.mkdir("spatial_separations")
+        d_proj_decay = d_proj.mkdir("decay_lengths")
+        d_proj_2d = d_proj.mkdir("correlations_2d")
+
+        d_proj_xz.cd()
         for name, h_res in booked_histograms_1d.items():
-            if name.startswith("h_direct_") and not ("_in_acc" in name or "_out_acc" in name):
+            if any(x in name for x in ["_slope_xz", "_theta_xz_mrad", "_opening_angle_xz_mrad", "_delta_slope_xz"]):
                 h_res.GetValue().Write()
-        d_direct_2d.cd()
+
+        d_proj_yz.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if any(x in name for x in ["_slope_yz", "_theta_yz_mrad", "_opening_angle_yz_mrad", "_delta_slope_yz"]):
+                h_res.GetValue().Write()
+
+        d_proj_sep.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if "_sep_" in name:
+                h_res.GetValue().Write()
+
+        d_proj_decay.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if any(x in name for x in ["_decay_length_xz", "_decay_length_yz"]):
+                h_res.GetValue().Write()
+
+        d_proj_2d.cd()
         for name, h2_res in booked_histograms_2d.items():
-            if name.startswith("h2_direct_"):
+            if any(x in name for x in ["_theta_xz_", "_theta_yz_", "opening_angle_yz_vs_xz", "_sep_ds_entrance_"]):
                 h2_res.GetValue().Write()
-        d_direct_prof.cd()
-        for name, p_res in booked_profiles.items():
-            if name.startswith("p_direct_") and not ("_acc_eff" in name):
-                p_res.GetValue().Write()
 
-        # Populate indirect_fake_signal
-        d_indirect.cd()
+        # 4. reco_ds_tracks
+        d_reco = out_file.mkdir("reco_ds_tracks")
+        d_reco_mult = d_reco.mkdir("multiplicities")
+        d_reco_cross = d_reco.mkdir("crossing_points")
+        d_reco_res = d_reco.mkdir("delta_z_and_residuals")
+        d_reco_2d = d_reco.mkdir("correlations_2d")
+
+        d_reco_mult.cd()
         for name, h_res in booked_histograms_1d.items():
-            if name.startswith("h_indirect_") and not ("_in_acc" in name or "_out_acc" in name or "downstream_muon" in name or "mother" in name or "pion" in name or "kaon" in name or "other" in name):
+            if any(x in name for x in ["_n_reco_muon_tracks", "_n_ds_hough_tracks", "_has_two_ds_tracks"]):
                 h_res.GetValue().Write()
-        d_indirect_2d.cd()
+
+        d_reco_cross.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if any(x in name for x in ["_2ds_reco_cross_", "_2ds_truth_vtx_z"]):
+                h_res.GetValue().Write()
+
+        d_reco_res.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if any(x in name for x in ["_2ds_delta_z_cross", "_2ds_abs_delta_z_cross", "_2ds_res_z_"]):
+                h_res.GetValue().Write()
+
+        d_reco_2d.cd()
         for name, h2_res in booked_histograms_2d.items():
-            if name.startswith("h2_indirect_"):
+            if "_2ds_" in name:
                 h2_res.GetValue().Write()
-        d_indirect_prof.cd()
-        for name, p_res in booked_profiles.items():
-            if name.startswith("p_indirect_") and not ("_acc_eff" in name):
-                p_res.GetValue().Write()
 
-        # Populate intermediate_daughters
-        d_intermediate.cd()
-        for name, h_res in booked_histograms_1d.items():
-            if name.startswith("h_indirect_downstream_muon_") or name.startswith("h_indirect_mother_") or name.startswith("h_indirect_pion_") or name.startswith("h_indirect_kaon_") or name.startswith("h_indirect_other_"):
-                h_res.GetValue().Write()
+        # 5. efficiencies_clopper_pearson
+        d_eff = out_file.mkdir("efficiencies_clopper_pearson")
+        d_eff_ds = d_eff.mkdir("ds_acceptance")
+        d_eff_2ds_ovr = d_eff.mkdir("two_ds_tracks_overall")
+        d_eff_2ds_acc = d_eff.mkdir("two_ds_tracks_in_ds_acceptance")
 
-        # Populate direct_vs_indirect
-        d_comp_dir.cd()
-        for name, h_res in booked_histograms_1d.items():
-            if (name.startswith("h_direct_") or name.startswith("h_indirect_")) and not ("_in_acc" in name or "_out_acc" in name):
-                h_res.GetValue().Write()
-        for name, p_res in booked_profiles.items():
-            if (name.startswith("p_direct_") or name.startswith("p_indirect_")) and not ("_acc_eff" in name):
-                p_res.GetValue().Write()
+        d_eff_ds.cd()
+        for name, eff in teff_objects.items():
+            if name.startswith("teff_ds_acc_"):
+                eff.Write()
 
-        # Populate acceptance (in_acceptance, outside_acceptance, efficiency_profiles)
+        d_eff_2ds_ovr.cd()
+        for name, eff in teff_objects.items():
+            if name.startswith("teff_2ds_overall_"):
+                eff.Write()
+
+        d_eff_2ds_acc.cd()
+        for name, eff in teff_objects.items():
+            if name.startswith("teff_2ds_in_acc_"):
+                eff.Write()
+
+        # 6. acceptance_comparison
+        d_acc = out_file.mkdir("acceptance_comparison")
+        d_in = d_acc.mkdir("in_acceptance")
+        d_out = d_acc.mkdir("outside_acceptance")
+        d_acc_prof = d_acc.mkdir("acceptance_profiles_legacy")
+
         d_in.cd()
         for name, h_res in booked_histograms_1d.items():
             if name.startswith("h_in_acc_") or name.startswith("h_direct_in_acc_") or name.startswith("h_indirect_in_acc_"):
@@ -1514,20 +1962,22 @@ def main():
             if "acc_eff" in name:
                 p_res.GetValue().Write()
 
-        # Populate species
+        # 7. species
+        d_spec = out_file.mkdir("species")
         d_spec.cd()
         for name, h_res in booked_histograms_1d.items():
             if name.startswith("h_species_"):
                 h_res.GetValue().Write()
 
-        # Populate cutflow
+        # 8. cutflow
+        d_cf = out_file.mkdir("cutflow")
         d_cf.cd()
         for name, h_res in booked_histograms_1d.items():
             if name.startswith("h_cutflow_"):
                 h_res.GetValue().Write()
 
         out_file.Close()
-        print(f"\nSaved {n_total_plots} objects ({len(booked_histograms_1d)} 1D, {len(booked_histograms_2d)} 2D, {len(booked_profiles)} Profiles) to: {output_file}")
+        print(f"\nSaved {n_total_plots} objects ({len(booked_histograms_1d)} 1D, {len(booked_histograms_2d)} 2D, {len(booked_profiles)} Profiles, {len(teff_objects)} TEfficiencies) to: {output_file}")
 
     print("\nTruth analysis and histogram generation completed successfully!")
 

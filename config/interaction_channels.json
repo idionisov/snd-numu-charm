@@ -1,7 +1,7 @@
 {
   "metadata": {
     "description": "Lookup table of unique SND@LHC neutrino interaction channels and charm decays",
-    "total_primary_channels": 2372,
+    "total_primary_channels": 2401,
     "total_charm_decay_channels": 34
   },
   "primary_channels": {

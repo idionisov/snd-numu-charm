@@ -475,12 +475,17 @@ MuonNeutrinoTruthInfo MuonNeutrinoTruthProcessor::processMuonNeutrino(
             info.mu1InDS = (nHor >= fConfig.minDSHorizontalPoints && nVer >= fConfig.minDSVerticalPoints);
         }
 
-        // 8b. Charm Decay Muon (mu_2) DS Points
-        if (info.mu2TrackId >= 0) {
+        // 8b. Secondary Muon (mu_2) DS Points (Direct charm muon or Indirect downstream muon)
+        int targetMu2Id = info.mu2TrackId;
+        if (targetMu2Id < 0 && info.hasCharmHadronicDownstreamMuon) {
+            targetMu2Id = info.downstreamMuonTrackId;
+        }
+
+        if (targetMu2Id >= 0) {
             int nTot = 0, nHor = 0, nVer = 0;
             for (int i = 0; i < nPoints; ++i) {
                 auto* pt = static_cast<const FairMCPoint*>(muFilterPoints->At(i));
-                if (!pt || pt->GetTrackID() != info.mu2TrackId) continue;
+                if (!pt || pt->GetTrackID() != targetMu2Id) continue;
                 int detID = pt->GetDetectorID();
                 if ((detID / 10000) == 3) {
                     nTot++;

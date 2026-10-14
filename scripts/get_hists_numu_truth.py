@@ -251,6 +251,7 @@ def main():
     #include "TVector3.h"
     #include "ShipMCTrack.h"
     #include "sndRecoTrack.h"
+    #include "FairMCPoint.h"
     #include <cmath>
     #include <algorithm>
 
@@ -424,6 +425,58 @@ def main():
         inline double delta_r(double dphi, double deta) {
             return std::sqrt(dphi*dphi + deta*deta);
         }
+        inline bool is_trk_in_ds(int trk_id, const TClonesArray& pts, int min_hor = 3, int min_ver = 3) {
+            if (trk_id < 0) return false;
+            int nHor = 0, nVer = 0;
+            const int nPoints = pts.GetEntriesFast();
+            for (int i = 0; i < nPoints; ++i) {
+                auto* pt = static_cast<const FairMCPoint*>(pts.At(i));
+                if (!pt || pt->GetTrackID() != trk_id) continue;
+                int detID = pt->GetDetectorID();
+                if ((detID / 10000) == 3) {
+                    int bar = detID % 1000;
+                    if (bar < 60) nHor++;
+                    else nVer++;
+                }
+            }
+            return (nHor >= min_hor && nVer >= min_ver);
+        }
+        inline int count_ds_points(int trk_id, const TClonesArray& pts) {
+            if (trk_id < 0) return 0;
+            int nTot = 0;
+            const int nPoints = pts.GetEntriesFast();
+            for (int i = 0; i < nPoints; ++i) {
+                auto* pt = static_cast<const FairMCPoint*>(pts.At(i));
+                if (!pt || pt->GetTrackID() != trk_id) continue;
+                int detID = pt->GetDetectorID();
+                if ((detID / 10000) == 3) nTot++;
+            }
+            return nTot;
+        }
+        inline int count_ds_hor_points(int trk_id, const TClonesArray& pts) {
+            if (trk_id < 0) return 0;
+            int nHor = 0;
+            const int nPoints = pts.GetEntriesFast();
+            for (int i = 0; i < nPoints; ++i) {
+                auto* pt = static_cast<const FairMCPoint*>(pts.At(i));
+                if (!pt || pt->GetTrackID() != trk_id) continue;
+                int detID = pt->GetDetectorID();
+                if ((detID / 10000) == 3 && (detID % 1000 < 60)) nHor++;
+            }
+            return nHor;
+        }
+        inline int count_ds_ver_points(int trk_id, const TClonesArray& pts) {
+            if (trk_id < 0) return 0;
+            int nVer = 0;
+            const int nPoints = pts.GetEntriesFast();
+            for (int i = 0; i < nPoints; ++i) {
+                auto* pt = static_cast<const FairMCPoint*>(pts.At(i));
+                if (!pt || pt->GetTrackID() != trk_id) continue;
+                int detID = pt->GetDetectorID();
+                if ((detID / 10000) == 3 && (detID % 1000 >= 60)) nVer++;
+            }
+            return nVer;
+        }
     }
     """)
 
@@ -483,6 +536,20 @@ def main():
         df_truth = safe_def(df_truth, "downstream_muon_pdg", "0")
 
         # Unified secondary muon observables across direct and indirect decays
+        df_truth = safe_def(df_truth, "sec_mu_track_id", "(charm_has_direct_muon == 1) ? mu2_track_id : downstream_muon_track_id")
+        if has_mufilter or "MuFilterPoint" in existing_cols:
+            df_truth = df_truth.Redefine("mu1_in_ds_acceptance", "TruthExt::is_trk_in_ds(mu1_track_id, MuFilterPoint)")
+            df_truth = df_truth.Redefine("mu2_in_ds_acceptance", "(charm_has_direct_muon == 1) ? mu2_in_ds_acceptance : TruthExt::is_trk_in_ds(sec_mu_track_id, MuFilterPoint)")
+            df_truth = df_truth.Redefine("dimuon_in_ds_acceptance", "mu1_in_ds_acceptance && mu2_in_ds_acceptance")
+            df_truth = df_truth.Redefine("dimuon_in_ds_acc_double", "dimuon_in_ds_acceptance ? 1.0 : 0.0")
+            df_truth = df_truth.Redefine("mu1_in_ds_acc_double", "mu1_in_ds_acceptance ? 1.0 : 0.0")
+            df_truth = df_truth.Redefine("mu2_in_ds_acc_double", "mu2_in_ds_acceptance ? 1.0 : 0.0")
+            df_truth = safe_def(df_truth, "sec_mu_in_ds_acceptance", "mu2_in_ds_acceptance")
+            df_truth = safe_def(df_truth, "sec_mu_n_ds_points", "(charm_has_direct_muon == 1) ? mu2_n_ds_points : TruthExt::count_ds_points(sec_mu_track_id, MuFilterPoint)")
+        else:
+            df_truth = safe_def(df_truth, "sec_mu_in_ds_acceptance", "mu2_in_ds_acceptance")
+            df_truth = safe_def(df_truth, "sec_mu_n_ds_points", "mu2_n_ds_points")
+
         df_truth = safe_def(df_truth, "is_direct_charm_decay", "charm_has_direct_muon == 1 ? 1 : 0")
         df_truth = safe_def(df_truth, "is_indirect_charm_decay", "(charm_has_direct_muon == 0 && has_charm_hadronic_downstream_muon == 1) ? 1 : 0")
         df_truth = safe_def(df_truth, "sec_mu_p", "(charm_has_direct_muon == 1 && mu2_p > 0.0) ? mu2_p : downstream_muon_p")
@@ -714,6 +781,9 @@ def main():
                   .Define("downstream_muon_pt", "truth.downstreamMuonPt")
                   .Define("is_direct_charm_decay", "truth.charmHasDirectMuon ? 1 : 0")
                   .Define("is_indirect_charm_decay", "(!truth.charmHasDirectMuon && truth.hasCharmHadronicDownstreamMuon) ? 1 : 0")
+                  .Define("sec_mu_track_id", "truth.charmHasDirectMuon ? truth.mu2TrackId : truth.downstreamMuonTrackId")
+                  .Define("sec_mu_in_ds_acceptance", "truth.mu2InDS")
+                  .Define("sec_mu_n_ds_points", "truth.mu2nDSPoints")
                   .Define("sec_mu_p", "(truth.charmHasDirectMuon && truth.mu2P > 0.0) ? truth.mu2P : truth.downstreamMuonP")
                   .Define("sec_mu_pt", "(truth.charmHasDirectMuon && truth.mu2Pt > 0.0) ? truth.mu2Pt : truth.downstreamMuonPt")
                   .Define("sec_mu_e", "(truth.charmHasDirectMuon && truth.mu2E > 0.0) ? truth.mu2E : (truth.downstreamMuonP > 0.0 ? std::sqrt(truth.downstreamMuonP * truth.downstreamMuonP + 0.1056583755 * 0.1056583755) : 0.0)")

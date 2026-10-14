@@ -968,7 +968,7 @@ def is_dimuon_in_ds_acceptance(
     requiring >= min_hor_points in horizontal planes AND >= min_ver_points in vertical planes
     in the DS subsystem.
     """
-    if hasattr(tree, "dimuon_in_ds_acceptance"):
+    if hasattr(tree, "dimuon_in_ds_acceptance") and tree.dimuon_in_ds_acceptance != 0:
         try:
             return bool(tree.dimuon_in_ds_acceptance)
         except Exception:
@@ -977,7 +977,7 @@ def is_dimuon_in_ds_acceptance(
     if mu1_id < 0:
         mu1_id = find_primary_muon_track_id(tree)
     if mu2_id < 0:
-        mu2_id = find_charm_muon_track_id(tree)
+        mu2_id = find_truth_mu2_track_id(tree)
 
     if mu1_id < 0 or mu2_id < 0:
         return False
@@ -994,7 +994,7 @@ def is_dimuon_in_ds_acceptance(
 def count_mu2_ds_mcpoints(tree: Any, mu2_track_id: int = -1) -> int:
     """Backwards-compatible helper returning total DS MCPoints for charm decay muon."""
     if mu2_track_id < 0:
-        mu2_track_id = find_charm_muon_track_id(tree)
+        mu2_track_id = find_truth_mu2_track_id(tree)
     _, _, total = count_ds_mcpoints(tree, mu2_track_id)
     return total
 

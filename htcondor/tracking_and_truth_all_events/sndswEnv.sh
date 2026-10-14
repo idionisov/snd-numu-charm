@@ -131,6 +131,6 @@ ${USER_SNDSW_BUILD}/python:\
 ${ddfUtils}:\
 ${CVMFS_SW}/ROOT/v6-36-04-alice1-local1/lib:\
 ${CVMFS_SW}/XRootD/v5.7.3-local1/lib/python/site-packages:\
-${CVMFS_SW}/Python-modules/latest/lib/python3.9/site-packages:\
-${HOME+:${HOME}/.local/lib/python3.9/site-packages}\
+${HOME}/.local/lib/python3.9/site-packages:\
+${CVMFS_SW}/Python-modules/latest/lib/python3.9/site-packages\
 ${PYTHONPATH+:$PYTHONPATH}"

@@ -23,8 +23,8 @@ fi
 mkdir -p out err log
 
 ARGS_FILE="${SCRIPT_DIR}/args_nu14_volTarget_1000.txt"
-INPUT_PATTERN="/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/2mmRangeCut/sndlhc_15000fb-1_2022_down/nu14/volume_volTarget/%s/sndLHC.Genie-TGeant4_dig.root"
 DATA_DIR="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget"
+INPUT_PATTERN="${DATA_DIR}/%s/sndLHC.Genie-TGeant4_MCEB_dig.root"
 TRACK_PATTERN="${DATA_DIR}/%s/sndLHC.Genie-TGeant4_dig_2MuTrks.root"
 TRUTH_PATTERN="${DATA_DIR}/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root"
 DISP_PATTERN="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions/displays_part%s.root"

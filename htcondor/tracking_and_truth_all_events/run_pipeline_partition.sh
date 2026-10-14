@@ -50,8 +50,8 @@ echo " ~ [2/6] Repository root: ${REPO_DIR}"
 export PYTHONPATH="${REPO_DIR}:${PYTHONPATH}"
 export LD_LIBRARY_PATH="${REPO_DIR}/build/lib:${REPO_DIR}:${LD_LIBRARY_PATH}"
 
-# 3. Path patterns (defaults configured for 2022 nu14 volTarget production)
-DEFAULT_INPUT="/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/2mmRangeCut/sndlhc_15000fb-1_2022_down/nu14/volume_volTarget/%s/sndLHC.Genie-TGeant4_dig.root"
+# 3. Path patterns (defaults configured for 2022 nu14 volTarget production with MCEB)
+DEFAULT_INPUT="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig.root"
 DEFAULT_TRACK="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks.root"
 DEFAULT_TRUTH="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root"
 DEFAULT_DISP="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions/displays_part%s.root"
@@ -72,9 +72,11 @@ fi
 # Determine skip flag based on FORCE
 SKIP_TRACK_FLAG="--skip-existing"
 SKIP_TRUTH_FLAG="--skip-existing"
+SKIP_SKIM_FLAG="--skip-existing"
 if [ "${FORCE:-0}" = "1" ]; then
     SKIP_TRACK_FLAG=""
     SKIP_TRUTH_FLAG=""
+    SKIP_SKIM_FLAG=""
 fi
 
 INPUT_FILE=$(printf "$INPUT_PATTERN" "$PARTITION")
@@ -103,11 +105,12 @@ fi
 PYTHON_BIN="$(command -v python3)"
 TRACK_SCRIPT="${REPO_DIR}/scripts/run_dimuon_reco.py"
 TRUTH_SCRIPT="${REPO_DIR}/scripts/mctruth_neutrinos.py"
+SKIM_SCRIPT="${REPO_DIR}/scripts/filter_charm_dimuon_categories.py"
 DISP_SCRIPT="${REPO_DIR}/scripts/generate_2DEventDisplays.py"
 CONFIG_FILE="${REPO_DIR}/config/mctruth_neutrinos_config.yaml"
 
 echo "======================================================================"
-echo "SND@LHC Chained Pipeline (All Events): Tracking -> MCTruth -> Displays"
+echo "SND@LHC Chained Pipeline: Tracking -> MCTruth -> Charm Skims -> Displays"
 echo "  Date         : $(date)"
 echo "  Host         : $(hostname)"
 echo "  Partition    : ${PARTITION}"
@@ -124,7 +127,7 @@ cd "${REPO_DIR}"
 
 if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
     # 4. Step 1: Run Tracking (All Events, nTracks=0)
-    echo " ~ [3/6] Step 1/3: Running tracking for partition ${PARTITION} (${STORE_EVENTS_FLAG})..."
+    echo " ~ [3/7] Step 1/4: Running tracking for partition ${PARTITION} (${STORE_EVENTS_FLAG})..."
     set +e
     "${PYTHON_BIN}" "${TRACK_SCRIPT}" \
         -i "${INPUT_PATTERN}" \
@@ -150,7 +153,7 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
     echo " ~ Tracking output verified: ${TRACK_FILE}"
 
     # 5. Step 2: Run MCTruth Extraction
-    echo " ~ [4/6] Step 2/3: Running MCTruth extraction..."
+    echo " ~ [4/7] Step 2/4: Running MCTruth extraction..."
     "${PYTHON_BIN}" "${TRUTH_SCRIPT}" \
         -i "${TRACK_PATTERN}" \
         -o "${TRUTH_PATTERN}" \
@@ -165,8 +168,23 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
         echo "ERROR: MCTruth extraction failed for partition ${PARTITION} with exit code ${TRUTH_EXIT}." >&2
         exit $TRUTH_EXIT
     fi
+
+    # 6. Step 3: Run Charm Dimuon Categories Skims (Direct and Indirect)
+    echo " ~ [5/7] Step 3/4: Creating charm dimuon category skims (direct & indirect)..."
+    DATA_BASE_DIR="$(dirname "$OUTPUT_DIR")"
+    "${PYTHON_BIN}" "${SKIM_SCRIPT}" \
+        -b "${DATA_BASE_DIR}" \
+        -p "${PARTITION}" \
+        -j 1 \
+        ${SKIP_SKIM_FLAG}
+    SKIM_EXIT=$?
+
+    if [ $SKIM_EXIT -ne 0 ]; then
+        echo "ERROR: Charm dimuon skimming failed for partition ${PARTITION} with exit code ${SKIM_EXIT}." >&2
+        exit $SKIM_EXIT
+    fi
 else
-    echo " ~ [Displays-Only Mode] Skipping Step 1 (Tracking) and Step 2 (Truth Extraction)."
+    echo " ~ [Displays-Only Mode] Skipping Tracking, MCTruth, and Skimming."
 fi
 
 if [ ! -f "${TRUTH_FILE}" ]; then
@@ -175,29 +193,48 @@ if [ ! -f "${TRUTH_FILE}" ]; then
 fi
 echo " ~ Truth input verified: ${TRUTH_FILE}"
 
-# 6. Step 3: Run 2D Event Display Generation (--mc-truth and --recoMuons enabled)
-echo " ~ [5/6] Step 3/3: Generating 2D Event Displays for partition ${PARTITION}..."
-if [ "${FORCE:-0}" != "1" ] && [ "${FORCE_DISPLAYS:-0}" != "1" ] && [ -f "${DISP_FILE}" ] && [ $(stat -c%s "${DISP_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
-    echo " ~ Event display file already exists and is non-empty: ${DISP_FILE} (skipping)"
+DIRECT_FILE="${OUTPUT_DIR}/sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonDirect.root"
+INDIRECT_FILE="${OUTPUT_DIR}/sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonIndirect.root"
+
+if [ ! -f "${DIRECT_FILE}" ] || [ ! -f "${INDIRECT_FILE}" ]; then
+    echo "ERROR: Expected charm skim file(s) missing in ${OUTPUT_DIR}." >&2
+    exit 5
+fi
+echo " ~ Skim outputs verified:"
+echo "     Direct   : ${DIRECT_FILE}"
+echo "     Indirect : ${INDIRECT_FILE}"
+
+# 7. Step 4: Run 2D Event Display Generation (--mc-truth and --recoMuons enabled)
+if [ "${SKIP_DISPLAYS:-0}" = "1" ] || [ -z "${DISP_PATTERN}" ] || [ "${DISP_PATTERN}" = "none" ]; then
+    echo " ~ [6/7] Skipping Event Displays generation (SKIP_DISPLAYS=${SKIP_DISPLAYS:-0})."
 else
-    set +e
-    "${PYTHON_BIN}" "${DISP_SCRIPT}" \
-        -i "${TRUTH_FILE}" \
-        -o "${DISP_FILE}" \
-        --mc-truth \
-        --recoMuons \
-        -j 1
-    DISP_EXIT=$?
-    set -e
-    if [ $DISP_EXIT -ne 0 ]; then
-        echo "WARNING: Event display generation returned exit code ${DISP_EXIT} for partition ${PARTITION}." >&2
+    echo " ~ [6/7] Step 4/4: Generating 2D Event Displays for partition ${PARTITION}..."
+    if [ "${FORCE:-0}" != "1" ] && [ "${FORCE_DISPLAYS:-0}" != "1" ] && [ -f "${DISP_FILE}" ] && [ $(stat -c%s "${DISP_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
+        echo " ~ Event display file already exists and is non-empty: ${DISP_FILE} (skipping)"
+    else
+        set +e
+        "${PYTHON_BIN}" "${DISP_SCRIPT}" \
+            -i "${TRUTH_FILE}" \
+            -o "${DISP_FILE}" \
+            --mc-truth \
+            --recoMuons \
+            -j 1
+        DISP_EXIT=$?
+        set -e
+        if [ $DISP_EXIT -ne 0 ]; then
+            echo "WARNING: Event display generation returned exit code ${DISP_EXIT} for partition ${PARTITION}." >&2
+        fi
     fi
 fi
 
 echo "======================================================================"
-echo " ~ [6/6] Pipeline completed successfully for partition ${PARTITION} at $(date)!"
+echo " ~ [7/7] Pipeline completed successfully for partition ${PARTITION} at $(date)!"
 echo "   1) Tracked ROOT file : ${TRACK_FILE}"
 echo "   2) Truth ROOT file   : ${TRUTH_FILE}"
-echo "   3) Display ROOT file : ${DISP_FILE}"
+echo "   3) Direct Skim ROOT  : ${DIRECT_FILE}"
+echo "   4) Indirect Skim ROOT: ${INDIRECT_FILE}"
+if [ -f "${DISP_FILE}" ]; then
+    echo "   5) Display ROOT file : ${DISP_FILE}"
+fi
 echo "======================================================================"
 exit 0

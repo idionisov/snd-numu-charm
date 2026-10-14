@@ -20,12 +20,18 @@ echo "=========================================================="
 if [ -d "$DATA_DIR" ]; then
     TRACK_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*_2MuTrks.root" -type f -size +500c 2>/dev/null | wc -l)
     TRUTH_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*_2MuTrks_truth.root" -type f -size +500c 2>/dev/null | wc -l)
+    DIRECT_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*_truth_charmDimuonDirect.root" -type f -size +500c 2>/dev/null | wc -l)
+    INDIRECT_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*_truth_charmDimuonIndirect.root" -type f -size +500c 2>/dev/null | wc -l)
     
     TRACK_PCT=$(awk "BEGIN {printf \"%.1f\", ($TRACK_DONE / $TOTAL_COUNT) * 100}")
     TRUTH_PCT=$(awk "BEGIN {printf \"%.1f\", ($TRUTH_DONE / $TOTAL_COUNT) * 100}")
+    DIRECT_PCT=$(awk "BEGIN {printf \"%.1f\", ($DIRECT_DONE / $TOTAL_COUNT) * 100}")
+    INDIRECT_PCT=$(awk "BEGIN {printf \"%.1f\", ($INDIRECT_DONE / $TOTAL_COUNT) * 100}")
 
-    echo " Step 1 (Tracked All Events) : ${TRACK_DONE} / ${TOTAL_COUNT} (${TRACK_PCT}%)"
-    echo " Step 2 (Truth Extraction)   : ${TRUTH_DONE} / ${TOTAL_COUNT} (${TRUTH_PCT}%)"
+    echo " Step 1 (Tracked All Events)  : ${TRACK_DONE} / ${TOTAL_COUNT} (${TRACK_PCT}%)"
+    echo " Step 2 (Truth Extraction)    : ${TRUTH_DONE} / ${TOTAL_COUNT} (${TRUTH_PCT}%)"
+    echo " Step 3a (Direct Skim)        : ${DIRECT_DONE} / ${TOTAL_COUNT} (${DIRECT_PCT}%)"
+    echo " Step 3b (Indirect Skim)      : ${INDIRECT_DONE} / ${TOTAL_COUNT} (${INDIRECT_PCT}%)"
 else
     echo " Output directory not yet created: ${DATA_DIR}"
 fi

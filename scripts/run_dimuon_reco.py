@@ -160,6 +160,11 @@ def resolve_geofile_path(partition: int | str, input_file: str, explicit_geofile
     if os.path.isfile(local_geo):
         return local_geo
 
+    import glob
+    candidates = sorted(glob.glob(os.path.join(in_dir, "geofile*.root")))
+    if candidates:
+        return candidates[0]
+
     # Run / Year database fallback
     return get_geofile_for_run(run_number=partition, input_path=input_file)
 
@@ -515,7 +520,7 @@ def main():
     def worker_wrapper(task_info: Dict[str, Any]) -> Dict[str, Any]:
         p = task_info["partition"]
         with print_lock:
-            print(f"  [Start] Partition {p:<4} -> {os.path.basename(task_info['output_file'])}")
+            print(f"  [Start] Partition {p:<4} (geo: {task_info['geo_file']}) -> {os.path.basename(task_info['output_file'])}")
 
         res = run_single_partition(
             partition=p,

@@ -145,8 +145,8 @@ def parse_arguments():
         "--category",
         type=str,
         default="all",
-        choices=["all", "direct", "indirect"],
-        help="Focus category: 'all' (inclusive, direct, and indirect), 'direct', or 'indirect'",
+        choices=["all", "direct", "indirect", "non_charm", "signal_like"],
+        help="Focus category: 'all' (inclusive signal-like), 'direct' (c->mu), 'indirect' (c->h->mu), 'non_charm' (no charm, 2 muons in DS), or 'signal_like'",
     )
     return parser.parse_args()
 
@@ -331,6 +331,91 @@ def main():
         inline double cross_y(const TClonesArray& tracks) { return get_crossing(tracks).y_cross; }
         inline double delta_z_cross(const TClonesArray& tracks) { return get_crossing(tracks).delta_z; }
         inline double abs_delta_z_cross(const TClonesArray& tracks) { return get_crossing(tracks).abs_delta_z; }
+
+        struct RecoAngles {
+            double mu1_slope_xz;
+            double mu2_slope_xz;
+            double delta_slope_xz;
+            double mu1_theta_xz_mrad;
+            double mu2_theta_xz_mrad;
+            double opening_angle_xz_mrad;
+
+            double mu1_slope_yz;
+            double mu2_slope_yz;
+            double delta_slope_yz;
+            double mu1_theta_yz_mrad;
+            double mu2_theta_yz_mrad;
+            double opening_angle_yz_mrad;
+
+            bool valid;
+        };
+
+        inline RecoAngles get_reco_angles(const TClonesArray& tracks, double true_mu1_slope_xz, double true_mu1_slope_yz, double true_mu2_slope_xz, double true_mu2_slope_yz) {
+            RecoAngles res = {-9999.0, -9999.0, -9999.0, -9999.0, -9999.0, -9999.0,
+                              -9999.0, -9999.0, -9999.0, -9999.0, -9999.0, -9999.0, false};
+            const int nTracks = tracks.GetEntriesFast();
+            sndRecoTrack* trk1 = nullptr;
+            sndRecoTrack* trk2 = nullptr;
+            for (int i = 0; i < nTracks; ++i) {
+                auto* trk = const_cast<sndRecoTrack*>(static_cast<const sndRecoTrack*>(tracks.At(i)));
+                if (!trk || trk->getTrackType() != 13) continue;
+                if (!trk1) trk1 = trk;
+                else if (!trk2) { trk2 = trk; break; }
+            }
+            if (!trk1 || !trk2) return res;
+
+            double m1x = trk1->getSlopeXZ();
+            double m1y = trk1->getSlopeYZ();
+            double m2x = trk2->getSlopeXZ();
+            double m2y = trk2->getSlopeYZ();
+
+            // Match trk1 and trk2 to true mu1 and true mu2
+            double dist_match1 = (m1x - true_mu1_slope_xz)*(m1x - true_mu1_slope_xz) + (m1y - true_mu1_slope_yz)*(m1y - true_mu1_slope_yz)
+                               + (m2x - true_mu2_slope_xz)*(m2x - true_mu2_slope_xz) + (m2y - true_mu2_slope_yz)*(m2y - true_mu2_slope_yz);
+            double dist_match2 = (m2x - true_mu1_slope_xz)*(m2x - true_mu1_slope_xz) + (m2y - true_mu1_slope_yz)*(m2y - true_mu1_slope_yz)
+                               + (m1x - true_mu2_slope_xz)*(m1x - true_mu2_slope_xz) + (m1y - true_mu2_slope_yz)*(m1y - true_mu2_slope_yz);
+
+            double r_m1x = (dist_match1 <= dist_match2) ? m1x : m2x;
+            double r_m1y = (dist_match1 <= dist_match2) ? m1y : m2y;
+            double r_m2x = (dist_match1 <= dist_match2) ? m2x : m1x;
+            double r_m2y = (dist_match1 <= dist_match2) ? m2y : m1y;
+
+            res.mu1_slope_xz = r_m1x;
+            res.mu2_slope_xz = r_m2x;
+            res.delta_slope_xz = std::abs(r_m1x - r_m2x);
+            res.mu1_theta_xz_mrad = std::atan(r_m1x) * 1000.0;
+            res.mu2_theta_xz_mrad = std::atan(r_m2x) * 1000.0;
+            res.opening_angle_xz_mrad = std::abs(res.mu1_theta_xz_mrad - res.mu2_theta_xz_mrad);
+
+            res.mu1_slope_yz = r_m1y;
+            res.mu2_slope_yz = r_m2y;
+            res.delta_slope_yz = std::abs(r_m1y - r_m2y);
+            res.mu1_theta_yz_mrad = std::atan(r_m1y) * 1000.0;
+            res.mu2_theta_yz_mrad = std::atan(r_m2y) * 1000.0;
+            res.opening_angle_yz_mrad = std::abs(res.mu1_theta_yz_mrad - res.mu2_theta_yz_mrad);
+
+            res.valid = true;
+            return res;
+        }
+
+        inline double reco_mu1_theta_xz_mrad(const TClonesArray& tracks, double t_m1x, double t_m1y, double t_m2x, double t_m2y) {
+            return get_reco_angles(tracks, t_m1x, t_m1y, t_m2x, t_m2y).mu1_theta_xz_mrad;
+        }
+        inline double reco_sec_mu_theta_xz_mrad(const TClonesArray& tracks, double t_m1x, double t_m1y, double t_m2x, double t_m2y) {
+            return get_reco_angles(tracks, t_m1x, t_m1y, t_m2x, t_m2y).mu2_theta_xz_mrad;
+        }
+        inline double reco_dimuon_opening_angle_xz_mrad(const TClonesArray& tracks, double t_m1x, double t_m1y, double t_m2x, double t_m2y) {
+            return get_reco_angles(tracks, t_m1x, t_m1y, t_m2x, t_m2y).opening_angle_xz_mrad;
+        }
+        inline double reco_mu1_theta_yz_mrad(const TClonesArray& tracks, double t_m1x, double t_m1y, double t_m2x, double t_m2y) {
+            return get_reco_angles(tracks, t_m1x, t_m1y, t_m2x, t_m2y).mu1_theta_yz_mrad;
+        }
+        inline double reco_sec_mu_theta_yz_mrad(const TClonesArray& tracks, double t_m1x, double t_m1y, double t_m2x, double t_m2y) {
+            return get_reco_angles(tracks, t_m1x, t_m1y, t_m2x, t_m2y).mu2_theta_yz_mrad;
+        }
+        inline double reco_dimuon_opening_angle_yz_mrad(const TClonesArray& tracks, double t_m1x, double t_m1y, double t_m2x, double t_m2y) {
+            return get_reco_angles(tracks, t_m1x, t_m1y, t_m2x, t_m2y).opening_angle_yz_mrad;
+        }
     }
 
     namespace TruthExt {
@@ -477,6 +562,111 @@ def main():
             }
             return nVer;
         }
+        inline int find_non_charm_mu2_track_id(int has_charm, int mu1_id, const TClonesArray& tracks, const TClonesArray& pts) {
+            if (has_charm) return -1;
+            int best_id_in_ds = -1;
+            int best_id_any = -1;
+            double max_p_in_ds = -1.0;
+            double max_p_any = -1.0;
+            const int nTracks = tracks.GetEntriesFast();
+            for (int i = 0; i < nTracks; ++i) {
+                if (i == mu1_id) continue;
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(i));
+                if (!trk || std::abs(trk->GetPdgCode()) != 13) continue;
+                double p = trk->GetP();
+                if (p > max_p_any) {
+                    max_p_any = p;
+                    best_id_any = i;
+                }
+                if (is_trk_in_ds(i, pts)) {
+                    if (p > max_p_in_ds) {
+                        max_p_in_ds = p;
+                        best_id_in_ds = i;
+                    }
+                }
+            }
+            return (best_id_in_ds >= 0) ? best_id_in_ds : best_id_any;
+        }
+        inline int get_mother_pdg(int trk_id, const TClonesArray& tracks) {
+            if (trk_id < 0 || trk_id >= tracks.GetEntriesFast()) return 0;
+            auto* trk = static_cast<const ShipMCTrack*>(tracks.At(trk_id));
+            if (!trk) return 0;
+            int mId = trk->GetMotherId();
+            if (mId < 0 || mId >= tracks.GetEntriesFast()) return 0;
+            auto* mTrk = static_cast<const ShipMCTrack*>(tracks.At(mId));
+            return mTrk ? mTrk->GetPdgCode() : 0;
+        }
+        inline double get_track_p(int trk_id, const TClonesArray& tracks) {
+            if (trk_id >= 0 && trk_id < tracks.GetEntriesFast()) {
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(trk_id));
+                if (trk) return trk->GetP();
+            }
+            return 0.0;
+        }
+        inline double get_track_pt(int trk_id, const TClonesArray& tracks) {
+            if (trk_id >= 0 && trk_id < tracks.GetEntriesFast()) {
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(trk_id));
+                if (trk) return trk->GetPt();
+            }
+            return 0.0;
+        }
+        inline double get_track_e(int trk_id, const TClonesArray& tracks) {
+            if (trk_id >= 0 && trk_id < tracks.GetEntriesFast()) {
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(trk_id));
+                if (trk) return trk->GetEnergy();
+            }
+            return 0.0;
+        }
+        inline double sec_mu_px_unified(int trk_id, double fallback_px, const TClonesArray& tracks) {
+            if (trk_id >= 0 && trk_id < tracks.GetEntriesFast()) {
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(trk_id));
+                if (trk) return trk->GetPx();
+            }
+            return fallback_px;
+        }
+        inline double sec_mu_py_unified(int trk_id, double fallback_py, const TClonesArray& tracks) {
+            if (trk_id >= 0 && trk_id < tracks.GetEntriesFast()) {
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(trk_id));
+                if (trk) return trk->GetPy();
+            }
+            return fallback_py;
+        }
+        inline double sec_mu_pz_unified(int trk_id, double fallback_pz, const TClonesArray& tracks) {
+            if (trk_id >= 0 && trk_id < tracks.GetEntriesFast()) {
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(trk_id));
+                if (trk) return trk->GetPz();
+            }
+            return fallback_pz;
+        }
+        inline double sec_mu_eta_unified(int trk_id, double fallback_eta, const TClonesArray& tracks) {
+            if (trk_id >= 0 && trk_id < tracks.GetEntriesFast()) {
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(trk_id));
+                if (trk) {
+                    double p = trk->GetP();
+                    double pz = trk->GetPz();
+                    if (p - pz > 1e-9 && p + pz > 1e-9) return 0.5 * std::log((p + pz) / (p - pz));
+                }
+            }
+            return fallback_eta;
+        }
+        inline double sec_mu_phi_unified(int trk_id, double fallback_phi, const TClonesArray& tracks) {
+            if (trk_id >= 0 && trk_id < tracks.GetEntriesFast()) {
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(trk_id));
+                if (trk) return std::atan2(trk->GetPy(), trk->GetPx());
+            }
+            return fallback_phi;
+        }
+        inline double sec_mu_theta_unified(int trk_id, double fallback_theta, const TClonesArray& tracks) {
+            if (trk_id >= 0 && trk_id < tracks.GetEntriesFast()) {
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(trk_id));
+                if (trk) {
+                    double p = trk->GetP();
+                    double pt = trk->GetPt();
+                    return (p > 1e-6) ? std::asin(std::min(1.0, pt / p)) : 0.0;
+                }
+            }
+            return fallback_theta;
+        }
     }
     """)
 
@@ -535,44 +725,75 @@ def main():
         df_truth = safe_def(df_truth, "downstream_muon_track_id", "-1")
         df_truth = safe_def(df_truth, "downstream_muon_pdg", "0")
 
-        # Unified secondary muon observables across direct and indirect decays
-        df_truth = safe_def(df_truth, "sec_mu_track_id", "(charm_has_direct_muon == 1) ? mu2_track_id : downstream_muon_track_id")
+        # Unified secondary muon observables across direct, indirect, and non-charm decays
+        if "MCTrack" in existing_cols and "MuFilterPoint" in existing_cols:
+            df_truth = safe_def(df_truth, "non_charm_mu2_track_id", "TruthExt::find_non_charm_mu2_track_id(has_charm, mu1_track_id, MCTrack, MuFilterPoint)")
+        else:
+            df_truth = safe_def(df_truth, "non_charm_mu2_track_id", "-1")
+
+        df_truth = safe_def(df_truth, "is_direct_charm_decay", "charm_has_direct_muon == 1 ? 1 : 0")
+        df_truth = safe_def(df_truth, "is_indirect_charm_decay", "(charm_has_direct_muon == 0 && has_charm_hadronic_downstream_muon == 1) ? 1 : 0")
+        df_truth = safe_def(df_truth, "is_non_charm_dimuon", "(has_charm == 0 && non_charm_mu2_track_id >= 0) ? 1 : 0")
+        df_truth = safe_def(df_truth, "is_signal_like", "(is_direct_charm_decay == 1 || is_indirect_charm_decay == 1 || is_non_charm_dimuon == 1) ? 1 : 0")
+
+        df_truth = safe_def(df_truth, "sec_mu_track_id", """
+            if (charm_has_direct_muon == 1) return mu2_track_id;
+            if (has_charm_hadronic_downstream_muon == 1) return downstream_muon_track_id;
+            if (is_non_charm_dimuon == 1) return non_charm_mu2_track_id;
+            return -1;
+        """)
+
         if has_mufilter or "MuFilterPoint" in existing_cols:
             df_truth = df_truth.Redefine("mu1_in_ds_acceptance", "TruthExt::is_trk_in_ds(mu1_track_id, MuFilterPoint)")
-            df_truth = df_truth.Redefine("mu2_in_ds_acceptance", "(charm_has_direct_muon == 1) ? mu2_in_ds_acceptance : TruthExt::is_trk_in_ds(sec_mu_track_id, MuFilterPoint)")
+            df_truth = df_truth.Redefine("mu2_in_ds_acceptance", "(sec_mu_track_id >= 0) ? TruthExt::is_trk_in_ds(sec_mu_track_id, MuFilterPoint) : false")
             df_truth = df_truth.Redefine("dimuon_in_ds_acceptance", "mu1_in_ds_acceptance && mu2_in_ds_acceptance")
             df_truth = df_truth.Redefine("dimuon_in_ds_acc_double", "dimuon_in_ds_acceptance ? 1.0 : 0.0")
             df_truth = df_truth.Redefine("mu1_in_ds_acc_double", "mu1_in_ds_acceptance ? 1.0 : 0.0")
             df_truth = df_truth.Redefine("mu2_in_ds_acc_double", "mu2_in_ds_acceptance ? 1.0 : 0.0")
             df_truth = safe_def(df_truth, "sec_mu_in_ds_acceptance", "mu2_in_ds_acceptance")
-            df_truth = safe_def(df_truth, "sec_mu_n_ds_points", "(charm_has_direct_muon == 1) ? mu2_n_ds_points : TruthExt::count_ds_points(sec_mu_track_id, MuFilterPoint)")
+            df_truth = safe_def(df_truth, "sec_mu_n_ds_points", "(sec_mu_track_id >= 0) ? TruthExt::count_ds_points(sec_mu_track_id, MuFilterPoint) : 0")
         else:
             df_truth = safe_def(df_truth, "sec_mu_in_ds_acceptance", "mu2_in_ds_acceptance")
             df_truth = safe_def(df_truth, "sec_mu_n_ds_points", "mu2_n_ds_points")
 
-        df_truth = safe_def(df_truth, "is_direct_charm_decay", "charm_has_direct_muon == 1 ? 1 : 0")
-        df_truth = safe_def(df_truth, "is_indirect_charm_decay", "(charm_has_direct_muon == 0 && has_charm_hadronic_downstream_muon == 1) ? 1 : 0")
-        df_truth = safe_def(df_truth, "sec_mu_p", "(charm_has_direct_muon == 1 && mu2_p > 0.0) ? mu2_p : downstream_muon_p")
-        df_truth = safe_def(df_truth, "sec_mu_pt", "(charm_has_direct_muon == 1 && mu2_pt > 0.0) ? mu2_pt : downstream_muon_pt")
-        df_truth = safe_def(df_truth, "sec_mu_e", "(charm_has_direct_muon == 1 && mu2_e > 0.0) ? mu2_e : (downstream_muon_p > 0.0 ? std::sqrt(downstream_muon_p * downstream_muon_p + 0.1056583755 * 0.1056583755) : 0.0)")
-        df_truth = safe_def(df_truth, "sec_mu_mother_pdg", "(charm_has_direct_muon == 1) ? mu2_mother_pdg : downstream_muon_mother_pdg")
-        df_truth = safe_def(df_truth, "sec_mu_abs_mother_pdg", "std::abs((charm_has_direct_muon == 1) ? mu2_mother_pdg : downstream_muon_mother_pdg)")
-
-        # Full 3D vectors for secondary muon from MCTrack (if present) or prompt mu2 fallback
         if "MCTrack" in existing_cols:
-            df_truth = safe_def(df_truth, "sec_mu_px", "TruthExt::sec_mu_px(charm_has_direct_muon, mu2_px, downstream_muon_track_id, MCTrack)")
-            df_truth = safe_def(df_truth, "sec_mu_py", "TruthExt::sec_mu_py(charm_has_direct_muon, mu2_py, downstream_muon_track_id, MCTrack)")
-            df_truth = safe_def(df_truth, "sec_mu_pz", "TruthExt::sec_mu_pz(charm_has_direct_muon, mu2_pz, downstream_muon_track_id, MCTrack)")
-            df_truth = safe_def(df_truth, "sec_mu_eta", "TruthExt::sec_mu_eta(charm_has_direct_muon, mu2_eta, downstream_muon_track_id, MCTrack)")
-            df_truth = safe_def(df_truth, "sec_mu_phi", "TruthExt::sec_mu_phi(charm_has_direct_muon, mu2_phi, downstream_muon_track_id, MCTrack)")
-            df_truth = safe_def(df_truth, "sec_mu_theta", "TruthExt::sec_mu_theta(charm_has_direct_muon, mu2_theta, downstream_muon_track_id, MCTrack)")
+            df_truth = safe_def(df_truth, "sec_mu_p", """
+                if (charm_has_direct_muon == 1 && mu2_p > 0.0) return mu2_p;
+                if (has_charm_hadronic_downstream_muon == 1 && downstream_muon_p > 0.0) return downstream_muon_p;
+                if (sec_mu_track_id >= 0) return TruthExt::get_track_p(sec_mu_track_id, MCTrack);
+                return 0.0;
+            """)
+            df_truth = safe_def(df_truth, "sec_mu_pt", """
+                if (charm_has_direct_muon == 1 && mu2_pt > 0.0) return mu2_pt;
+                if (has_charm_hadronic_downstream_muon == 1 && downstream_muon_pt > 0.0) return downstream_muon_pt;
+                if (sec_mu_track_id >= 0) return TruthExt::get_track_pt(sec_mu_track_id, MCTrack);
+                return 0.0;
+            """)
+            df_truth = safe_def(df_truth, "sec_mu_mother_pdg", """
+                if (charm_has_direct_muon == 1) return mu2_mother_pdg;
+                if (has_charm_hadronic_downstream_muon == 1) return downstream_muon_mother_pdg;
+                if (sec_mu_track_id >= 0) return TruthExt::get_mother_pdg(sec_mu_track_id, MCTrack);
+                return 0;
+            """)
+            df_truth = safe_def(df_truth, "sec_mu_px", "TruthExt::sec_mu_px_unified(sec_mu_track_id, mu2_px, MCTrack)")
+            df_truth = safe_def(df_truth, "sec_mu_py", "TruthExt::sec_mu_py_unified(sec_mu_track_id, mu2_py, MCTrack)")
+            df_truth = safe_def(df_truth, "sec_mu_pz", "TruthExt::sec_mu_pz_unified(sec_mu_track_id, mu2_pz, MCTrack)")
+            df_truth = safe_def(df_truth, "sec_mu_eta", "TruthExt::sec_mu_eta_unified(sec_mu_track_id, mu2_eta, MCTrack)")
+            df_truth = safe_def(df_truth, "sec_mu_phi", "TruthExt::sec_mu_phi_unified(sec_mu_track_id, mu2_phi, MCTrack)")
+            df_truth = safe_def(df_truth, "sec_mu_theta", "TruthExt::sec_mu_theta_unified(sec_mu_track_id, mu2_theta, MCTrack)")
         else:
+            df_truth = safe_def(df_truth, "sec_mu_p", "(charm_has_direct_muon == 1 && mu2_p > 0.0) ? mu2_p : downstream_muon_p")
+            df_truth = safe_def(df_truth, "sec_mu_pt", "(charm_has_direct_muon == 1 && mu2_pt > 0.0) ? mu2_pt : downstream_muon_pt")
+            df_truth = safe_def(df_truth, "sec_mu_mother_pdg", "(charm_has_direct_muon == 1) ? mu2_mother_pdg : downstream_muon_mother_pdg")
             df_truth = safe_def(df_truth, "sec_mu_px", "charm_has_direct_muon == 1 ? mu2_px : 0.0")
             df_truth = safe_def(df_truth, "sec_mu_py", "charm_has_direct_muon == 1 ? mu2_py : 0.0")
             df_truth = safe_def(df_truth, "sec_mu_pz", "charm_has_direct_muon == 1 ? mu2_pz : 0.0")
             df_truth = safe_def(df_truth, "sec_mu_eta", "charm_has_direct_muon == 1 ? mu2_eta : 0.0")
             df_truth = safe_def(df_truth, "sec_mu_phi", "charm_has_direct_muon == 1 ? mu2_phi : 0.0")
             df_truth = safe_def(df_truth, "sec_mu_theta", "charm_has_direct_muon == 1 ? mu2_theta : 0.0")
+
+        df_truth = safe_def(df_truth, "sec_mu_e", "(sec_mu_p > 0.0) ? std::sqrt(sec_mu_p * sec_mu_p + 0.1056583755 * 0.1056583755) : 0.0")
+        df_truth = safe_def(df_truth, "sec_mu_abs_mother_pdg", "std::abs(sec_mu_mother_pdg)")
 
         # Unified composite dimuon kinematics calculated using full 3D vectors
         df_truth = safe_def(df_truth, "dimuon_opening_angle_mrad_unified", "TruthExt::opening_angle_mrad(mu1_px, mu1_py, mu1_pz, sec_mu_px, sec_mu_py, sec_mu_pz)")
@@ -771,7 +992,7 @@ def main():
                   .Define("mu1_in_ds_acc_double", "mu1_in_ds_acceptance ? 1.0 : 0.0")
                   .Define("mu2_in_ds_acc_double", "mu2_in_ds_acceptance ? 1.0 : 0.0")
 
-                  # Direct vs Indirect Decay Observables
+                  # Direct, Indirect, and Non-Charm Dimuon Observables
                   .Define("charm_has_direct_muon", "truth.charmHasDirectMuon ? 1 : 0")
                   .Define("has_charm_hadronic_downstream_muon", "truth.hasCharmHadronicDownstreamMuon ? 1 : 0")
                   .Define("downstream_muon_track_id", "truth.downstreamMuonTrackId")
@@ -781,20 +1002,51 @@ def main():
                   .Define("downstream_muon_pt", "truth.downstreamMuonPt")
                   .Define("is_direct_charm_decay", "truth.charmHasDirectMuon ? 1 : 0")
                   .Define("is_indirect_charm_decay", "(!truth.charmHasDirectMuon && truth.hasCharmHadronicDownstreamMuon) ? 1 : 0")
-                  .Define("sec_mu_track_id", "truth.charmHasDirectMuon ? truth.mu2TrackId : truth.downstreamMuonTrackId")
-                  .Define("sec_mu_in_ds_acceptance", "truth.mu2InDS")
-                  .Define("sec_mu_n_ds_points", "truth.mu2nDSPoints")
-                  .Define("sec_mu_p", "(truth.charmHasDirectMuon && truth.mu2P > 0.0) ? truth.mu2P : truth.downstreamMuonP")
-                  .Define("sec_mu_pt", "(truth.charmHasDirectMuon && truth.mu2Pt > 0.0) ? truth.mu2Pt : truth.downstreamMuonPt")
-                  .Define("sec_mu_e", "(truth.charmHasDirectMuon && truth.mu2E > 0.0) ? truth.mu2E : (truth.downstreamMuonP > 0.0 ? std::sqrt(truth.downstreamMuonP * truth.downstreamMuonP + 0.1056583755 * 0.1056583755) : 0.0)")
-                  .Define("sec_mu_mother_pdg", "truth.charmHasDirectMuon ? truth.mu2MotherPdg : truth.downstreamMuonMotherPdg")
-                  .Define("sec_mu_abs_mother_pdg", "std::abs(truth.charmHasDirectMuon ? truth.mu2MotherPdg : truth.downstreamMuonMotherPdg)")
-                  .Define("sec_mu_px", "TruthExt::sec_mu_px(truth.charmHasDirectMuon ? 1 : 0, truth.mu2Px, truth.downstreamMuonTrackId, MCTrack)")
-                  .Define("sec_mu_py", "TruthExt::sec_mu_py(truth.charmHasDirectMuon ? 1 : 0, truth.mu2Py, truth.downstreamMuonTrackId, MCTrack)")
-                  .Define("sec_mu_pz", "TruthExt::sec_mu_pz(truth.charmHasDirectMuon ? 1 : 0, truth.mu2Pz, truth.downstreamMuonTrackId, MCTrack)")
-                  .Define("sec_mu_eta", "TruthExt::sec_mu_eta(truth.charmHasDirectMuon ? 1 : 0, truth.mu2Eta, truth.downstreamMuonTrackId, MCTrack)")
-                  .Define("sec_mu_phi", "TruthExt::sec_mu_phi(truth.charmHasDirectMuon ? 1 : 0, truth.mu2Phi, truth.downstreamMuonTrackId, MCTrack)")
-                  .Define("sec_mu_theta", "TruthExt::sec_mu_theta(truth.charmHasDirectMuon ? 1 : 0, truth.mu2Theta, truth.downstreamMuonTrackId, MCTrack)")
+                  .Define("non_charm_mu2_track_id", "TruthExt::find_non_charm_mu2_track_id(truth.hasCharm ? 1 : 0, truth.mu1TrackId, MCTrack, MuFilterPoint)")
+                  .Define("is_non_charm_dimuon", "(!truth.hasCharm && non_charm_mu2_track_id >= 0) ? 1 : 0")
+                  .Define("is_signal_like", "(truth.charmHasDirectMuon || truth.hasCharmHadronicDownstreamMuon || (!truth.hasCharm && non_charm_mu2_track_id >= 0)) ? 1 : 0")
+                  .Define("sec_mu_track_id", """
+                      if (truth.charmHasDirectMuon) return truth.mu2TrackId;
+                      if (truth.hasCharmHadronicDownstreamMuon) return truth.downstreamMuonTrackId;
+                      if (!truth.hasCharm && non_charm_mu2_track_id >= 0) return non_charm_mu2_track_id;
+                      return -1;
+                  """)
+                  .Define("sec_mu_in_ds_acceptance", """
+                      if (truth.charmHasDirectMuon || truth.hasCharmHadronicDownstreamMuon) return truth.mu2InDS;
+                      if (!truth.hasCharm && non_charm_mu2_track_id >= 0) return TruthExt::is_trk_in_ds(non_charm_mu2_track_id, MuFilterPoint);
+                      return false;
+                  """)
+                  .Define("sec_mu_n_ds_points", """
+                      if (truth.charmHasDirectMuon || truth.hasCharmHadronicDownstreamMuon) return truth.mu2nDSPoints;
+                      if (!truth.hasCharm && non_charm_mu2_track_id >= 0) return TruthExt::count_ds_points(non_charm_mu2_track_id, MuFilterPoint);
+                      return 0;
+                  """)
+                  .Define("sec_mu_p", """
+                      if (truth.charmHasDirectMuon && truth.mu2P > 0.0) return truth.mu2P;
+                      if (truth.hasCharmHadronicDownstreamMuon && truth.downstreamMuonP > 0.0) return truth.downstreamMuonP;
+                      if (sec_mu_track_id >= 0) return TruthExt::get_track_p(sec_mu_track_id, MCTrack);
+                      return 0.0;
+                  """)
+                  .Define("sec_mu_pt", """
+                      if (truth.charmHasDirectMuon && truth.mu2Pt > 0.0) return truth.mu2Pt;
+                      if (truth.hasCharmHadronicDownstreamMuon && truth.downstreamMuonPt > 0.0) return truth.downstreamMuonPt;
+                      if (sec_mu_track_id >= 0) return TruthExt::get_track_pt(sec_mu_track_id, MCTrack);
+                      return 0.0;
+                  """)
+                  .Define("sec_mu_e", "(sec_mu_p > 0.0) ? std::sqrt(sec_mu_p * sec_mu_p + 0.1056583755 * 0.1056583755) : 0.0")
+                  .Define("sec_mu_mother_pdg", """
+                      if (truth.charmHasDirectMuon) return truth.mu2MotherPdg;
+                      if (truth.hasCharmHadronicDownstreamMuon) return truth.downstreamMuonMotherPdg;
+                      if (sec_mu_track_id >= 0) return TruthExt::get_mother_pdg(sec_mu_track_id, MCTrack);
+                      return 0;
+                  """)
+                  .Define("sec_mu_abs_mother_pdg", "std::abs(sec_mu_mother_pdg)")
+                  .Define("sec_mu_px", "TruthExt::sec_mu_px_unified(sec_mu_track_id, truth.mu2Px, MCTrack)")
+                  .Define("sec_mu_py", "TruthExt::sec_mu_py_unified(sec_mu_track_id, truth.mu2Py, MCTrack)")
+                  .Define("sec_mu_pz", "TruthExt::sec_mu_pz_unified(sec_mu_track_id, truth.mu2Pz, MCTrack)")
+                  .Define("sec_mu_eta", "TruthExt::sec_mu_eta_unified(sec_mu_track_id, truth.mu2Eta, MCTrack)")
+                  .Define("sec_mu_phi", "TruthExt::sec_mu_phi_unified(sec_mu_track_id, truth.mu2Phi, MCTrack)")
+                  .Define("sec_mu_theta", "TruthExt::sec_mu_theta_unified(sec_mu_track_id, truth.mu2Theta, MCTrack)")
                   .Define("dimuon_opening_angle_mrad_unified", "TruthExt::opening_angle_mrad(truth.mu1Px, truth.mu1Py, truth.mu1Pz, sec_mu_px, sec_mu_py, sec_mu_pz)")
                   .Define("dimuon_mass_unified", "TruthExt::inv_mass(truth.mu1E, truth.mu1Px, truth.mu1Py, truth.mu1Pz, sec_mu_e, sec_mu_px, sec_mu_py, sec_mu_pz)")
                   .Define("dimuon_pt_unified", "TruthExt::pt(truth.mu1Px, truth.mu1Py, sec_mu_px, sec_mu_py)")
@@ -812,7 +1064,7 @@ def main():
                   .Define("dimuon_e_frac_nu_unified", "(truth.nuE > 1e-6) ? (truth.mu1E + sec_mu_e) / truth.nuE : 0.0")
                   .Define("sec_mu_e_frac_charm", "(truth.charmE > 1e-6) ? sec_mu_e / truth.charmE : 0.0")
                   .Define("indirect_mother_category", """
-                      int abs_m = std::abs(truth.downstreamMuonMotherPdg);
+                      int abs_m = std::abs(sec_mu_mother_pdg);
                       if (abs_m == 211) return 1;
                       if (abs_m == 321 || abs_m == 130 || abs_m == 310) return 2;
                       if (abs_m > 0) return 3;
@@ -868,6 +1120,12 @@ def main():
         df_truth = safe_def(df_truth, "reco_ds_abs_delta_z_cross", "RecoTracksExt::abs_delta_z_cross(Reco_MuonTracks)")
         df_truth = safe_def(df_truth, "reco_ds_res_z_xz", "(reco_ds_cross_z_xz > -9000.0) ? (reco_ds_cross_z_xz - vtx_z) : -9999.0")
         df_truth = safe_def(df_truth, "reco_ds_res_z_yz", "(reco_ds_cross_z_yz > -9000.0) ? (reco_ds_cross_z_yz - vtx_z) : -9999.0")
+        df_truth = safe_def(df_truth, "reco_mu1_theta_xz_mrad", "RecoTracksExt::reco_mu1_theta_xz_mrad(Reco_MuonTracks, mu1_slope_xz, mu1_slope_yz, sec_mu_slope_xz, sec_mu_slope_yz)")
+        df_truth = safe_def(df_truth, "reco_sec_mu_theta_xz_mrad", "RecoTracksExt::reco_sec_mu_theta_xz_mrad(Reco_MuonTracks, mu1_slope_xz, mu1_slope_yz, sec_mu_slope_xz, sec_mu_slope_yz)")
+        df_truth = safe_def(df_truth, "reco_dimuon_opening_angle_xz_mrad", "RecoTracksExt::reco_dimuon_opening_angle_xz_mrad(Reco_MuonTracks, mu1_slope_xz, mu1_slope_yz, sec_mu_slope_xz, sec_mu_slope_yz)")
+        df_truth = safe_def(df_truth, "reco_mu1_theta_yz_mrad", "RecoTracksExt::reco_mu1_theta_yz_mrad(Reco_MuonTracks, mu1_slope_xz, mu1_slope_yz, sec_mu_slope_xz, sec_mu_slope_yz)")
+        df_truth = safe_def(df_truth, "reco_sec_mu_theta_yz_mrad", "RecoTracksExt::reco_sec_mu_theta_yz_mrad(Reco_MuonTracks, mu1_slope_xz, mu1_slope_yz, sec_mu_slope_xz, sec_mu_slope_yz)")
+        df_truth = safe_def(df_truth, "reco_dimuon_opening_angle_yz_mrad", "RecoTracksExt::reco_dimuon_opening_angle_yz_mrad(Reco_MuonTracks, mu1_slope_xz, mu1_slope_yz, sec_mu_slope_xz, sec_mu_slope_yz)")
     else:
         df_truth = safe_def(df_truth, "n_reco_muon_tracks", "0")
         df_truth = safe_def(df_truth, "n_ds_hough_tracks", "0")
@@ -881,6 +1139,12 @@ def main():
         df_truth = safe_def(df_truth, "reco_ds_abs_delta_z_cross", "-9999.0")
         df_truth = safe_def(df_truth, "reco_ds_res_z_xz", "-9999.0")
         df_truth = safe_def(df_truth, "reco_ds_res_z_yz", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_mu1_theta_xz_mrad", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_sec_mu_theta_xz_mrad", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_dimuon_opening_angle_xz_mrad", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_mu1_theta_yz_mrad", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_sec_mu_theta_yz_mrad", "-9999.0")
+        df_truth = safe_def(df_truth, "reco_dimuon_opening_angle_yz_mrad", "-9999.0")
 
     # 6. Define Filtered Subsamples
     # All Interacting Muon Neutrinos in the Detector (CC + NC, nu_mu and anti-nu_mu)
@@ -921,12 +1185,28 @@ def main():
         "Indirect Charm Dimuon Fake Signal (c -> hadrons -> mu)"
     )
 
-    # 3. Inclusive Dimuon Charm (Direct + Indirect)
-    if args.require_direct_charm_decay is True or args.category == "direct":
+    # 3. Non-Charm Dimuon (nu_mu CC + pi/K -> mu or other secondary mu, no charm involved)
+    df_non_charm = df_numu_cc.Filter(
+        f"{fid_prefix}(has_charm == 0) && (is_non_charm_dimuon == 1)",
+        "Non-Charm Dimuon (nu_mu CC + pi/K -> mu)"
+    )
+
+    # 4. All Signal-Like Dimuons (Direct Charm + Indirect Charm + Non-Charm Dimuons)
+    df_signal_like = df_numu_cc.Filter(
+        f"{fid_prefix}is_signal_like == 1",
+        "All Signal-Like Dimuons (Direct + Indirect + Non-Charm)"
+    )
+
+    # Candidate selection based on CLI --category
+    if args.category == "direct" or args.require_direct_charm_decay is True:
         df_candidate = df_direct
-    elif args.require_direct_charm_decay is False or args.category == "indirect":
+    elif args.category == "indirect" or args.require_direct_charm_decay is False:
         df_candidate = df_indirect
-    else:
+    elif args.category == "non_charm":
+        df_candidate = df_non_charm
+    elif args.category == "signal_like":
+        df_candidate = df_signal_like
+    else: # "all"
         df_candidate = df_numu_cc.Filter(
             f"{fid_prefix}has_charm && (((charm_has_direct_muon == 1) && (has_candidate || (is_cc && is_opposite_sign))) || ((charm_has_direct_muon == 0) && (has_charm_hadronic_downstream_muon == 1)))",
             "Inclusive Dimuon Charm (Direct + Indirect)"
@@ -944,6 +1224,12 @@ def main():
     df_indirect_in_acc = df_indirect.Filter("dimuon_in_ds_acceptance", "Indirect Fake In DS Acceptance")
     df_indirect_out_acc = df_indirect.Filter("!dimuon_in_ds_acceptance", "Indirect Fake Outside DS Acceptance")
 
+    df_non_charm_in_acc = df_non_charm.Filter("dimuon_in_ds_acceptance", "Non-Charm In DS Acceptance")
+    df_non_charm_out_acc = df_non_charm.Filter("!dimuon_in_ds_acceptance", "Non-Charm Outside DS Acceptance")
+
+    df_signal_like_in_acc = df_signal_like.Filter("dimuon_in_ds_acceptance", "All Signal-Like In DS Acceptance")
+    df_signal_like_out_acc = df_signal_like.Filter("!dimuon_in_ds_acceptance", "All Signal-Like Outside DS Acceptance")
+
     # Specific charm hadron species filters
     df_d0 = df_candidate.Filter("abs_charm_pdg == 421", "D0 / anti-D0")
     df_dplus = df_candidate.Filter("abs_charm_pdg == 411", "D+ / D-")
@@ -960,23 +1246,47 @@ def main():
     df_indirect_ds = df_indirect.Filter("abs_charm_pdg == 431", "Indirect Ds+")
     df_indirect_lambdac = df_indirect.Filter("abs_charm_pdg == 4122", "Indirect Lambda_c+")
 
-    # Intermediate mother particle breakdown for Indirect
+    # Intermediate mother particle breakdown for Indirect and Non-Charm
     df_indirect_pion = df_indirect.Filter("std::abs(downstream_muon_mother_pdg) == 211", "Indirect via Pion")
     df_indirect_kaon = df_indirect.Filter("std::abs(downstream_muon_mother_pdg) == 321 || std::abs(downstream_muon_mother_pdg) == 130 || std::abs(downstream_muon_mother_pdg) == 310", "Indirect via Kaon")
     df_indirect_other = df_indirect.Filter("std::abs(downstream_muon_mother_pdg) != 211 && std::abs(downstream_muon_mother_pdg) != 321 && std::abs(downstream_muon_mother_pdg) != 130 && std::abs(downstream_muon_mother_pdg) != 310", "Indirect via Other")
+
+    df_non_charm_pion = df_non_charm.Filter("std::abs(sec_mu_mother_pdg) == 211", "Non-Charm via Pion")
+    df_non_charm_kaon = df_non_charm.Filter("std::abs(sec_mu_mother_pdg) == 321 || std::abs(sec_mu_mother_pdg) == 130 || std::abs(sec_mu_mother_pdg) == 310", "Non-Charm via Kaon")
+    df_non_charm_other = df_non_charm.Filter("std::abs(sec_mu_mother_pdg) != 211 && std::abs(sec_mu_mother_pdg) != 321 && std::abs(sec_mu_mother_pdg) != 130 && std::abs(sec_mu_mother_pdg) != 310", "Non-Charm via Other")
 
     # Reconstructed 2 DS Tracks filters (when Reco_MuonTracks is present)
     df_signal_2ds = df_candidate.Filter("has_two_ds_tracks == 1", "Signal with >=2 DS Tracks")
     df_direct_2ds = df_direct.Filter("has_two_ds_tracks == 1", "Direct with >=2 DS Tracks")
     df_indirect_2ds = df_indirect.Filter("has_two_ds_tracks == 1", "Indirect with >=2 DS Tracks")
+    df_non_charm_2ds = df_non_charm.Filter("has_two_ds_tracks == 1", "Non-Charm with >=2 DS Tracks")
+    df_signal_like_2ds = df_signal_like.Filter("has_two_ds_tracks == 1", "All Signal-Like with >=2 DS Tracks")
 
+    df_signal_2ds_valid_cross_xz = df_signal_2ds.Filter("reco_ds_cross_z_xz > -9000.0", "Signal with Valid XZ Crossing")
+    df_signal_2ds_valid_cross_yz = df_signal_2ds.Filter("reco_ds_cross_z_yz > -9000.0", "Signal with Valid YZ Crossing")
     df_signal_2ds_valid_cross = df_signal_2ds.Filter("reco_ds_cross_z_xz > -9000.0 && reco_ds_cross_z_yz > -9000.0", "Signal with Valid 2D Crossings")
+
+    df_direct_2ds_valid_cross_xz = df_direct_2ds.Filter("reco_ds_cross_z_xz > -9000.0", "Direct with Valid XZ Crossing")
+    df_direct_2ds_valid_cross_yz = df_direct_2ds.Filter("reco_ds_cross_z_yz > -9000.0", "Direct with Valid YZ Crossing")
     df_direct_2ds_valid_cross = df_direct_2ds.Filter("reco_ds_cross_z_xz > -9000.0 && reco_ds_cross_z_yz > -9000.0", "Direct with Valid 2D Crossings")
+
+    df_indirect_2ds_valid_cross_xz = df_indirect_2ds.Filter("reco_ds_cross_z_xz > -9000.0", "Indirect with Valid XZ Crossing")
+    df_indirect_2ds_valid_cross_yz = df_indirect_2ds.Filter("reco_ds_cross_z_yz > -9000.0", "Indirect with Valid YZ Crossing")
     df_indirect_2ds_valid_cross = df_indirect_2ds.Filter("reco_ds_cross_z_xz > -9000.0 && reco_ds_cross_z_yz > -9000.0", "Indirect with Valid 2D Crossings")
+
+    df_non_charm_2ds_valid_cross_xz = df_non_charm_2ds.Filter("reco_ds_cross_z_xz > -9000.0", "Non-Charm with Valid XZ Crossing")
+    df_non_charm_2ds_valid_cross_yz = df_non_charm_2ds.Filter("reco_ds_cross_z_yz > -9000.0", "Non-Charm with Valid YZ Crossing")
+    df_non_charm_2ds_valid_cross = df_non_charm_2ds.Filter("reco_ds_cross_z_xz > -9000.0 && reco_ds_cross_z_yz > -9000.0", "Non-Charm with Valid 2D Crossings")
+
+    df_signal_like_2ds_valid_cross_xz = df_signal_like_2ds.Filter("reco_ds_cross_z_xz > -9000.0", "All Signal-Like with Valid XZ Crossing")
+    df_signal_like_2ds_valid_cross_yz = df_signal_like_2ds.Filter("reco_ds_cross_z_yz > -9000.0", "All Signal-Like with Valid YZ Crossing")
+    df_signal_like_2ds_valid_cross = df_signal_like_2ds.Filter("reco_ds_cross_z_xz > -9000.0 && reco_ds_cross_z_yz > -9000.0", "All Signal-Like with Valid 2D Crossings")
 
     df_signal_2ds_in_acc = df_signal_2ds.Filter("dimuon_in_ds_acceptance", "Signal with >=2 DS Tracks In DS Acc")
     df_direct_2ds_in_acc = df_direct_2ds.Filter("dimuon_in_ds_acceptance", "Direct with >=2 DS Tracks In DS Acc")
     df_indirect_2ds_in_acc = df_indirect_2ds.Filter("dimuon_in_ds_acceptance", "Indirect with >=2 DS Tracks In DS Acc")
+    df_non_charm_2ds_in_acc = df_non_charm_2ds.Filter("dimuon_in_ds_acceptance", "Non-Charm with >=2 DS Tracks In DS Acc")
+    df_signal_like_2ds_in_acc = df_signal_like_2ds.Filter("dimuon_in_ds_acceptance", "All Signal-Like with >=2 DS Tracks In DS Acc")
 
     # Register filter nodes for booking
     filter_nodes = {
@@ -993,6 +1303,8 @@ def main():
         "signal": df_candidate,
         "direct": df_direct,
         "indirect": df_indirect,
+        "non_charm": df_non_charm,
+        "signal_like": df_signal_like,
         "in_acc": df_in_acc,
         "in_acceptance": df_in_acc,
         "out_acc": df_out_acc,
@@ -1001,6 +1313,10 @@ def main():
         "direct_out_acc": df_direct_out_acc,
         "indirect_in_acc": df_indirect_in_acc,
         "indirect_out_acc": df_indirect_out_acc,
+        "non_charm_in_acc": df_non_charm_in_acc,
+        "non_charm_out_acc": df_non_charm_out_acc,
+        "signal_like_in_acc": df_signal_like_in_acc,
+        "signal_like_out_acc": df_signal_like_out_acc,
         "mu2_in_acc": df_mu2_in_acc,
         "mu2_out_acc": df_mu2_out_acc,
         "d0": df_d0,
@@ -1018,12 +1334,29 @@ def main():
         "indirect_pion": df_indirect_pion,
         "indirect_kaon": df_indirect_kaon,
         "indirect_other": df_indirect_other,
+        "non_charm_pion": df_non_charm_pion,
+        "non_charm_kaon": df_non_charm_kaon,
+        "non_charm_other": df_non_charm_other,
         "signal_2ds": df_signal_2ds,
         "direct_2ds": df_direct_2ds,
         "indirect_2ds": df_indirect_2ds,
+        "non_charm_2ds": df_non_charm_2ds,
+        "signal_like_2ds": df_signal_like_2ds,
         "signal_2ds_cross": df_signal_2ds_valid_cross,
+        "signal_2ds_cross_xz": df_signal_2ds_valid_cross_xz,
+        "signal_2ds_cross_yz": df_signal_2ds_valid_cross_yz,
         "direct_2ds_cross": df_direct_2ds_valid_cross,
+        "direct_2ds_cross_xz": df_direct_2ds_valid_cross_xz,
+        "direct_2ds_cross_yz": df_direct_2ds_valid_cross_yz,
         "indirect_2ds_cross": df_indirect_2ds_valid_cross,
+        "indirect_2ds_cross_xz": df_indirect_2ds_valid_cross_xz,
+        "indirect_2ds_cross_yz": df_indirect_2ds_valid_cross_yz,
+        "non_charm_2ds_cross": df_non_charm_2ds_valid_cross,
+        "non_charm_2ds_cross_xz": df_non_charm_2ds_valid_cross_xz,
+        "non_charm_2ds_cross_yz": df_non_charm_2ds_valid_cross_yz,
+        "signal_like_2ds_cross": df_signal_like_2ds_valid_cross,
+        "signal_like_2ds_cross_xz": df_signal_like_2ds_valid_cross_xz,
+        "signal_like_2ds_cross_yz": df_signal_like_2ds_valid_cross_yz,
     }
 
     # 7. Book Counters
@@ -1039,12 +1372,18 @@ def main():
     c_candidate = df_candidate.Count()
     c_direct = df_direct.Count()
     c_indirect = df_indirect.Count()
+    c_non_charm = df_non_charm.Count()
+    c_signal_like = df_signal_like.Count()
     c_in_acc = df_in_acc.Count()
     c_out_acc = df_out_acc.Count()
     c_direct_in_acc = df_direct_in_acc.Count()
     c_direct_out_acc = df_direct_out_acc.Count()
     c_indirect_in_acc = df_indirect_in_acc.Count()
     c_indirect_out_acc = df_indirect_out_acc.Count()
+    c_non_charm_in_acc = df_non_charm_in_acc.Count()
+    c_non_charm_out_acc = df_non_charm_out_acc.Count()
+    c_signal_like_in_acc = df_signal_like_in_acc.Count()
+    c_signal_like_out_acc = df_signal_like_out_acc.Count()
     c_mu1_in_acc = df_candidate.Filter("mu1_in_ds_acceptance").Count()
     c_mu2_in_acc = df_mu2_in_acc.Count()
     c_d0 = df_d0.Count()
@@ -1062,28 +1401,39 @@ def main():
     c_indirect_pion = df_indirect_pion.Count()
     c_indirect_kaon = df_indirect_kaon.Count()
     c_indirect_other = df_indirect_other.Count()
+    c_non_charm_pion = df_non_charm_pion.Count()
+    c_non_charm_kaon = df_non_charm_kaon.Count()
+    c_non_charm_other = df_non_charm_other.Count()
 
     # Reconstructed 2 DS tracks counters
     c_2ds_signal = df_signal_2ds.Count()
     c_2ds_direct = df_direct_2ds.Count()
     c_2ds_indirect = df_indirect_2ds.Count()
+    c_2ds_non_charm = df_non_charm_2ds.Count()
+    c_2ds_signal_like = df_signal_like_2ds.Count()
     c_2ds_signal_in_acc = df_signal_2ds_in_acc.Count()
     c_2ds_direct_in_acc = df_direct_2ds_in_acc.Count()
     c_2ds_indirect_in_acc = df_indirect_2ds_in_acc.Count()
+    c_2ds_non_charm_in_acc = df_non_charm_2ds_in_acc.Count()
+    c_2ds_signal_like_in_acc = df_signal_like_2ds_in_acc.Count()
 
     booked_counters = [
         c_total, c_all_numu, c_all_numu_fid, c_numu_cc, c_numu_nc,
         c_numu_nu, c_numu_antinu, c_fiducial, c_charm, c_candidate,
-        c_direct, c_indirect,
+        c_direct, c_indirect, c_non_charm, c_signal_like,
         c_in_acc, c_out_acc, c_direct_in_acc, c_direct_out_acc,
         c_indirect_in_acc, c_indirect_out_acc,
+        c_non_charm_in_acc, c_non_charm_out_acc,
+        c_signal_like_in_acc, c_signal_like_out_acc,
         c_mu1_in_acc, c_mu2_in_acc,
         c_d0, c_dplus, c_ds, c_lambdac,
         c_direct_d0, c_direct_dplus, c_direct_ds, c_direct_lambdac,
         c_indirect_d0, c_indirect_dplus, c_indirect_ds, c_indirect_lambdac,
         c_indirect_pion, c_indirect_kaon, c_indirect_other,
-        c_2ds_signal, c_2ds_direct, c_2ds_indirect,
-        c_2ds_signal_in_acc, c_2ds_direct_in_acc, c_2ds_indirect_in_acc
+        c_non_charm_pion, c_non_charm_kaon, c_non_charm_other,
+        c_2ds_signal, c_2ds_direct, c_2ds_indirect, c_2ds_non_charm, c_2ds_signal_like,
+        c_2ds_signal_in_acc, c_2ds_direct_in_acc, c_2ds_indirect_in_acc,
+        c_2ds_non_charm_in_acc, c_2ds_signal_like_in_acc
     ]
 
     # 8. Book Comprehensive Suite of Histograms
@@ -1159,12 +1509,18 @@ def main():
         ("signal", df_candidate, "Inclusive Signal"),
         ("direct", df_direct, "Direct Signal (c #rightarrow #mu)"),
         ("indirect", df_indirect, "Indirect Fake Signal (c #rightarrow h #rightarrow #mu)"),
+        ("non_charm", df_non_charm, "Non-Charm Dimuons (#pi/K #rightarrow #mu)"),
+        ("signal_like", df_signal_like, "All Signal-Like Dimuons"),
         ("in_acc", df_in_acc, "Inclusive In DS Acceptance"),
         ("out_acc", df_out_acc, "Inclusive Outside DS Acceptance"),
         ("direct_in_acc", df_direct_in_acc, "Direct In DS Acceptance"),
         ("direct_out_acc", df_direct_out_acc, "Direct Outside DS Acceptance"),
         ("indirect_in_acc", df_indirect_in_acc, "Indirect In DS Acceptance"),
         ("indirect_out_acc", df_indirect_out_acc, "Indirect Outside DS Acceptance"),
+        ("non_charm_in_acc", df_non_charm_in_acc, "Non-Charm In DS Acceptance"),
+        ("non_charm_out_acc", df_non_charm_out_acc, "Non-Charm Outside DS Acceptance"),
+        ("signal_like_in_acc", df_signal_like_in_acc, "All Signal-Like In DS Acceptance"),
+        ("signal_like_out_acc", df_signal_like_out_acc, "All Signal-Like Outside DS Acceptance"),
     ]
 
     for prefix, node, label in samples_1d:
@@ -1187,7 +1543,7 @@ def main():
         book_1d(f"h_{prefix}_mu1_pt", f"Primary #mu_{{1}} Transverse Momentum ({label});p_{{T,#mu1}} [GeV/c];Events", "mu1_pt", node, 50, 0.0, 5.0)
         book_1d(f"h_{prefix}_mu2_pt", f"Secondary #mu_{{2}} Transverse Momentum ({label});p_{{T,#mu2}} [GeV/c];Events", "sec_mu_pt", node, 50, 0.0, 5.0)
         book_1d(f"h_{prefix}_mu1_eta", f"Primary #mu_{{1}} Pseudorapidity ({label});#eta_{{#mu1}};Events", "mu1_eta", node, 50, 4.0, 10.0)
-        book_1d(f"h_{prefix}_mu2_eta", f"Secondary #mu_{{2}} Pseudorapidity ({label});#eta_{{#mu2}};Events", "sec_mu_eta", node, 50, 4.0, 10.0)
+        book_1d(f"h_{prefix}_mu2_eta", f"Secondary #mu_{{2}} Pseudorapidity ({label});#eta_{{#mu2}};Events", "sec_mu_eta", node, 50, 2.0, 10.0)
         book_1d(f"h_{prefix}_mu1_theta", f"Primary #mu_{{1}} Polar Angle ({label});#theta_{{#mu1}} [rad];Events", "mu1_theta", node, 50, 0.0, 0.2)
         book_1d(f"h_{prefix}_mu2_theta", f"Secondary #mu_{{2}} Polar Angle ({label});#theta_{{#mu2}} [rad];Events", "sec_mu_theta", node, 50, 0.0, 0.2)
 
@@ -1233,7 +1589,7 @@ def main():
         book_1d(f"h_{prefix}_proper_lifetime_ps", f"Charm Proper Lifetime ({label});#tau [ps];Events", "proper_lifetime_ps", node, 50, 0.0, 3.0)
 
     # --------------------------------------------------------------------------
-    # 8b-2. Intermediate Mother Particles for Indirect Charm Decays
+    # 8b-2. Intermediate Mother Particles for Indirect Charm and Non-Charm Decays
     # --------------------------------------------------------------------------
     book_1d("h_indirect_downstream_muon_mother_pdg", "Indirect Muon Mother PDG (c #rightarrow h #rightarrow #mu);PDG ID;Events", "downstream_muon_mother_pdg", df_indirect, 800, -400.0, 400.0)
     book_1d("h_indirect_downstream_muon_mother_abs_pdg", "Indirect Muon Mother |PDG|;Abs PDG ID;Events", "sec_mu_abs_mother_pdg", df_indirect, 400, 0.0, 400.0)
@@ -1251,21 +1607,44 @@ def main():
         book_1d(f"h_indirect_{m_key}_dimuon_delta_e", f"Dimuon #Delta E ({m_lbl});E_{{#mu1}} - E_{{#mu2}} [GeV];Events", "dimuon_delta_e_unified", m_node, 100, -50.0, 700.0)
         book_1d(f"h_indirect_{m_key}_nu_e", f"Incoming #nu Energy ({m_lbl});E_{{#nu}} [GeV];Events", "nu_e", m_node, 50, 0.0, 1000.0)
 
+    # Non-Charm intermediate mother particles
+    book_1d("h_non_charm_downstream_muon_mother_pdg", "Non-Charm Muon Mother PDG (#pi/K #rightarrow #mu);PDG ID;Events", "sec_mu_mother_pdg", df_non_charm, 800, -400.0, 400.0)
+    book_1d("h_non_charm_downstream_muon_mother_abs_pdg", "Non-Charm Muon Mother |PDG|;Abs PDG ID;Events", "sec_mu_abs_mother_pdg", df_non_charm, 400, 0.0, 400.0)
+    book_1d("h_non_charm_mother_category", "Non-Charm Intermediate Mother Category;Category (1: #pi^{#pm}, 2: K, 3: Other);Events", "indirect_mother_category", df_non_charm, 4, 0.5, 4.5)
+
+    non_charm_subsamples = [
+        ("pion", df_non_charm_pion, "via #pi^{#pm}"),
+        ("kaon", df_non_charm_kaon, "via Kaon"),
+        ("other", df_non_charm_other, "via Other Hadron"),
+    ]
+    for m_key, m_node, m_lbl in non_charm_subsamples:
+        book_1d(f"h_non_charm_{m_key}_sec_mu_e", f"Secondary #mu Energy ({m_lbl});E_{{#mu2}} [GeV];Events", "sec_mu_e", m_node, 100, 0.0, 10.0)
+        book_1d(f"h_non_charm_{m_key}_sec_mu_p", f"Secondary #mu Momentum ({m_lbl});p_{{#mu2}} [GeV/c];Events", "sec_mu_p", m_node, 100, 0.0, 10.0)
+        book_1d(f"h_non_charm_{m_key}_sec_mu_pt", f"Secondary #mu p_{{T}} ({m_lbl});p_{{T,#mu2}} [GeV/c];Events", "sec_mu_pt", m_node, 60, 0.0, 1.5)
+        book_1d(f"h_non_charm_{m_key}_dimuon_delta_e", f"Dimuon #Delta E ({m_lbl});E_{{#mu1}} - E_{{#mu2}} [GeV];Events", "dimuon_delta_e_unified", m_node, 100, -50.0, 700.0)
+        book_1d(f"h_non_charm_{m_key}_nu_e", f"Incoming #nu Energy ({m_lbl});E_{{#nu}} [GeV];Events", "nu_e", m_node, 50, 0.0, 1000.0)
+
     # --------------------------------------------------------------------------
     # 8b-3. 2D Histograms: Dimuon Energy & Kinematic Correlations
     # --------------------------------------------------------------------------
     # Core Dimuon Energy Correlation (E_mu2 vs E_mu1) across samples
     for prefix, node, label in samples_1d:
         book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e", f"Dimuon Energy Correlation ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "sec_mu_e", node, 35, 0.0, 700.0, 35, 0.0, 700.0)
-        if prefix in ["signal", "direct", "indirect"]:
+        if prefix in ["signal", "direct", "indirect", "non_charm", "signal_like"]:
             book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e_zoom", f"Dimuon Energy Correlation (Zoom) ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "sec_mu_e", node, 35, 0.0, 700.0, 50, 0.0, 10.0)
 
         book_2d(f"h2_{prefix}_mu2_p_vs_mu1_p", f"Dimuon Momentum Correlation ({label});p_{{#mu1}} [GeV/c];p_{{#mu2}} [GeV/c]", "mu1_p", "sec_mu_p", node, 35, 0.0, 700.0, 35, 0.0, 700.0)
         book_2d(f"h2_{prefix}_mu2_pt_vs_mu1_pt", f"Dimuon Transverse Momentum Correlation ({label});p_{{T,#mu1}} [GeV/c];p_{{T,#mu2}} [GeV/c]", "mu1_pt", "sec_mu_pt", node, 50, 0.0, 4.0, 50, 0.0, 1.5)
-        book_2d(f"h2_{prefix}_mu2_eta_vs_mu1_eta", f"Dimuon Pseudorapidity Correlation ({label});#eta_{{#mu1}};#eta_{{#mu2}}", "mu1_eta", "sec_mu_eta", node, 50, 4.0, 10.0, 50, 4.0, 10.0)
+        book_2d(f"h2_{prefix}_mu2_eta_vs_mu1_eta", f"Dimuon Pseudorapidity Correlation ({label});#eta_{{#mu1}};#eta_{{#mu2}}", "mu1_eta", "sec_mu_eta", node, 50, 4.0, 10.0, 50, 2.0, 10.0)
 
-    # Kinematic correlations for candidate signal, direct signal, and indirect fake signal
-    for pref, node, lbl in [("signal", df_candidate, "Signal"), ("direct", df_direct, "Direct Signal"), ("indirect", df_indirect, "Indirect Fake")]:
+    # Kinematic correlations for candidate signal, direct signal, indirect fake signal, non-charm, and signal-like
+    for pref, node, lbl in [
+        ("signal", df_candidate, "Signal"),
+        ("direct", df_direct, "Direct Signal"),
+        ("indirect", df_indirect, "Indirect Fake"),
+        ("non_charm", df_non_charm, "Non-Charm Dimuon"),
+        ("signal_like", df_signal_like, "All Signal-Like"),
+    ]:
         book_2d(f"h2_{pref}_mu1_e_vs_nu_e", f"Primary #mu_{{1}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];E_{{#mu1}} [GeV]", "nu_e", "mu1_e", node, 50, 0.0, 800.0, 50, 0.0, 600.0)
         book_2d(f"h2_{pref}_mu2_e_vs_nu_e", f"Secondary #mu_{{2}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];E_{{#mu2}} [GeV]", "nu_e", "sec_mu_e", node, 50, 0.0, 800.0, 50, 0.0, 10.0)
         book_2d(f"h2_{pref}_dimuon_delta_e_vs_nu_e", f"Muon Energy Difference vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];E_{{#mu1}} - E_{{#mu2}} [GeV]", "nu_e", "dimuon_delta_e_unified", node, 50, 0.0, 800.0, 50, -50.0, 600.0)
@@ -1284,15 +1663,32 @@ def main():
     book_2d("h2_signal_vtx_xy", "Interaction Vertex Transverse Profile;x_{vtx} [cm];y_{vtx} [cm]", "vtx_x", "vtx_y", df_candidate, 60, -60.0, 0.0, 60, 3.0, 63.0)
     book_2d("h2_signal_mu1_nds_vs_mu1_e", "Primary #mu_{1} DS MCPoints vs Energy;E_{#mu1} [GeV];N_{DS}(#mu_{1})", "mu1_e", "mu1_n_ds_points", df_candidate, 50, 0.0, 800.0, 20, -0.5, 19.5)
     book_2d("h2_signal_mu2_nds_vs_mu2_e", "Secondary #mu_{2} DS MCPoints vs Energy;E_{#mu2} [GeV];N_{DS}(#mu_{2})", "sec_mu_e", "mu2_n_ds_points", df_candidate, 50, 0.0, 10.0, 20, -0.5, 19.5)
-    book_2d("h2_signal_mu2_nds_vs_mu2_eta", "Secondary #mu_{2} DS MCPoints vs #eta;#eta_{#mu2};N_{DS}(#mu_{2})", "sec_mu_eta", "mu2_n_ds_points", df_candidate, 50, 4.0, 10.0, 20, -0.5, 19.5)
+    book_2d("h2_signal_mu2_nds_vs_mu2_eta", "Secondary #mu_{2} DS MCPoints vs #eta;#eta_{#mu2};N_{DS}(#mu_{2})", "sec_mu_eta", "mu2_n_ds_points", df_candidate, 50, 2.0, 10.0, 20, -0.5, 19.5)
 
     # --------------------------------------------------------------------------
     # 8b-4. XZ and YZ Projected Observables (Truth 2D Projections)
     # --------------------------------------------------------------------------
     proj_samples = [
+        # Stage 1: All dimuon events
         ("signal", df_candidate, "Inclusive"),
         ("direct", df_direct, "Direct Signal"),
         ("indirect", df_indirect, "Indirect Fake"),
+        ("non_charm", df_non_charm, "Non-Charm Dimuons"),
+        ("signal_like", df_signal_like, "All Signal-Like"),
+
+        # Stage 2: Only those in DS Acceptance
+        ("signal_in_acc", df_in_acc, "Inclusive in DS Acc"),
+        ("direct_in_acc", df_direct_in_acc, "Direct Signal in DS Acc"),
+        ("indirect_in_acc", df_indirect_in_acc, "Indirect Fake in DS Acc"),
+        ("non_charm_in_acc", df_non_charm_in_acc, "Non-Charm in DS Acc"),
+        ("signal_like_in_acc", df_signal_like_in_acc, "All Signal-Like in DS Acc"),
+
+        # Stage 3: In DS Acceptance AND >= 2 DS Tracks (Truth Angles)
+        ("signal_2ds_in_acc", df_signal_2ds_in_acc, "Inclusive 2DS in DS Acc"),
+        ("direct_2ds_in_acc", df_direct_2ds_in_acc, "Direct Signal 2DS in DS Acc"),
+        ("indirect_2ds_in_acc", df_indirect_2ds_in_acc, "Indirect Fake 2DS in DS Acc"),
+        ("non_charm_2ds_in_acc", df_non_charm_2ds_in_acc, "Non-Charm 2DS in DS Acc"),
+        ("signal_like_2ds_in_acc", df_signal_like_2ds_in_acc, "All Signal-Like 2DS in DS Acc"),
     ]
 
     for pref, node, lbl in proj_samples:
@@ -1339,50 +1735,78 @@ def main():
         book_2d(f"h2_{pref}_sep_ds_entrance_y_vs_x", f"Dimuon Separation at DS Entrance ({lbl});#Delta x [cm];#Delta y [cm]", "dimuon_sep_x_ds_entrance", "dimuon_sep_y_ds_entrance", node, 50, 0.0, 60.0, 50, 0.0, 60.0)
 
     # --------------------------------------------------------------------------
+    # 8b-4b. Stage 4: Reconstructed Track Angles (for 2 DS Track Events In DS Acc)
+    # --------------------------------------------------------------------------
+    reco_angle_samples = [
+        ("signal_2ds_in_acc", df_signal_2ds_in_acc, "Inclusive 2DS in DS Acc"),
+        ("direct_2ds_in_acc", df_direct_2ds_in_acc, "Direct Signal 2DS in DS Acc"),
+        ("indirect_2ds_in_acc", df_indirect_2ds_in_acc, "Indirect Fake 2DS in DS Acc"),
+        ("non_charm_2ds_in_acc", df_non_charm_2ds_in_acc, "Non-Charm 2DS in DS Acc"),
+        ("signal_like_2ds_in_acc", df_signal_like_2ds_in_acc, "All Signal-Like 2DS in DS Acc"),
+    ]
+    for pref, node, lbl in reco_angle_samples:
+        book_1d(f"h_{pref}_reco_mu1_theta_xz_mrad", f"Primary #mu_{{1}} Reco #theta_{{XZ}} ({lbl});#theta_{{XZ}}^{{reco}}(#mu_{{1}}) [mrad];Events", "reco_mu1_theta_xz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_reco_sec_mu_theta_xz_mrad", f"Secondary #mu_{{2}} Reco #theta_{{XZ}} ({lbl});#theta_{{XZ}}^{{reco}}(#mu_{{2}}) [mrad];Events", "reco_sec_mu_theta_xz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_reco_dimuon_opening_angle_xz_mrad", f"Dimuon Reco Opening Angle in XZ ({lbl});#Delta#theta_{{XZ}}^{{reco}} [mrad];Events", "reco_dimuon_opening_angle_xz_mrad", node, 60, 0.0, 300.0)
+
+        book_1d(f"h_{pref}_reco_mu1_theta_yz_mrad", f"Primary #mu_{{1}} Reco #theta_{{YZ}} ({lbl});#theta_{{YZ}}^{{reco}}(#mu_{{1}}) [mrad];Events", "reco_mu1_theta_yz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_reco_sec_mu_theta_yz_mrad", f"Secondary #mu_{{2}} Reco #theta_{{YZ}} ({lbl});#theta_{{YZ}}^{{reco}}(#mu_{{2}}) [mrad];Events", "reco_sec_mu_theta_yz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_reco_dimuon_opening_angle_yz_mrad", f"Dimuon Reco Opening Angle in YZ ({lbl});#Delta#theta_{{YZ}}^{{reco}} [mrad];Events", "reco_dimuon_opening_angle_yz_mrad", node, 60, 0.0, 300.0)
+
+        book_2d(f"h2_{pref}_reco_sec_mu_theta_xz_vs_mu1_theta_xz", f"Reco #theta_{{XZ}}(#mu_{{2}}) vs #theta_{{XZ}}(#mu_{{1}}) ({lbl});#theta_{{XZ}}^{{reco}}(#mu_{{1}}) [mrad];#theta_{{XZ}}^{{reco}}(#mu_{{2}}) [mrad]", "reco_mu1_theta_xz_mrad", "reco_sec_mu_theta_xz_mrad", node, 50, -300.0, 300.0, 50, -300.0, 300.0)
+        book_2d(f"h2_{pref}_reco_sec_mu_theta_yz_vs_mu1_theta_yz", f"Reco #theta_{{YZ}}(#mu_{{2}}) vs #theta_{{YZ}}(#mu_{{1}}) ({lbl});#theta_{{YZ}}^{{reco}}(#mu_{{1}}) [mrad];#theta_{{YZ}}^{{reco}}(#mu_{{2}}) [mrad]", "reco_mu1_theta_yz_mrad", "reco_sec_mu_theta_yz_mrad", node, 50, -300.0, 300.0, 50, -300.0, 300.0)
+        book_2d(f"h2_{pref}_reco_opening_angle_yz_vs_xz", f"Reco Opening Angle YZ vs XZ ({lbl});#Delta#theta_{{XZ}}^{{reco}} [mrad];#Delta#theta_{{YZ}}^{{reco}} [mrad]", "reco_dimuon_opening_angle_xz_mrad", "reco_dimuon_opening_angle_yz_mrad", node, 50, 0.0, 300.0, 50, 0.0, 300.0)
+
+    # --------------------------------------------------------------------------
     # 8b-5. Reconstructed DS Hough Tracks & Crossing Points (Reco_MuonTracks)
     # --------------------------------------------------------------------------
     reco_samples = [
-        ("signal", df_candidate, df_signal_2ds, df_signal_2ds_valid_cross, "Inclusive"),
-        ("direct", df_direct, df_direct_2ds, df_direct_2ds_valid_cross, "Direct Signal"),
-        ("indirect", df_indirect, df_indirect_2ds, df_indirect_2ds_valid_cross, "Indirect Fake"),
+        ("signal", df_candidate, df_signal_2ds, df_signal_2ds_valid_cross_xz, df_signal_2ds_valid_cross_yz, df_signal_2ds_valid_cross, "Inclusive"),
+        ("direct", df_direct, df_direct_2ds, df_direct_2ds_valid_cross_xz, df_direct_2ds_valid_cross_yz, df_direct_2ds_valid_cross, "Direct Signal"),
+        ("indirect", df_indirect, df_indirect_2ds, df_indirect_2ds_valid_cross_xz, df_indirect_2ds_valid_cross_yz, df_indirect_2ds_valid_cross, "Indirect Fake"),
+        ("non_charm", df_non_charm, df_non_charm_2ds, df_non_charm_2ds_valid_cross_xz, df_non_charm_2ds_valid_cross_yz, df_non_charm_2ds_valid_cross, "Non-Charm Dimuons"),
+        ("signal_like", df_signal_like, df_signal_like_2ds, df_signal_like_2ds_valid_cross_xz, df_signal_like_2ds_valid_cross_yz, df_signal_like_2ds_valid_cross, "All Signal-Like"),
     ]
 
-    for pref, cand_node, node_2ds, node_cross, lbl in reco_samples:
+    for pref, cand_node, node_2ds, node_cross_xz, node_cross_yz, node_cross_both, lbl in reco_samples:
         # Multiplicities
         book_1d(f"h_{pref}_n_reco_muon_tracks", f"Total Reconstructed Tracks ({lbl});N_{{tracks}};Events", "n_reco_muon_tracks", cand_node, 11, -0.5, 10.5)
         book_1d(f"h_{pref}_n_ds_hough_tracks", f"Reconstructed DS Hough Tracks ({lbl});N_{{DS tracks}} (type 13);Events", "n_ds_hough_tracks", cand_node, 11, -0.5, 10.5)
         book_1d(f"h_{pref}_has_two_ds_tracks", f"Has >=2 Reconstructed DS Tracks ({lbl});Has >=2 DS Tracks;Events", "has_two_ds_tracks", cand_node, 2, -0.5, 1.5)
 
         # For events with >= 2 DS tracks: Crossing Points & Vertex Comparison
-        book_1d(f"h_{pref}_2ds_reco_cross_z_xz", f"DS Tracks Crossing z in XZ ({lbl});z_{{cross, XZ}} [cm];Events", "reco_ds_cross_z_xz", node_cross, 70, 150.0, 500.0)
-        book_1d(f"h_{pref}_2ds_reco_cross_z_yz", f"DS Tracks Crossing z in YZ ({lbl});z_{{cross, YZ}} [cm];Events", "reco_ds_cross_z_yz", node_cross, 70, 150.0, 500.0)
-        book_1d(f"h_{pref}_2ds_reco_cross_x", f"DS Tracks Crossing x ({lbl});x_{{cross}} [cm];Events", "reco_ds_cross_x", node_cross, 60, -60.0, 0.0)
-        book_1d(f"h_{pref}_2ds_reco_cross_y", f"DS Tracks Crossing y ({lbl});y_{{cross}} [cm];Events", "reco_ds_cross_y", node_cross, 60, 5.0, 65.0)
+        # XZ-projection crossing
+        book_1d(f"h_{pref}_2ds_reco_cross_z_xz", f"DS Tracks Crossing z in XZ ({lbl});z_{{cross, XZ}} [cm];Events", "reco_ds_cross_z_xz", node_cross_xz, 70, 150.0, 500.0)
+        book_1d(f"h_{pref}_2ds_reco_cross_x", f"DS Tracks Crossing x ({lbl});x_{{cross}} [cm];Events", "reco_ds_cross_x", node_cross_xz, 60, -60.0, 0.0)
+        book_1d(f"h_{pref}_2ds_res_z_xz", f"Crossing z Residual in XZ ({lbl});z_{{cross, XZ}} - z_{{vtx}}^{{true}} [cm];Events", "reco_ds_res_z_xz", node_cross_xz, 60, -150.0, 150.0)
+        book_2d(f"h2_{pref}_2ds_cross_z_xz_vs_vtx_z", f"DS Crossing z_{{XZ}} vs True Vertex z ({lbl});z_{{vtx}}^{{true}} [cm];z_{{cross, XZ}} [cm]", "vtx_z", "reco_ds_cross_z_xz", node_cross_xz, 50, 260.0, 360.0, 60, 150.0, 450.0)
 
-        # True neutrino vertex z for the 2 DS track events
-        book_1d(f"h_{pref}_2ds_truth_vtx_z", f"True Neutrino Interaction Vertex z for 2 DS Track Events ({lbl});z_{{vtx}}^{{true}} [cm];Events", "vtx_z", node_cross, 50, 260.0, 360.0)
+        # YZ-projection crossing
+        book_1d(f"h_{pref}_2ds_reco_cross_z_yz", f"DS Tracks Crossing z in YZ ({lbl});z_{{cross, YZ}} [cm];Events", "reco_ds_cross_z_yz", node_cross_yz, 70, 150.0, 500.0)
+        book_1d(f"h_{pref}_2ds_reco_cross_y", f"DS Tracks Crossing y ({lbl});y_{{cross}} [cm];Events", "reco_ds_cross_y", node_cross_yz, 60, 5.0, 65.0)
+        book_1d(f"h_{pref}_2ds_res_z_yz", f"Crossing z Residual in YZ ({lbl});z_{{cross, YZ}} - z_{{vtx}}^{{true}} [cm];Events", "reco_ds_res_z_yz", node_cross_yz, 60, -150.0, 150.0)
+        book_2d(f"h2_{pref}_2ds_cross_z_yz_vs_vtx_z", f"DS Crossing z_{{YZ}} vs True Vertex z ({lbl});z_{{vtx}}^{{true}} [cm];z_{{cross, YZ}} [cm]", "vtx_z", "reco_ds_cross_z_yz", node_cross_yz, 50, 260.0, 360.0, 60, 150.0, 450.0)
 
-        # Delta z between XZ and YZ crossings
-        book_1d(f"h_{pref}_2ds_delta_z_cross", f"Crossing z Difference XZ - YZ ({lbl});#Delta z_{{cross}} = z_{{cross, XZ}} - z_{{cross, YZ}} [cm];Events", "reco_ds_delta_z_cross", node_cross, 60, -150.0, 150.0)
-        book_1d(f"h_{pref}_2ds_abs_delta_z_cross", f"Absolute Crossing z Difference |XZ - YZ| ({lbl});|#Delta z_{{cross}}| [cm];Events", "reco_ds_abs_delta_z_cross", node_cross, 60, 0.0, 150.0)
+        # True neutrino vertex z for all 2 DS track events
+        book_1d(f"h_{pref}_2ds_truth_vtx_z", f"True Neutrino Interaction Vertex z for 2 DS Track Events ({lbl});z_{{vtx}}^{{true}} [cm];Events", "vtx_z", node_2ds, 50, 260.0, 360.0)
 
-        # Residuals relative to true neutrino vertex z
-        book_1d(f"h_{pref}_2ds_res_z_xz", f"Crossing z Residual in XZ ({lbl});z_{{cross, XZ}} - z_{{vtx}}^{{true}} [cm];Events", "reco_ds_res_z_xz", node_cross, 60, -150.0, 150.0)
-        book_1d(f"h_{pref}_2ds_res_z_yz", f"Crossing z Residual in YZ ({lbl});z_{{cross, YZ}} - z_{{vtx}}^{{true}} [cm];Events", "reco_ds_res_z_yz", node_cross, 60, -150.0, 150.0)
-
-        # 2D Correlations
-        book_2d(f"h2_{pref}_2ds_cross_z_yz_vs_xz", f"DS Crossing z_{{YZ}} vs z_{{XZ}} ({lbl});z_{{cross, XZ}} [cm];z_{{cross, YZ}} [cm]", "reco_ds_cross_z_xz", "reco_ds_cross_z_yz", node_cross, 60, 150.0, 450.0, 60, 150.0, 450.0)
-        book_2d(f"h2_{pref}_2ds_cross_z_xz_vs_vtx_z", f"DS Crossing z_{{XZ}} vs True Vertex z ({lbl});z_{{vtx}}^{{true}} [cm];z_{{cross, XZ}} [cm]", "vtx_z", "reco_ds_cross_z_xz", node_cross, 50, 260.0, 360.0, 60, 150.0, 450.0)
-        book_2d(f"h2_{pref}_2ds_cross_z_yz_vs_vtx_z", f"DS Crossing z_{{YZ}} vs True Vertex z ({lbl});z_{{vtx}}^{{true}} [cm];z_{{cross, YZ}} [cm]", "vtx_z", "reco_ds_cross_z_yz", node_cross, 50, 260.0, 360.0, 60, 150.0, 450.0)
-        book_2d(f"h2_{pref}_2ds_cross_y_vs_x", f"DS Crossing y vs x ({lbl});x_{{cross}} [cm];y_{{cross}} [cm]", "reco_ds_cross_x", "reco_ds_cross_y", node_cross, 50, -60.0, 0.0, 50, 5.0, 65.0)
-
-
+        # Comparison between XZ and YZ crossings (requires both valid)
+        book_1d(f"h_{pref}_2ds_delta_z_cross", f"Crossing z Difference XZ - YZ ({lbl});#Delta z_{{cross}} = z_{{cross, XZ}} - z_{{cross, YZ}} [cm];Events", "reco_ds_delta_z_cross", node_cross_both, 60, -150.0, 150.0)
+        book_1d(f"h_{pref}_2ds_abs_delta_z_cross", f"Absolute Crossing z Difference |XZ - YZ| ({lbl});|#Delta z_{{cross}}| [cm];Events", "reco_ds_abs_delta_z_cross", node_cross_both, 60, 0.0, 150.0)
+        book_2d(f"h2_{pref}_2ds_cross_z_yz_vs_xz", f"DS Crossing z_{{YZ}} vs z_{{XZ}} ({lbl});z_{{cross, XZ}} [cm];z_{{cross, YZ}} [cm]", "reco_ds_cross_z_xz", "reco_ds_cross_z_yz", node_cross_both, 60, 150.0, 450.0, 60, 150.0, 450.0)
+        book_2d(f"h2_{pref}_2ds_cross_y_vs_x", f"DS Crossing y vs x ({lbl});x_{{cross}} [cm];y_{{cross}} [cm]", "reco_ds_cross_x", "reco_ds_cross_y", node_cross_both, 50, -60.0, 0.0, 50, 5.0, 65.0)
 
     # --------------------------------------------------------------------------
     # 8c. TProfiles: Kinematic Means & Acceptance Probability Profiles
     # --------------------------------------------------------------------------
-    # Mean kinematics vs Neutrino Energy for candidate, direct, and indirect
-    for pref, node, lbl in [("signal", df_candidate, "Inclusive"), ("direct", df_direct, "Direct Signal"), ("indirect", df_indirect, "Indirect Fake")]:
+    # Mean kinematics vs Neutrino Energy for candidate, direct, indirect, non-charm, and signal-like
+    for pref, node, lbl in [
+        ("signal", df_candidate, "Inclusive"),
+        ("direct", df_direct, "Direct Signal"),
+        ("indirect", df_indirect, "Indirect Fake"),
+        ("non_charm", df_non_charm, "Non-Charm Dimuons"),
+        ("signal_like", df_signal_like, "All Signal-Like"),
+    ]:
         book_prof(f"p_{pref}_mu1_e_vs_nu_e", f"Mean Primary #mu_{{1}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<E_{{#mu1}}> [GeV]", "nu_e", "mu1_e", node, 40, 0.0, 800.0)
         book_prof(f"p_{pref}_mu2_e_vs_nu_e", f"Mean Secondary #mu_{{2}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<E_{{#mu2}}> [GeV]", "nu_e", "sec_mu_e", node, 40, 0.0, 800.0)
         book_prof(f"p_{pref}_mu2_e_vs_charm_e", f"Mean Secondary #mu_{{2}} Energy vs Charm Energy ({lbl});E_{{charm}} [GeV];<E_{{#mu2}}> [GeV]", "charm_e", "sec_mu_e", node, 40, 0.0, 500.0)
@@ -1410,7 +1834,7 @@ def main():
     book_prof("p_acc_eff_vs_mu1_pt", "Dimuon DS Acceptance Efficiency vs p_{T,#mu1};p_{T,#mu1} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "mu1_pt", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 4.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_mu2_pt", "Dimuon DS Acceptance Efficiency vs p_{T,#mu2};p_{T,#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "sec_mu_pt", "dimuon_in_ds_acc_double", df_candidate, 50, 0.0, 5.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_mu1_eta", "Dimuon DS Acceptance Efficiency vs #eta_{#mu1};#eta_{#mu1};Acceptance Efficiency #epsilon_{DS}", "mu1_eta", "dimuon_in_ds_acc_double", df_candidate, 40, 4.0, 10.0, 0.0, 1.0)
-    book_prof("p_acc_eff_vs_mu2_eta", "Dimuon DS Acceptance Efficiency vs #eta_{#mu2};#eta_{#mu2};Acceptance Efficiency #epsilon_{DS}", "sec_mu_eta", "dimuon_in_ds_acc_double", df_candidate, 40, 4.0, 10.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_mu2_eta", "Dimuon DS Acceptance Efficiency vs #eta_{#mu2};#eta_{#mu2};Acceptance Efficiency #epsilon_{DS}", "sec_mu_eta", "dimuon_in_ds_acc_double", df_candidate, 40, 2.0, 10.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_opening_angle", "Dimuon DS Acceptance Efficiency vs #theta_{#mu#mu};#theta_{#mu#mu} [mrad];Acceptance Efficiency #epsilon_{DS}", "dimuon_opening_angle_mrad_unified", "dimuon_in_ds_acc_double", df_candidate, 64, 0.0, 3200.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_dimuon_mass", "Dimuon DS Acceptance Efficiency vs M_{#mu#mu};M_{#mu#mu} [GeV/c^{2}];Acceptance Efficiency #epsilon_{DS}", "dimuon_mass_unified", "dimuon_in_ds_acc_double", df_candidate, 60, 0.0, 15.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_vtx_z", "Dimuon DS Acceptance Efficiency vs z_{vtx};z_{vtx} [cm];Acceptance Efficiency #epsilon_{DS}", "vtx_z", "dimuon_in_ds_acc_double", df_candidate, 40, 260.0, 360.0, 0.0, 1.0)
@@ -1427,7 +1851,7 @@ def main():
     book_prof("p_mu1_acc_eff_vs_mu1_e", "Primary #mu_{1} DS Acceptance vs E_{#mu1};E_{#mu1} [GeV];Acceptance Efficiency #epsilon_{DS}(#mu_{1})", "mu1_e", "mu1_in_ds_acc_double", df_candidate, 40, 0.0, 800.0, 0.0, 1.0)
     book_prof("p_mu1_acc_eff_vs_mu1_eta", "Primary #mu_{1} DS Acceptance vs #eta_{#mu1};#eta_{#mu1};Acceptance Efficiency #epsilon_{DS}(#mu_{1})", "mu1_eta", "mu1_in_ds_acc_double", df_candidate, 40, 4.0, 10.0, 0.0, 1.0)
     book_prof("p_mu2_acc_eff_vs_mu2_e", "Secondary #mu_{2} DS Acceptance vs E_{#mu2};E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "sec_mu_e", "mu2_in_ds_acc_double", df_candidate, 50, 0.0, 300.0, 0.0, 1.0)
-    book_prof("p_mu2_acc_eff_vs_mu2_eta", "Secondary #mu_{2} DS Acceptance vs #eta_{#mu2};#eta_{#mu2};Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "sec_mu_eta", "mu2_in_ds_acc_double", df_candidate, 40, 4.0, 10.0, 0.0, 1.0)
+    book_prof("p_mu2_acc_eff_vs_mu2_eta", "Secondary #mu_{2} DS Acceptance vs #eta_{#mu2};#eta_{#mu2};Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "sec_mu_eta", "mu2_in_ds_acc_double", df_candidate, 40, 2.0, 10.0, 0.0, 1.0)
     book_prof("p_mu2_acc_eff_vs_mu2_pt", "Secondary #mu_{2} DS Acceptance vs p_{T,#mu2};p_{T,#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "sec_mu_pt", "mu2_in_ds_acc_double", df_candidate, 50, 0.0, 5.0, 0.0, 1.0)
 
     # --------------------------------------------------------------------------
@@ -1438,6 +1862,8 @@ def main():
         ("signal", df_in_acc, df_candidate, "Inclusive"),
         ("direct", df_direct_in_acc, df_direct, "Direct Signal"),
         ("indirect", df_indirect_in_acc, df_indirect, "Indirect Fake"),
+        ("non_charm", df_non_charm_in_acc, df_non_charm, "Non-Charm Dimuons"),
+        ("signal_like", df_signal_like_in_acc, df_signal_like, "All Signal-Like"),
     ]
 
     for pref, node_p, node_t, lbl in eff_acc_targets:
@@ -1457,13 +1883,15 @@ def main():
     book_teff("teff_ds_acc_mu1_vs_mu1_e", "Primary #mu_{1} DS Acceptance vs E_{#mu1};E_{#mu1} [GeV];#epsilon_{DS}(#mu_{1})", "mu1_e", df_mu1_in_acc_node, df_candidate, 40, 0.0, 800.0)
     book_teff("teff_ds_acc_mu1_vs_mu1_eta", "Primary #mu_{1} DS Acceptance vs #eta_{#mu1};#eta_{#mu1};#epsilon_{DS}(#mu_{1})", "mu1_eta", df_mu1_in_acc_node, df_candidate, 40, 4.0, 10.0)
     book_teff("teff_ds_acc_mu2_vs_mu2_e", "Secondary #mu_{2} DS Acceptance vs E_{#mu2};E_{#mu2} [GeV];#epsilon_{DS}(#mu_{2})", "sec_mu_e", df_mu2_in_acc, df_candidate, 50, 0.0, 300.0)
-    book_teff("teff_ds_acc_mu2_vs_mu2_eta", "Secondary #mu_{2} DS Acceptance vs #eta_{#mu2};#eta_{#mu2};#epsilon_{DS}(#mu_{2})", "sec_mu_eta", df_mu2_in_acc, df_candidate, 40, 4.0, 10.0)
+    book_teff("teff_ds_acc_mu2_vs_mu2_eta", "Secondary #mu_{2} DS Acceptance vs #eta_{#mu2};#eta_{#mu2};#epsilon_{DS}(#mu_{2})", "sec_mu_eta", df_mu2_in_acc, df_candidate, 40, 2.0, 10.0)
 
     # 2. Reconstructed Two DS Tracks Overall Efficiency (relative to candidate sample)
     eff_2ds_targets = [
         ("signal", df_signal_2ds, df_candidate, "Inclusive"),
         ("direct", df_direct_2ds, df_direct, "Direct Signal"),
         ("indirect", df_indirect_2ds, df_indirect, "Indirect Fake"),
+        ("non_charm", df_non_charm_2ds, df_non_charm, "Non-Charm Dimuons"),
+        ("signal_like", df_signal_like_2ds, df_signal_like, "All Signal-Like"),
     ]
 
     for pref, node_p, node_t, lbl in eff_2ds_targets:
@@ -1483,6 +1911,8 @@ def main():
         ("signal", df_signal_2ds_in_acc, df_in_acc, "Inclusive In DS Acc"),
         ("direct", df_direct_2ds_in_acc, df_direct_in_acc, "Direct Signal In DS Acc"),
         ("indirect", df_indirect_2ds_in_acc, df_indirect_in_acc, "Indirect Fake In DS Acc"),
+        ("non_charm", df_non_charm_2ds_in_acc, df_non_charm_in_acc, "Non-Charm In DS Acc"),
+        ("signal_like", df_signal_like_2ds_in_acc, df_signal_like_in_acc, "All Signal-Like In DS Acc"),
     ]
 
     for pref, node_p, node_t, lbl in eff_2ds_in_acc_targets:
@@ -1496,6 +1926,7 @@ def main():
         book_teff(f"teff_2ds_in_acc_{pref}_vs_sep_ds_entrance_x", f"Two DS Tracks Reconstruction Efficiency vs #Delta x ({lbl});#Delta x [cm];#epsilon_{{2 DS | DS Acc}}", "dimuon_sep_x_ds_entrance", node_p, node_t, 50, 0.0, 60.0)
         book_teff(f"teff_2ds_in_acc_{pref}_vs_sep_ds_entrance_y", f"Two DS Tracks Reconstruction Efficiency vs #Delta y ({lbl});#Delta y [cm];#epsilon_{{2 DS | DS Acc}}", "dimuon_sep_y_ds_entrance", node_p, node_t, 50, 0.0, 60.0)
         book_teff(f"teff_2ds_in_acc_{pref}_vs_sep_ds_entrance_3d", f"Two DS Tracks Reconstruction Efficiency vs #Delta R_{{3D}} ({lbl});#Delta R_{{3D}} [cm];#epsilon_{{2 DS | DS Acc}}", "dimuon_sep_3d_ds_entrance", node_p, node_t, 50, 0.0, 80.0)
+
 
     # --------------------------------------------------------------------------
     # 8e. Charmed Hadron Species Breakdowns
@@ -1691,12 +2122,25 @@ def main():
     n_indir_dplus = c_indirect_dplus.GetValue()
     n_indir_ds = c_indirect_ds.GetValue()
     n_indir_lambdac = c_indirect_lambdac.GetValue()
+    n_non_charm = c_non_charm.GetValue()
+    n_signal_like = c_signal_like.GetValue()
+    n_non_charm_in_acc = c_non_charm_in_acc.GetValue()
+    n_non_charm_out_acc = c_non_charm_out_acc.GetValue()
+    n_signal_like_in_acc = c_signal_like_in_acc.GetValue()
+    n_signal_like_out_acc = c_signal_like_out_acc.GetValue()
+    n_non_charm_pion = c_non_charm_pion.GetValue()
+    n_non_charm_kaon = c_non_charm_kaon.GetValue()
+    n_non_charm_other = c_non_charm_other.GetValue()
     n_2ds_signal = c_2ds_signal.GetValue()
     n_2ds_direct = c_2ds_direct.GetValue()
     n_2ds_indirect = c_2ds_indirect.GetValue()
+    n_2ds_non_charm = c_2ds_non_charm.GetValue()
+    n_2ds_signal_like = c_2ds_signal_like.GetValue()
     n_2ds_signal_in_acc = c_2ds_signal_in_acc.GetValue()
     n_2ds_direct_in_acc = c_2ds_direct_in_acc.GetValue()
     n_2ds_indirect_in_acc = c_2ds_indirect_in_acc.GetValue()
+    n_2ds_non_charm_in_acc = c_2ds_non_charm_in_acc.GetValue()
+    n_2ds_signal_like_in_acc = c_2ds_signal_like_in_acc.GetValue()
 
     print("\n" + "=" * 80)
     print(" ALL INTERACTING MUON NEUTRINOS IN DETECTOR")
@@ -1718,56 +2162,68 @@ def main():
     if "h_all_numu_nc_nu_e" in booked_histograms_1d:
         print(f"Mean Nu_mu Energy (NC)       : {booked_histograms_1d['h_all_numu_nc_nu_e'].GetValue().GetMean():8.2f} GeV")
     print("-" * 80)
-    print(" CHARM & SIGNAL DIMUON CUTFLOW")
+    print(" CHARM & SIGNAL-LIKE DIMUON CUTFLOW")
     print("-" * 80)
     print(f"Muon Neutrino CC             : {n_numu_cc:8d} ({100.0 * n_numu_cc / max(n_tot, 1):6.2f}%)")
     print(f"Target Fiducial Volume CC    : {n_fid:8d} ({100.0 * n_fid / max(n_numu_cc, 1):6.2f}% of CC)")
     print(f"Nu_mu CC with Charm Hadron   : {n_chm:8d} ({100.0 * n_chm / max(n_numu_cc, 1):6.2f}% of CC)")
-    print(f"Inclusive Dimuon Candidates  : {n_cand:8d} ({100.0 * n_cand / max(n_chm, 1):6.2f}% of charm)")
-    print(f"  - Direct Charm Signal (c->mu): {n_dir:6d} ({100.0 * n_dir / max(n_cand, 1):6.2f}% of inclusive)")
-    print(f"  - Indirect Fake Signal (c->h->mu): {n_indir:4d} ({100.0 * n_indir / max(n_cand, 1):6.2f}% of inclusive)")
+    print(f"Inclusive Charm Dimuons      : {n_cand:8d} ({100.0 * n_cand / max(n_chm, 1):6.2f}% of charm)")
+    print(f"  - Direct Charm Signal (c->mu): {n_dir:6d} ({100.0 * n_dir / max(n_cand, 1):6.2f}% of charm dimuons)")
+    print(f"  - Indirect Fake Signal (c->h->mu): {n_indir:4d} ({100.0 * n_indir / max(n_cand, 1):6.2f}% of charm dimuons)")
     print(f"      * via Charged Pion (pi): {n_indir_pion:6d} ({100.0 * n_indir_pion / max(n_indir, 1):6.2f}% of indirect)")
     print(f"      * via Kaon (K)         : {n_indir_kaon:6d} ({100.0 * n_indir_kaon / max(n_indir, 1):6.2f}% of indirect)")
     print(f"      * via Other Hadron     : {n_indir_other:6d} ({100.0 * n_indir_other / max(n_indir, 1):6.2f}% of indirect)")
+    print(f"Non-Charm Dimuons (no charm, pi/K->mu): {n_non_charm:6d}")
+    print(f"      * via Charged Pion (pi): {n_non_charm_pion:6d} ({100.0 * n_non_charm_pion / max(n_non_charm, 1):6.2f}% of non-charm)")
+    print(f"      * via Kaon (K)         : {n_non_charm_kaon:6d} ({100.0 * n_non_charm_kaon / max(n_non_charm, 1):6.2f}% of non-charm)")
+    print(f"      * via Other Hadron     : {n_non_charm_other:6d} ({100.0 * n_non_charm_other / max(n_non_charm, 1):6.2f}% of non-charm)")
+    print(f"All Signal-Like Dimuons (Dir + Indir + Non-Charm): {n_signal_like:6d}")
     print("-" * 80)
     print(" DOWNSTREAM (DS) MUFILTER ACCEPTANCE BREAKDOWN")
     print("-" * 80)
-    print(f"Inclusive In DS Acceptance   : {n_in_acc:8d} ({100.0 * n_in_acc / max(n_cand, 1):6.2f}% of inclusive)")
+    print(f"Inclusive Charm In DS Acc    : {n_in_acc:8d} ({100.0 * n_in_acc / max(n_cand, 1):6.2f}% of charm dimuons)")
     print(f"  - Direct In DS Acceptance  : {n_dir_in_acc:8d} ({100.0 * n_dir_in_acc / max(n_dir, 1):6.2f}% of direct)")
     print(f"  - Indirect In DS Acceptance: {n_indir_in_acc:8d} ({100.0 * n_indir_in_acc / max(n_indir, 1):6.2f}% of indirect)")
-    print(f"Inclusive Outside DS         : {n_out_acc:8d} ({100.0 * n_out_acc / max(n_cand, 1):6.2f}% of inclusive)")
-    print(f"Primary Muon (mu1) in DS     : {n_mu1_acc:8d} ({100.0 * n_mu1_acc / max(n_cand, 1):6.2f}% of inclusive)")
-    print(f"Charm Decay Muon (mu2) in DS : {n_mu2_acc:8d} ({100.0 * n_mu2_acc / max(n_cand, 1):6.2f}% of inclusive)")
+    print(f"Non-Charm In DS Acceptance   : {n_non_charm_in_acc:8d} ({100.0 * n_non_charm_in_acc / max(n_non_charm, 1):6.2f}% of non-charm)")
+    print(f"All Signal-Like In DS Acc    : {n_signal_like_in_acc:8d} ({100.0 * n_signal_like_in_acc / max(n_signal_like, 1):6.2f}% of all signal-like)")
+    print(f"Inclusive Charm Outside DS   : {n_out_acc:8d} ({100.0 * n_out_acc / max(n_cand, 1):6.2f}% of charm dimuons)")
+    print(f"Primary Muon (mu1) in DS     : {n_mu1_acc:8d} ({100.0 * n_mu1_acc / max(n_cand, 1):6.2f}% of charm dimuons)")
+    print(f"Secondary Muon (mu2) in DS   : {n_mu2_acc:8d} ({100.0 * n_mu2_acc / max(n_cand, 1):6.2f}% of charm dimuons)")
     print("-" * 80)
     print(" RECONSTRUCTED DS HOUGH TRACKS BREAKDOWN (sndRecoTrack::getTrackType() == 13)")
     print("-" * 80)
-    print(f"Inclusive >=2 DS Tracks       : {n_2ds_signal:8d} ({100.0 * n_2ds_signal / max(n_cand, 1):6.2f}% of inclusive candidates)")
+    print(f"Inclusive Charm >=2 DS Tracks: {n_2ds_signal:8d} ({100.0 * n_2ds_signal / max(n_cand, 1):6.2f}% of charm dimuons)")
     print(f"  - Direct Signal >=2 DS Tracks: {n_2ds_direct:8d} ({100.0 * n_2ds_direct / max(n_dir, 1):6.2f}% of direct signal)")
     print(f"  - Indirect Fake >=2 DS Tracks: {n_2ds_indirect:8d} ({100.0 * n_2ds_indirect / max(n_indir, 1):6.2f}% of indirect fake)")
+    print(f"Non-Charm >=2 DS Tracks      : {n_2ds_non_charm:8d} ({100.0 * n_2ds_non_charm / max(n_non_charm, 1):6.2f}% of non-charm)")
+    print(f"All Signal-Like >=2 DS Tracks: {n_2ds_signal_like:8d} ({100.0 * n_2ds_signal_like / max(n_signal_like, 1):6.2f}% of all signal-like)")
     print(f"Within DS Acceptance:")
-    print(f"Inclusive >=2 DS Tracks In Acc: {n_2ds_signal_in_acc:8d} ({100.0 * n_2ds_signal_in_acc / max(n_in_acc, 1):6.2f}% of in-acc inclusive)")
+    print(f"Inclusive Charm In Acc >=2 DS: {n_2ds_signal_in_acc:8d} ({100.0 * n_2ds_signal_in_acc / max(n_in_acc, 1):6.2f}% of in-acc charm)")
     print(f"  - Direct Signal In Acc       : {n_2ds_direct_in_acc:8d} ({100.0 * n_2ds_direct_in_acc / max(n_dir_in_acc, 1):6.2f}% of in-acc direct)")
     print(f"  - Indirect Fake In Acc       : {n_2ds_indirect_in_acc:8d} ({100.0 * n_2ds_indirect_in_acc / max(n_indir_in_acc, 1):6.2f}% of in-acc indirect)")
+    print(f"Non-Charm In Acc >=2 DS      : {n_2ds_non_charm_in_acc:8d} ({100.0 * n_2ds_non_charm_in_acc / max(n_non_charm_in_acc, 1):6.2f}% of in-acc non-charm)")
+    print(f"All Signal-Like In Acc >=2 DS: {n_2ds_signal_like_in_acc:8d} ({100.0 * n_2ds_signal_like_in_acc / max(n_signal_like_in_acc, 1):6.2f}% of in-acc all signal-like)")
     if "h_signal_2ds_reco_cross_z_xz" in booked_histograms_1d:
         print("-" * 80)
         print(" RECONSTRUCTED DS TRACKS CROSSING VERTEX (FOR EVENTS WITH >= 2 DS TRACKS)")
-        print("-" * 80)
-        print(f"{'Observable':<36} | {'Inclusive':>13} | {'Direct Signal':>13} | {'Indirect Fake':>13}")
-        print("-" * 80)
+        print("-" * 105)
+        print(f"{'Observable':<34} | {'Direct Signal':>13} | {'Indirect Fake':>13} | {'Non-Charm':>13} | {'All Signal-Like':>15}")
+        print("-" * 105)
         reco_cross_obs = [
-            ("Crossing z in XZ [cm]", "h_signal_2ds_reco_cross_z_xz", "h_direct_2ds_reco_cross_z_xz", "h_indirect_2ds_reco_cross_z_xz"),
-            ("Crossing z in YZ [cm]", "h_signal_2ds_reco_cross_z_yz", "h_direct_2ds_reco_cross_z_yz", "h_indirect_2ds_reco_cross_z_yz"),
-            ("Delta z (XZ - YZ) [cm]", "h_signal_2ds_delta_z_cross", "h_direct_2ds_delta_z_cross", "h_indirect_2ds_delta_z_cross"),
-            ("|Delta z| (XZ - YZ) [cm]", "h_signal_2ds_abs_delta_z_cross", "h_direct_2ds_abs_delta_z_cross", "h_indirect_2ds_abs_delta_z_cross"),
-            ("True Vertex z [cm]", "h_signal_2ds_truth_vtx_z", "h_direct_2ds_truth_vtx_z", "h_indirect_2ds_truth_vtx_z"),
-            ("Residual z in XZ (z_xz - z_vtx)", "h_signal_2ds_res_z_xz", "h_direct_2ds_res_z_xz", "h_indirect_2ds_res_z_xz"),
-            ("Residual z in YZ (z_yz - z_vtx)", "h_signal_2ds_res_z_yz", "h_direct_2ds_res_z_yz", "h_indirect_2ds_res_z_yz"),
+            ("Crossing z in XZ [cm]", "h_direct_2ds_reco_cross_z_xz", "h_indirect_2ds_reco_cross_z_xz", "h_non_charm_2ds_reco_cross_z_xz", "h_signal_like_2ds_reco_cross_z_xz"),
+            ("Crossing z in YZ [cm]", "h_direct_2ds_reco_cross_z_yz", "h_indirect_2ds_reco_cross_z_yz", "h_non_charm_2ds_reco_cross_z_yz", "h_signal_like_2ds_reco_cross_z_yz"),
+            ("Delta z (XZ - YZ) [cm]", "h_direct_2ds_delta_z_cross", "h_indirect_2ds_delta_z_cross", "h_non_charm_2ds_delta_z_cross", "h_signal_like_2ds_delta_z_cross"),
+            ("|Delta z| (XZ - YZ) [cm]", "h_direct_2ds_abs_delta_z_cross", "h_indirect_2ds_abs_delta_z_cross", "h_non_charm_2ds_abs_delta_z_cross", "h_signal_like_2ds_abs_delta_z_cross"),
+            ("True Vertex z [cm]", "h_direct_2ds_truth_vtx_z", "h_indirect_2ds_truth_vtx_z", "h_non_charm_2ds_truth_vtx_z", "h_signal_like_2ds_truth_vtx_z"),
+            ("Residual z in XZ (z_xz - z_vtx)", "h_direct_2ds_res_z_xz", "h_indirect_2ds_res_z_xz", "h_non_charm_2ds_res_z_xz", "h_signal_like_2ds_res_z_xz"),
+            ("Residual z in YZ (z_yz - z_vtx)", "h_direct_2ds_res_z_yz", "h_indirect_2ds_res_z_yz", "h_non_charm_2ds_res_z_yz", "h_signal_like_2ds_res_z_yz"),
         ]
-        for label_str, h_inc_name, h_dir_name, h_indir_name in reco_cross_obs:
-            m_inc = booked_histograms_1d[h_inc_name].GetValue().GetMean() if h_inc_name in booked_histograms_1d else 0.0
+        for label_str, h_dir_name, h_indir_name, h_nc_name, h_sig_name in reco_cross_obs:
             m_dir = booked_histograms_1d[h_dir_name].GetValue().GetMean() if h_dir_name in booked_histograms_1d else 0.0
             m_indir = booked_histograms_1d[h_indir_name].GetValue().GetMean() if h_indir_name in booked_histograms_1d else 0.0
-            print(f"{label_str:<36} | {m_inc:13.2f} | {m_dir:13.2f} | {m_indir:13.2f}")
+            m_nc = booked_histograms_1d[h_nc_name].GetValue().GetMean() if h_nc_name in booked_histograms_1d else 0.0
+            m_sig = booked_histograms_1d[h_sig_name].GetValue().GetMean() if h_sig_name in booked_histograms_1d else 0.0
+            print(f"{label_str:<34} | {m_dir:13.2f} | {m_indir:13.2f} | {m_nc:13.2f} | {m_sig:15.2f}")
     print("-" * 80)
     print(" CHARMED HADRON SPECIES IN SIGNAL SAMPLE")
     print("-" * 80)
@@ -1812,38 +2268,37 @@ def main():
         print(f"{label_str:<32} | {m_inc:14.4f} | {m_in:14.4f} | {m_out:14.4f}")
     print("=" * 80)
 
-    # Print Key Kinematic Means Comparison: Direct Signal vs Indirect Fake Signal
-    print("\n" + "=" * 80)
-    print(" KINEMATIC COMPARISON: DIRECT SIGNAL vs INDIRECT FAKE SIGNAL")
-    print("=" * 80)
-    print(f"{'Observable':<32} | {'Inclusive':>14} | {'Direct Signal':>14} | {'Indirect Fake':>14}")
-    print("-" * 80)
+    # Print Key Kinematic Means Comparison: Direct vs Indirect vs Non-Charm vs All Signal-Like
+    print("\n" + "=" * 96)
+    print(" KINEMATIC COMPARISON: DIRECT vs INDIRECT vs NON-CHARM vs ALL SIGNAL-LIKE")
+    print("=" * 96)
+    print(f"{'Observable':<32} | {'Direct Signal':>14} | {'Indirect Fake':>14} | {'Non-Charm':>14} | {'All Signal-Like':>16}")
+    print("-" * 96)
 
-    direct_vs_indirect_obs = [
-        ("Primary Muon Energy E(mu1) [GeV]", "h_signal_mu1_e", "h_direct_mu1_e", "h_indirect_mu1_e"),
-        ("Secondary Muon Energy E(mu2) [GeV]", "h_signal_mu2_e", "h_direct_mu2_e", "h_indirect_mu2_e"),
-        ("Primary Muon Momentum p(mu1) [GeV/c]", "h_signal_mu1_p", "h_direct_mu1_p", "h_indirect_mu1_p"),
-        ("Secondary Muon Momentum p(mu2) [GeV/c]", "h_signal_mu2_p", "h_direct_mu2_p", "h_indirect_mu2_p"),
-        ("Primary Muon pT [GeV/c]", "h_signal_mu1_pt", "h_direct_mu1_pt", "h_indirect_mu1_pt"),
-        ("Secondary Muon pT [GeV/c]", "h_signal_mu2_pt", "h_direct_mu2_pt", "h_indirect_mu2_pt"),
-        ("Primary Muon Pseudorapidity", "h_signal_mu1_eta", "h_direct_mu1_eta", "h_indirect_mu1_eta"),
-        ("Secondary Muon Pseudorapidity", "h_signal_mu2_eta", "h_direct_mu2_eta", "h_indirect_mu2_eta"),
-        ("Dimuon Invariant Mass [GeV/c^2]", "h_signal_dimuon_mass", "h_direct_dimuon_mass", "h_indirect_dimuon_mass"),
-        ("Dimuon Opening Angle [mrad]", "h_signal_dimuon_opening_angle_mrad", "h_direct_dimuon_opening_angle_mrad", "h_indirect_dimuon_opening_angle_mrad"),
-        ("Dimuon Energy Sum [GeV]", "h_signal_dimuon_e_sum", "h_direct_dimuon_e_sum", "h_indirect_dimuon_e_sum"),
-        ("Dimuon Energy Diff [GeV]", "h_signal_dimuon_delta_e", "h_direct_dimuon_delta_e", "h_indirect_dimuon_delta_e"),
-        ("Dimuon Energy Asymmetry", "h_signal_dimuon_energy_asym", "h_direct_dimuon_energy_asym", "h_indirect_dimuon_energy_asym"),
-        ("Neutrino Energy E(nu) [GeV]", "h_signal_nu_e", "h_direct_nu_e", "h_indirect_nu_e"),
-        ("Charm Hadron Energy [GeV]", "h_signal_charm_e", "h_direct_charm_e", "h_indirect_charm_e"),
-        ("Charm 3D Flight Length [cm]", "h_signal_decay_length_3d", "h_direct_decay_length_3d", "h_indirect_decay_length_3d"),
+    dimuon_kin_obs = [
+        ("Primary Muon Energy E(mu1) [GeV]", "h_direct_mu1_e", "h_indirect_mu1_e", "h_non_charm_mu1_e", "h_signal_like_mu1_e"),
+        ("Secondary Muon Energy E(mu2) [GeV]", "h_direct_mu2_e", "h_indirect_mu2_e", "h_non_charm_mu2_e", "h_signal_like_mu2_e"),
+        ("Primary Muon Momentum p(mu1) [GeV/c]", "h_direct_mu1_p", "h_indirect_mu1_p", "h_non_charm_mu1_p", "h_signal_like_mu1_p"),
+        ("Secondary Muon Momentum p(mu2) [GeV/c]", "h_direct_mu2_p", "h_indirect_mu2_p", "h_non_charm_mu2_p", "h_signal_like_mu2_p"),
+        ("Primary Muon pT [GeV/c]", "h_direct_mu1_pt", "h_indirect_mu1_pt", "h_non_charm_mu1_pt", "h_signal_like_mu1_pt"),
+        ("Secondary Muon pT [GeV/c]", "h_direct_mu2_pt", "h_indirect_mu2_pt", "h_non_charm_mu2_pt", "h_signal_like_mu2_pt"),
+        ("Primary Muon Pseudorapidity", "h_direct_mu1_eta", "h_indirect_mu1_eta", "h_non_charm_mu1_eta", "h_signal_like_mu1_eta"),
+        ("Secondary Muon Pseudorapidity", "h_direct_mu2_eta", "h_indirect_mu2_eta", "h_non_charm_mu2_eta", "h_signal_like_mu2_eta"),
+        ("Dimuon Invariant Mass [GeV/c^2]", "h_direct_dimuon_mass", "h_indirect_dimuon_mass", "h_non_charm_dimuon_mass", "h_signal_like_dimuon_mass"),
+        ("Dimuon Opening Angle [mrad]", "h_direct_dimuon_opening_angle_mrad", "h_indirect_dimuon_opening_angle_mrad", "h_non_charm_dimuon_opening_angle_mrad", "h_signal_like_dimuon_opening_angle_mrad"),
+        ("Dimuon Energy Sum [GeV]", "h_direct_dimuon_e_sum", "h_indirect_dimuon_e_sum", "h_non_charm_dimuon_e_sum", "h_signal_like_dimuon_e_sum"),
+        ("Dimuon Energy Diff [GeV]", "h_direct_dimuon_delta_e", "h_indirect_dimuon_delta_e", "h_non_charm_dimuon_delta_e", "h_signal_like_dimuon_delta_e"),
+        ("Dimuon Energy Asymmetry", "h_direct_dimuon_energy_asym", "h_indirect_dimuon_energy_asym", "h_non_charm_dimuon_energy_asym", "h_signal_like_dimuon_energy_asym"),
+        ("Neutrino Energy E(nu) [GeV]", "h_direct_nu_e", "h_indirect_nu_e", "h_non_charm_nu_e", "h_signal_like_nu_e"),
     ]
 
-    for label_str, h_inc_name, h_dir_name, h_indir_name in direct_vs_indirect_obs:
-        m_inc = booked_histograms_1d[h_inc_name].GetValue().GetMean() if h_inc_name in booked_histograms_1d else 0.0
+    for label_str, h_dir_name, h_indir_name, h_nc_name, h_sig_name in dimuon_kin_obs:
         m_dir = booked_histograms_1d[h_dir_name].GetValue().GetMean() if h_dir_name in booked_histograms_1d else 0.0
         m_indir = booked_histograms_1d[h_indir_name].GetValue().GetMean() if h_indir_name in booked_histograms_1d else 0.0
-        print(f"{label_str:<32} | {m_inc:14.4f} | {m_dir:14.4f} | {m_indir:14.4f}")
-    print("=" * 80)
+        m_nc = booked_histograms_1d[h_nc_name].GetValue().GetMean() if h_nc_name in booked_histograms_1d else 0.0
+        m_sig = booked_histograms_1d[h_sig_name].GetValue().GetMean() if h_sig_name in booked_histograms_1d else 0.0
+        print(f"{label_str:<32} | {m_dir:14.4f} | {m_indir:14.4f} | {m_nc:14.4f} | {m_sig:16.4f}")
+    print("=" * 96)
 
     # 11. Save Histograms, Profiles & TEfficiencies into Hierarchical Output ROOT File
     out_dir = os.path.dirname(output_file)
@@ -1897,6 +2352,9 @@ def main():
         d_truth3d_dir = d_truth3d.mkdir("direct_signal")
         d_truth3d_indir = d_truth3d.mkdir("indirect_fake_signal")
         d_truth3d_inter = d_truth3d_indir.mkdir("intermediate_daughters")
+        d_truth3d_noncharm = d_truth3d.mkdir("non_charm_dimuon")
+        d_truth3d_noncharm_inter = d_truth3d_noncharm.mkdir("intermediate_daughters")
+        d_truth3d_all_signal_like = d_truth3d.mkdir("all_signal_like")
         d_truth3d_2d = d_truth3d.mkdir("correlations_2d")
         d_truth3d_prof = d_truth3d.mkdir("profiles")
 
@@ -1920,14 +2378,29 @@ def main():
             if any(name.startswith(x) for x in ["h_indirect_downstream_muon_", "h_indirect_mother_", "h_indirect_pion_", "h_indirect_kaon_", "h_indirect_other_"]):
                 h_res.GetValue().Write()
 
+        d_truth3d_noncharm.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if name.startswith("h_non_charm_") and not ("_in_acc" in name or "_out_acc" in name or is_proj_or_reco(name) or any(x in name for x in ["downstream_muon", "mother", "pion", "kaon", "other"])):
+                h_res.GetValue().Write()
+
+        d_truth3d_noncharm_inter.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if any(name.startswith(x) for x in ["h_non_charm_downstream_muon_", "h_non_charm_mother_", "h_non_charm_pion_", "h_non_charm_kaon_", "h_non_charm_other_"]):
+                h_res.GetValue().Write()
+
+        d_truth3d_all_signal_like.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if name.startswith("h_signal_like_") and not ("_in_acc" in name or "_out_acc" in name or is_proj_or_reco(name)):
+                h_res.GetValue().Write()
+
         d_truth3d_2d.cd()
         for name, h2_res in booked_histograms_2d.items():
-            if (name.startswith("h2_signal_") or name.startswith("h2_direct_") or name.startswith("h2_indirect_")) and not is_proj_or_reco(name):
+            if (name.startswith("h2_signal_") or name.startswith("h2_direct_") or name.startswith("h2_indirect_") or name.startswith("h2_non_charm_") or name.startswith("h2_signal_like_")) and not is_proj_or_reco(name):
                 h2_res.GetValue().Write()
 
         d_truth3d_prof.cd()
         for name, p_res in booked_profiles.items():
-            if (name.startswith("p_signal_") or name.startswith("p_direct_") or name.startswith("p_indirect_")) and not ("acc_eff" in name):
+            if (name.startswith("p_signal_") or name.startswith("p_direct_") or name.startswith("p_indirect_") or name.startswith("p_non_charm_") or name.startswith("p_signal_like_")) and not ("acc_eff" in name):
                 p_res.GetValue().Write()
 
         # 3. truth_projections_xz_yz
@@ -1969,6 +2442,7 @@ def main():
         d_reco_cross = d_reco.mkdir("crossing_points")
         d_reco_res = d_reco.mkdir("delta_z_and_residuals")
         d_reco_2d = d_reco.mkdir("correlations_2d")
+        d_reco_angles = d_reco.mkdir("angular_properties")
 
         d_reco_mult.cd()
         for name, h_res in booked_histograms_1d.items():
@@ -1987,7 +2461,15 @@ def main():
 
         d_reco_2d.cd()
         for name, h2_res in booked_histograms_2d.items():
-            if "_2ds_" in name:
+            if "_2ds_" in name and not ("_reco_" in name):
+                h2_res.GetValue().Write()
+
+        d_reco_angles.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if any(x in name for x in ["_reco_mu1_theta_", "_reco_sec_mu_theta_", "_reco_dimuon_opening_angle_"]):
+                h_res.GetValue().Write()
+        for name, h2_res in booked_histograms_2d.items():
+            if any(x in name for x in ["_reco_sec_mu_theta_", "_reco_opening_angle_"]):
                 h2_res.GetValue().Write()
 
         # 5. efficiencies_clopper_pearson
@@ -2019,12 +2501,12 @@ def main():
 
         d_in.cd()
         for name, h_res in booked_histograms_1d.items():
-            if name.startswith("h_in_acc_") or name.startswith("h_direct_in_acc_") or name.startswith("h_indirect_in_acc_"):
+            if name.startswith("h_in_acc_") or name.startswith("h_direct_in_acc_") or name.startswith("h_indirect_in_acc_") or name.startswith("h_non_charm_in_acc_") or name.startswith("h_signal_like_in_acc_"):
                 h_res.GetValue().Write()
 
         d_out.cd()
         for name, h_res in booked_histograms_1d.items():
-            if name.startswith("h_out_acc_") or name.startswith("h_direct_out_acc_") or name.startswith("h_indirect_out_acc_"):
+            if name.startswith("h_out_acc_") or name.startswith("h_direct_out_acc_") or name.startswith("h_indirect_out_acc_") or name.startswith("h_non_charm_out_acc_") or name.startswith("h_signal_like_out_acc_"):
                 h_res.GetValue().Write()
 
         d_acc_prof.cd()

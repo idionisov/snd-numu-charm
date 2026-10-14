@@ -1,7 +1,7 @@
 {
   "metadata": {
     "description": "Lookup table of unique SND@LHC neutrino interaction channels and charm decays",
-    "total_primary_channels": 2238,
+    "total_primary_channels": 2295,
     "total_charm_decay_channels": 34
   },
   "primary_channels": {
@@ -62342,6 +62342,1208 @@
         -13
       ],
       "incoming_nu_pdg": -14
+    },
+    "-211,-211,-211,13,211,211,211,211,211": {
+      "channel_id": 2239,
+      "key": "-211,-211,-211,13,211,211,211,211,211",
+      "formula": "mu- + 3pi- + 5pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        211,
+        211,
+        211
+      ],
+      "multiplicity": 9,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,-211,13,211,2212,2212": {
+      "channel_id": 2240,
+      "key": "-211,-211,-211,13,211,2212,2212",
+      "formula": "mu- + 3pi- + pi+ + 2p",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -211,
+        13,
+        211,
+        2212,
+        2212
+      ],
+      "multiplicity": 7,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-321,14": {
+      "channel_id": 2241,
+      "key": "-321,14",
+      "formula": "nu_mu + K-",
+      "primary_pdgs": [
+        -321,
+        14
+      ],
+      "multiplicity": 2,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        14
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,14,211,211,211": {
+      "channel_id": 2242,
+      "key": "-211,-211,14,211,211,211",
+      "formula": "nu_mu + 2pi- + 3pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        14,
+        211,
+        211,
+        211
+      ],
+      "multiplicity": 6,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        14
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,-14": {
+      "channel_id": 2243,
+      "key": "-211,-211,-14",
+      "formula": "anti_nu_mu + 2pi-",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -14
+      ],
+      "multiplicity": 3,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -14
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-211,13,211": {
+      "channel_id": 2244,
+      "key": "-211,13,211",
+      "formula": "mu- + pi- + pi+",
+      "primary_pdgs": [
+        -211,
+        13,
+        211
+      ],
+      "multiplicity": 3,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "13,211": {
+      "channel_id": 2245,
+      "key": "13,211",
+      "formula": "mu- + pi+",
+      "primary_pdgs": [
+        13,
+        211
+      ],
+      "multiplicity": 2,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,13": {
+      "channel_id": 2246,
+      "key": "-211,13",
+      "formula": "mu- + pi-",
+      "primary_pdgs": [
+        -211,
+        13
+      ],
+      "multiplicity": 2,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-14": {
+      "channel_id": 2247,
+      "key": "-211,-14",
+      "formula": "anti_nu_mu + pi-",
+      "primary_pdgs": [
+        -211,
+        -14
+      ],
+      "multiplicity": 2,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -14
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "13,321": {
+      "channel_id": 2248,
+      "key": "13,321",
+      "formula": "mu- + K+",
+      "primary_pdgs": [
+        13,
+        321
+      ],
+      "multiplicity": 2,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-2212,14,2212": {
+      "channel_id": 2249,
+      "key": "-2212,14,2212",
+      "formula": "nu_mu + anti_p + p",
+      "primary_pdgs": [
+        -2212,
+        14,
+        2212
+      ],
+      "multiplicity": 3,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        14
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-13,211,211": {
+      "channel_id": 2250,
+      "key": "-211,-13,211,211",
+      "formula": "mu+ + pi- + 2pi+",
+      "primary_pdgs": [
+        -211,
+        -13,
+        211,
+        211
+      ],
+      "multiplicity": 4,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -13
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-2212,-211,-211,13,211,211,211,2212": {
+      "channel_id": 2251,
+      "key": "-2212,-211,-211,13,211,211,211,2212",
+      "formula": "mu- + 2pi- + 3pi+ + anti_p + p",
+      "primary_pdgs": [
+        -2212,
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        211,
+        2212
+      ],
+      "multiplicity": 8,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-13,211": {
+      "channel_id": 2252,
+      "key": "-211,-13,211",
+      "formula": "mu+ + pi- + pi+",
+      "primary_pdgs": [
+        -211,
+        -13,
+        211
+      ],
+      "multiplicity": 3,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -13
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-211,-211,13,211,211,2212,2212": {
+      "channel_id": 2253,
+      "key": "-211,-211,13,211,211,2212,2212",
+      "formula": "mu- + 2pi- + 2pi+ + 2p",
+      "primary_pdgs": [
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        2212,
+        2212
+      ],
+      "multiplicity": 7,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-2212,-211,13,211,211,2212,2212": {
+      "channel_id": 2254,
+      "key": "-2212,-211,13,211,211,2212,2212",
+      "formula": "mu- + pi- + 2pi+ + anti_p + 2p",
+      "primary_pdgs": [
+        -2212,
+        -211,
+        13,
+        211,
+        211,
+        2212,
+        2212
+      ],
+      "multiplicity": 7,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,-211,-13,211,321": {
+      "channel_id": 2255,
+      "key": "-211,-211,-211,-13,211,321",
+      "formula": "mu+ + K+ + 3pi- + pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -211,
+        -13,
+        211,
+        321
+      ],
+      "multiplicity": 6,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -13
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "13,211,321": {
+      "channel_id": 2256,
+      "key": "13,211,321",
+      "formula": "mu- + K+ + pi+",
+      "primary_pdgs": [
+        13,
+        211,
+        321
+      ],
+      "multiplicity": 3,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,14,211,211,2212,2212,2212": {
+      "channel_id": 2257,
+      "key": "-211,-211,14,211,211,2212,2212,2212",
+      "formula": "nu_mu + 2pi- + 2pi+ + 3p",
+      "primary_pdgs": [
+        -211,
+        -211,
+        14,
+        211,
+        211,
+        2212,
+        2212,
+        2212
+      ],
+      "multiplicity": 8,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        14
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,13,211,211,211,211": {
+      "channel_id": 2258,
+      "key": "-211,-211,13,211,211,211,211",
+      "formula": "mu- + 2pi- + 4pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        211,
+        211
+      ],
+      "multiplicity": 7,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-13,321": {
+      "channel_id": 2259,
+      "key": "-211,-13,321",
+      "formula": "mu+ + K+ + pi-",
+      "primary_pdgs": [
+        -211,
+        -13,
+        321
+      ],
+      "multiplicity": 3,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -13
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-211,-211,13,211,211,211,2212": {
+      "channel_id": 2260,
+      "key": "-211,-211,13,211,211,211,2212",
+      "formula": "mu- + 2pi- + 3pi+ + p",
+      "primary_pdgs": [
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        211,
+        2212
+      ],
+      "multiplicity": 7,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-2212,13,211,211,2212": {
+      "channel_id": 2261,
+      "key": "-2212,13,211,211,2212",
+      "formula": "mu- + 2pi+ + anti_p + p",
+      "primary_pdgs": [
+        -2212,
+        13,
+        211,
+        211,
+        2212
+      ],
+      "multiplicity": 5,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-321,13": {
+      "channel_id": 2262,
+      "key": "-321,13",
+      "formula": "mu- + K-",
+      "primary_pdgs": [
+        -321,
+        13
+      ],
+      "multiplicity": 2,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,13,211,211,321,2212,2212,2212": {
+      "channel_id": 2263,
+      "key": "-211,13,211,211,321,2212,2212,2212",
+      "formula": "mu- + K+ + pi- + 2pi+ + 3p",
+      "primary_pdgs": [
+        -211,
+        13,
+        211,
+        211,
+        321,
+        2212,
+        2212,
+        2212
+      ],
+      "multiplicity": 8,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,13,211,211,321": {
+      "channel_id": 2264,
+      "key": "-211,13,211,211,321",
+      "formula": "mu- + K+ + pi- + 2pi+",
+      "primary_pdgs": [
+        -211,
+        13,
+        211,
+        211,
+        321
+      ],
+      "multiplicity": 5,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-321,-14,211,2212": {
+      "channel_id": 2265,
+      "key": "-321,-14,211,2212",
+      "formula": "anti_nu_mu + K- + pi+ + p",
+      "primary_pdgs": [
+        -321,
+        -14,
+        211,
+        2212
+      ],
+      "multiplicity": 4,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -14
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-211,-211,13,211,2212": {
+      "channel_id": 2266,
+      "key": "-211,-211,13,211,2212",
+      "formula": "mu- + 2pi- + pi+ + p",
+      "primary_pdgs": [
+        -211,
+        -211,
+        13,
+        211,
+        2212
+      ],
+      "multiplicity": 5,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-321,-321,-14,211,211": {
+      "channel_id": 2267,
+      "key": "-321,-321,-14,211,211",
+      "formula": "anti_nu_mu + 2K- + 2pi+",
+      "primary_pdgs": [
+        -321,
+        -321,
+        -14,
+        211,
+        211
+      ],
+      "multiplicity": 5,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -14
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "13,211,211": {
+      "channel_id": 2268,
+      "key": "13,211,211",
+      "formula": "mu- + 2pi+",
+      "primary_pdgs": [
+        13,
+        211,
+        211
+      ],
+      "multiplicity": 3,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-2212,-211,13,211,211,211,2212": {
+      "channel_id": 2269,
+      "key": "-2212,-211,13,211,211,211,2212",
+      "formula": "mu- + pi- + 3pi+ + anti_p + p",
+      "primary_pdgs": [
+        -2212,
+        -211,
+        13,
+        211,
+        211,
+        211,
+        2212
+      ],
+      "multiplicity": 7,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,14,211": {
+      "channel_id": 2270,
+      "key": "-211,14,211",
+      "formula": "nu_mu + pi- + pi+",
+      "primary_pdgs": [
+        -211,
+        14,
+        211
+      ],
+      "multiplicity": 3,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        14
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,-14,211,211,211": {
+      "channel_id": 2271,
+      "key": "-211,-211,-14,211,211,211",
+      "formula": "anti_nu_mu + 2pi- + 3pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -14,
+        211,
+        211,
+        211
+      ],
+      "multiplicity": 6,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -14
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "14,211,211,211,2212": {
+      "channel_id": 2272,
+      "key": "14,211,211,211,2212",
+      "formula": "nu_mu + 3pi+ + p",
+      "primary_pdgs": [
+        14,
+        211,
+        211,
+        211,
+        2212
+      ],
+      "multiplicity": 5,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        14
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,-211,-14,211": {
+      "channel_id": 2273,
+      "key": "-211,-211,-211,-14,211",
+      "formula": "anti_nu_mu + 3pi- + pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -211,
+        -14,
+        211
+      ],
+      "multiplicity": 5,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -14
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-211,-211,-211,13,211,211,211,2212,2212": {
+      "channel_id": 2274,
+      "key": "-211,-211,-211,13,211,211,211,2212,2212",
+      "formula": "mu- + 3pi- + 3pi+ + 2p",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        211,
+        2212,
+        2212
+      ],
+      "multiplicity": 9,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-2212,-211,-211,13,211,211,211": {
+      "channel_id": 2275,
+      "key": "-2212,-211,-211,13,211,211,211",
+      "formula": "mu- + 2pi- + 3pi+ + anti_p",
+      "primary_pdgs": [
+        -2212,
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        211
+      ],
+      "multiplicity": 7,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,-13": {
+      "channel_id": 2276,
+      "key": "-211,-211,-13",
+      "formula": "mu+ + 2pi-",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -13
+      ],
+      "multiplicity": 3,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -13
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-211,-211,13,211,211,211,211,2212": {
+      "channel_id": 2277,
+      "key": "-211,-211,13,211,211,211,211,2212",
+      "formula": "mu- + 2pi- + 4pi+ + p",
+      "primary_pdgs": [
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        211,
+        211,
+        2212
+      ],
+      "multiplicity": 8,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,13,211": {
+      "channel_id": 2278,
+      "key": "-211,-211,13,211",
+      "formula": "mu- + 2pi- + pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        13,
+        211
+      ],
+      "multiplicity": 4,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "14,211": {
+      "channel_id": 2279,
+      "key": "14,211",
+      "formula": "nu_mu + pi+",
+      "primary_pdgs": [
+        14,
+        211
+      ],
+      "multiplicity": 2,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        14
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,13,211,211,211,321": {
+      "channel_id": 2280,
+      "key": "-211,-211,13,211,211,211,321",
+      "formula": "mu- + K+ + 2pi- + 3pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        211,
+        321
+      ],
+      "multiplicity": 7,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,13,211,211": {
+      "channel_id": 2281,
+      "key": "-211,13,211,211",
+      "formula": "mu- + pi- + 2pi+",
+      "primary_pdgs": [
+        -211,
+        13,
+        211,
+        211
+      ],
+      "multiplicity": 4,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,-14,211,211": {
+      "channel_id": 2282,
+      "key": "-211,-211,-14,211,211",
+      "formula": "anti_nu_mu + 2pi- + 2pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -14,
+        211,
+        211
+      ],
+      "multiplicity": 5,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -14
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-211,-211,13,211,211,211,321,2212": {
+      "channel_id": 2283,
+      "key": "-211,-211,13,211,211,211,321,2212",
+      "formula": "mu- + K+ + 2pi- + 3pi+ + p",
+      "primary_pdgs": [
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        211,
+        321,
+        2212
+      ],
+      "multiplicity": 8,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-13,321": {
+      "channel_id": 2284,
+      "key": "-13,321",
+      "formula": "mu+ + K+",
+      "primary_pdgs": [
+        -13,
+        321
+      ],
+      "multiplicity": 2,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -13
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-211,-211,13,211,211": {
+      "channel_id": 2285,
+      "key": "-211,-211,13,211,211",
+      "formula": "mu- + 2pi- + 2pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        13,
+        211,
+        211
+      ],
+      "multiplicity": 5,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-321,13,321": {
+      "channel_id": 2286,
+      "key": "-321,13,321",
+      "formula": "mu- + K- + K+",
+      "primary_pdgs": [
+        -321,
+        13,
+        321
+      ],
+      "multiplicity": 3,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "13,211,211,211": {
+      "channel_id": 2287,
+      "key": "13,211,211,211",
+      "formula": "mu- + 3pi+",
+      "primary_pdgs": [
+        13,
+        211,
+        211,
+        211
+      ],
+      "multiplicity": 4,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,-13,211,211,211": {
+      "channel_id": 2288,
+      "key": "-211,-211,-13,211,211,211",
+      "formula": "mu+ + 2pi- + 3pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -13,
+        211,
+        211,
+        211
+      ],
+      "multiplicity": 6,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -13
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-2212,-211,13,211,211,2212": {
+      "channel_id": 2289,
+      "key": "-2212,-211,13,211,211,2212",
+      "formula": "mu- + pi- + 2pi+ + anti_p + p",
+      "primary_pdgs": [
+        -2212,
+        -211,
+        13,
+        211,
+        211,
+        2212
+      ],
+      "multiplicity": 6,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-321,-211,-14,211,211,211": {
+      "channel_id": 2290,
+      "key": "-321,-211,-14,211,211,211",
+      "formula": "anti_nu_mu + K- + pi- + 3pi+",
+      "primary_pdgs": [
+        -321,
+        -211,
+        -14,
+        211,
+        211,
+        211
+      ],
+      "multiplicity": 6,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -14
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-211,-14,211,211": {
+      "channel_id": 2291,
+      "key": "-211,-14,211,211",
+      "formula": "anti_nu_mu + pi- + 2pi+",
+      "primary_pdgs": [
+        -211,
+        -14,
+        211,
+        211
+      ],
+      "multiplicity": 4,
+      "is_cc": false,
+      "is_nc": true,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        -14
+      ],
+      "incoming_nu_pdg": -14
+    },
+    "-321,-211,-211,-211,13,211,211,211,321,2212": {
+      "channel_id": 2292,
+      "key": "-321,-211,-211,-211,13,211,211,211,321,2212",
+      "formula": "mu- + K- + K+ + 3pi- + 3pi+ + p",
+      "primary_pdgs": [
+        -321,
+        -211,
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        211,
+        321,
+        2212
+      ],
+      "multiplicity": 10,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,13,211,211,211,211": {
+      "channel_id": 2293,
+      "key": "-211,13,211,211,211,211",
+      "formula": "mu- + pi- + 4pi+",
+      "primary_pdgs": [
+        -211,
+        13,
+        211,
+        211,
+        211,
+        211
+      ],
+      "multiplicity": 6,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,-211,13,211,211,2212": {
+      "channel_id": 2294,
+      "key": "-211,-211,-211,13,211,211,2212",
+      "formula": "mu- + 3pi- + 2pi+ + p",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        2212
+      ],
+      "multiplicity": 7,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
+    },
+    "-211,-211,-211,13,211,211,211": {
+      "channel_id": 2295,
+      "key": "-211,-211,-211,13,211,211,211",
+      "formula": "mu- + 3pi- + 3pi+",
+      "primary_pdgs": [
+        -211,
+        -211,
+        -211,
+        13,
+        211,
+        211,
+        211
+      ],
+      "multiplicity": 7,
+      "is_cc": true,
+      "is_nc": false,
+      "has_charm": false,
+      "charm_pdgs": [],
+      "primary_leptons": [
+        13
+      ],
+      "incoming_nu_pdg": 14
     }
   },
   "charm_decay_channels": {

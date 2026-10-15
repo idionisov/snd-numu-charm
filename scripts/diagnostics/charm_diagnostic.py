@@ -1215,7 +1215,7 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
                     pass
             continue
 
-        tree_truth = fin.Get("truth")
+        tree_truth = fin.Get("mctruth") or fin.Get("mc_truth") or fin.Get("truth")
         if tree_truth and not tree_truth.IsZombie():
             tree_cbmsim.AddFriend(tree_truth)
 

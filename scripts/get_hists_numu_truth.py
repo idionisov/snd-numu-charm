@@ -217,18 +217,23 @@ def main():
     has_truth_tree = False
     has_mufilter = False
     actual_tree_name = tree_name
+    detected_truth_name = None
 
     f_test = ROOT.TFile.Open(input_files[0])
     if f_test and not f_test.IsZombie():
-        if f_test.Get("truth"):
-            has_truth_tree = True
+        for cand_truth in ["mctruth", "mc_truth", "truth"]:
+            if f_test.Get(cand_truth):
+                has_truth_tree = True
+                detected_truth_name = cand_truth
+                break
+
         if not args.tree:
             # Auto-detect best tree: prefer 'cbmsim' if it contains MCTrack to reconstruct full 3D kinematics,
             # or pre-analyzed 'truth' tree if present
             if f_test.Get("cbmsim") and f_test.Get("cbmsim").GetBranch("MCTrack"):
                 actual_tree_name = "cbmsim"
-            elif has_truth_tree:
-                actual_tree_name = "truth"
+            elif has_truth_tree and detected_truth_name:
+                actual_tree_name = detected_truth_name
             elif f_test.Get(tree_name):
                 actual_tree_name = tree_name
             else:
@@ -242,8 +247,8 @@ def main():
         f_test.Close()
 
     print(f"Loaded TTree       : {actual_tree_name}")
-    print(f"Pre-analyzed truth : {has_truth_tree}")
-    print(f"MuFilter available : {has_mufilter} (DS acceptance tracking enabled: {has_mufilter or actual_tree_name == 'truth' or actual_tree_name == 'cbmsim'})")
+    print(f"Pre-analyzed truth : {has_truth_tree} ({detected_truth_name or 'none'})")
+    print(f"MuFilter available : {has_mufilter} (DS acceptance tracking enabled: {has_mufilter or actual_tree_name in ('mctruth', 'mc_truth', 'truth') or actual_tree_name == 'cbmsim'})")
 
     # Declare C++ helper functions for unified 3D kinematics and reconstructed track projections
     ROOT.gInterpreter.Declare("""
@@ -562,8 +567,33 @@ def main():
             }
             return nVer;
         }
-        inline int find_non_charm_mu2_track_id(int has_charm, int mu1_id, const TClonesArray& tracks, const TClonesArray& pts) {
-            if (has_charm) return -1;
+        inline bool has_two_muons_in_ds(const TClonesArray& tracks, const TClonesArray& pts, int min_hor = 3, int min_ver = 3) {
+            int count = 0;
+            const int nTracks = tracks.GetEntriesFast();
+            for (int i = 0; i < nTracks; ++i) {
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(i));
+                if (!trk || std::abs(trk->GetPdgCode()) != 13) continue;
+                if (is_trk_in_ds(i, pts, min_hor, min_ver)) {
+                    count++;
+                    if (count >= 2) return true;
+                }
+            }
+            return false;
+        }
+        inline int count_muons_in_ds(const TClonesArray& tracks, const TClonesArray& pts, int min_hor = 3, int min_ver = 3) {
+            int count = 0;
+            const int nTracks = tracks.GetEntriesFast();
+            for (int i = 0; i < nTracks; ++i) {
+                auto* trk = static_cast<const ShipMCTrack*>(tracks.At(i));
+                if (!trk || std::abs(trk->GetPdgCode()) != 13) continue;
+                if (is_trk_in_ds(i, pts, min_hor, min_ver)) {
+                    count++;
+                }
+            }
+            return count;
+        }
+        inline int find_other_ds_mu2_track_id(int is_direct, int is_indirect, int mu1_id, const TClonesArray& tracks, const TClonesArray& pts, int min_hor = 3, int min_ver = 3) {
+            if (is_direct == 1 || is_indirect == 1) return -1;
             int best_id_in_ds = -1;
             int best_id_any = -1;
             double max_p_in_ds = -1.0;
@@ -578,7 +608,7 @@ def main():
                     max_p_any = p;
                     best_id_any = i;
                 }
-                if (is_trk_in_ds(i, pts)) {
+                if (is_trk_in_ds(i, pts, min_hor, min_ver)) {
                     if (p > max_p_in_ds) {
                         max_p_in_ds = p;
                         best_id_in_ds = i;
@@ -586,6 +616,9 @@ def main():
                 }
             }
             return (best_id_in_ds >= 0) ? best_id_in_ds : best_id_any;
+        }
+        inline int find_non_charm_mu2_track_id(int has_charm, int mu1_id, const TClonesArray& tracks, const TClonesArray& pts) {
+            return find_other_ds_mu2_track_id(0, 0, mu1_id, tracks, pts);
         }
         inline int get_mother_pdg(int trk_id, const TClonesArray& tracks) {
             if (trk_id < 0 || trk_id >= tracks.GetEntriesFast()) return 0;
@@ -694,7 +727,7 @@ def main():
             return curr_df
         return curr_df.Define(col_name, expr)
 
-    if actual_tree_name == "truth" or ("nu_e" in existing_cols and "is_numu_cc" in existing_cols):
+    if actual_tree_name in ("mctruth", "mc_truth", "truth") or ("nu_e" in existing_cols and "is_numu_cc" in existing_cols):
         # Input TTree already contains pre-computed truth observables!
         df_truth = df
         df_truth = safe_def(df_truth, "mu1_track_id", "primary_lepton_track_id")
@@ -725,21 +758,29 @@ def main():
         df_truth = safe_def(df_truth, "downstream_muon_track_id", "-1")
         df_truth = safe_def(df_truth, "downstream_muon_pdg", "0")
 
-        # Unified secondary muon observables across direct, indirect, and non-charm decays
-        if "MCTrack" in existing_cols and "MuFilterPoint" in existing_cols:
-            df_truth = safe_def(df_truth, "non_charm_mu2_track_id", "TruthExt::find_non_charm_mu2_track_id(has_charm, mu1_track_id, MCTrack, MuFilterPoint)")
-        else:
-            df_truth = safe_def(df_truth, "non_charm_mu2_track_id", "-1")
-
+        # Unified secondary muon observables across direct, indirect, and non-charm / other DS dimuon decays
         df_truth = safe_def(df_truth, "is_direct_charm_decay", "charm_has_direct_muon == 1 ? 1 : 0")
         df_truth = safe_def(df_truth, "is_indirect_charm_decay", "(charm_has_direct_muon == 0 && has_charm_hadronic_downstream_muon == 1) ? 1 : 0")
-        df_truth = safe_def(df_truth, "is_non_charm_dimuon", "(has_charm == 0 && non_charm_mu2_track_id >= 0) ? 1 : 0")
-        df_truth = safe_def(df_truth, "is_signal_like", "(is_direct_charm_decay == 1 || is_indirect_charm_decay == 1 || is_non_charm_dimuon == 1) ? 1 : 0")
+
+        if "MCTrack" in existing_cols and "MuFilterPoint" in existing_cols:
+            df_truth = safe_def(df_truth, "has_two_muons_in_ds", "TruthExt::has_two_muons_in_ds(MCTrack, MuFilterPoint) ? 1 : 0")
+            df_truth = safe_def(df_truth, "n_muons_in_ds", "TruthExt::count_muons_in_ds(MCTrack, MuFilterPoint)")
+            df_truth = safe_def(df_truth, "other_ds_mu2_track_id", "TruthExt::find_other_ds_mu2_track_id(is_direct_charm_decay, is_indirect_charm_decay, mu1_track_id, MCTrack, MuFilterPoint)")
+            df_truth = safe_def(df_truth, "non_charm_mu2_track_id", "other_ds_mu2_track_id")
+        else:
+            df_truth = safe_def(df_truth, "has_two_muons_in_ds", "0")
+            df_truth = safe_def(df_truth, "n_muons_in_ds", "0")
+            df_truth = safe_def(df_truth, "other_ds_mu2_track_id", "-1")
+            df_truth = safe_def(df_truth, "non_charm_mu2_track_id", "-1")
+
+        df_truth = safe_def(df_truth, "is_other_ds_dimuon", "(is_direct_charm_decay == 0 && is_indirect_charm_decay == 0 && has_two_muons_in_ds == 1) ? 1 : 0")
+        df_truth = safe_def(df_truth, "is_non_charm_dimuon", "is_other_ds_dimuon")
+        df_truth = safe_def(df_truth, "is_signal_like", "(is_indirect_charm_decay == 1 || is_other_ds_dimuon == 1) ? 1 : 0")
 
         df_truth = safe_def(df_truth, "sec_mu_track_id", """
             if (charm_has_direct_muon == 1) return mu2_track_id;
             if (has_charm_hadronic_downstream_muon == 1) return downstream_muon_track_id;
-            if (is_non_charm_dimuon == 1) return non_charm_mu2_track_id;
+            if (is_other_ds_dimuon == 1 || other_ds_mu2_track_id >= 0) return other_ds_mu2_track_id;
             return -1;
         """)
 
@@ -1002,18 +1043,22 @@ def main():
                   .Define("downstream_muon_pt", "truth.downstreamMuonPt")
                   .Define("is_direct_charm_decay", "truth.charmHasDirectMuon ? 1 : 0")
                   .Define("is_indirect_charm_decay", "(!truth.charmHasDirectMuon && truth.hasCharmHadronicDownstreamMuon) ? 1 : 0")
-                  .Define("non_charm_mu2_track_id", "TruthExt::find_non_charm_mu2_track_id(truth.hasCharm ? 1 : 0, truth.mu1TrackId, MCTrack, MuFilterPoint)")
-                  .Define("is_non_charm_dimuon", "(!truth.hasCharm && non_charm_mu2_track_id >= 0) ? 1 : 0")
-                  .Define("is_signal_like", "(truth.charmHasDirectMuon || truth.hasCharmHadronicDownstreamMuon || (!truth.hasCharm && non_charm_mu2_track_id >= 0)) ? 1 : 0")
+                  .Define("has_two_muons_in_ds", "TruthExt::has_two_muons_in_ds(MCTrack, MuFilterPoint) ? 1 : 0")
+                  .Define("n_muons_in_ds", "TruthExt::count_muons_in_ds(MCTrack, MuFilterPoint)")
+                  .Define("other_ds_mu2_track_id", "TruthExt::find_other_ds_mu2_track_id(is_direct_charm_decay, is_indirect_charm_decay, truth.mu1TrackId, MCTrack, MuFilterPoint)")
+                  .Define("non_charm_mu2_track_id", "other_ds_mu2_track_id")
+                  .Define("is_other_ds_dimuon", "(is_direct_charm_decay == 0 && is_indirect_charm_decay == 0 && has_two_muons_in_ds == 1) ? 1 : 0")
+                  .Define("is_non_charm_dimuon", "is_other_ds_dimuon")
+                  .Define("is_signal_like", "(is_indirect_charm_decay == 1 || is_other_ds_dimuon == 1) ? 1 : 0")
                   .Define("sec_mu_track_id", """
                       if (truth.charmHasDirectMuon) return truth.mu2TrackId;
                       if (truth.hasCharmHadronicDownstreamMuon) return truth.downstreamMuonTrackId;
-                      if (!truth.hasCharm && non_charm_mu2_track_id >= 0) return non_charm_mu2_track_id;
+                      if (is_other_ds_dimuon == 1 || other_ds_mu2_track_id >= 0) return other_ds_mu2_track_id;
                       return -1;
                   """)
                   .Define("sec_mu_in_ds_acceptance", """
                       if (truth.charmHasDirectMuon || truth.hasCharmHadronicDownstreamMuon) return truth.mu2InDS;
-                      if (!truth.hasCharm && non_charm_mu2_track_id >= 0) return TruthExt::is_trk_in_ds(non_charm_mu2_track_id, MuFilterPoint);
+                      if (sec_mu_track_id >= 0) return TruthExt::is_trk_in_ds(sec_mu_track_id, MuFilterPoint);
                       return false;
                   """)
                   .Define("sec_mu_n_ds_points", """
@@ -1185,16 +1230,16 @@ def main():
         "Indirect Charm Dimuon Fake Signal (c -> hadrons -> mu)"
     )
 
-    # 3. Non-Charm Dimuon (nu_mu CC + pi/K -> mu or other secondary mu, no charm involved)
+    # 3. Other Signal-Like Dimuons (two muons in DS, not direct charm, not indirect charm)
     df_non_charm = df_numu_cc.Filter(
-        f"{fid_prefix}(has_charm == 0) && (is_non_charm_dimuon == 1)",
-        "Non-Charm Dimuon (nu_mu CC + pi/K -> mu)"
+        f"{fid_prefix}is_other_ds_dimuon == 1",
+        "Other Signal-Like Dimuons (2 muons in DS, not direct or indirect charm)"
     )
 
-    # 4. All Signal-Like Dimuons (Direct Charm + Indirect Charm + Non-Charm Dimuons)
+    # 4. All Signal-Like Dimuons (Indirect Charm + Other DS Dimuons)
     df_signal_like = df_numu_cc.Filter(
         f"{fid_prefix}is_signal_like == 1",
-        "All Signal-Like Dimuons (Direct + Indirect + Non-Charm)"
+        "All Signal-Like Dimuons (Indirect Charm + Other DS Dimuons)"
     )
 
     # Candidate selection based on CLI --category

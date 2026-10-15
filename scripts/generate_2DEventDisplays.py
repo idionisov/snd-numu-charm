@@ -184,7 +184,7 @@ def process_single_file_worker(args_tuple):
                     break
             if not tree:
                 for k in fin.GetListOfKeys():
-                    if k.GetClassName() == "TTree" and k.GetName() != "truth":
+                    if k.GetClassName() == "TTree" and k.GetName() not in ("truth", "mctruth", "mc_truth"):
                         tree = fin.Get(k.GetName())
                         break
 
@@ -195,9 +195,9 @@ def process_single_file_worker(args_tuple):
             return result
 
         # Friend truth tree if available and not already containing truth branches
-        truth_tree = fin.Get("truth")
+        truth_tree = fin.Get("mctruth") or fin.Get("mc_truth") or fin.Get("truth")
         if truth_tree and not hasattr(tree, "nu_pdg"):
-            tree.AddFriend("truth")
+            tree.AddFriend(truth_tree.GetName())
 
         total_entries = tree.GetEntries()
         result["total_entries"] = total_entries

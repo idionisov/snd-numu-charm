@@ -57,7 +57,7 @@ def parse_partitions(part_arg: Optional[str]) -> List[int]:
     return sorted(list(partitions))
 
 
-def check_file(filepath: str, expected_trees: List[str]) -> Tuple[bool, str, Dict[str, int]]:
+def check_file(filepath: str, expected_trees: List[Any]) -> Tuple[bool, str, Dict[str, int]]:
     """Check single ROOT file validity and retrieve entry counts."""
     if not os.path.isfile(filepath):
         return False, "MISSING", {}
@@ -73,12 +73,18 @@ def check_file(filepath: str, expected_trees: List[str]) -> Tuple[bool, str, Dic
         return False, "ZOMBIE", {}
 
     tree_entries = {}
-    for tname in expected_trees:
-        tree = tf.Get(tname)
-        if not tree:
+    for item in expected_trees:
+        cands = item if isinstance(item, (list, tuple)) else [item]
+        found_tree = None
+        for tname in cands:
+            tree = tf.Get(tname)
+            if tree:
+                found_tree = tree
+                tree_entries[tname] = int(tree.GetEntries())
+                break
+        if not found_tree:
             tf.Close()
-            return False, f"MISSING_TREE:{tname}", {}
-        tree_entries[tname] = int(tree.GetEntries())
+            return False, f"MISSING_TREE:{'/'.join(cands)}", {}
 
     tf.Close()
     return True, "OK", tree_entries
@@ -131,16 +137,18 @@ def verify_single_partition(partition: int, base_dir: str) -> Dict[str, Any]:
             res["errors"].append(f"ENTRY_MISMATCH:raw={res['raw_entries']}!=track={res['tracked_entries']}")
 
     # 3. MCTruth
+    truth_tree_cands = ("mctruth", "mc_truth", "truth")
     truth_path = os.path.join(part_dir, f"{prefix}_truth.root")
-    ok, msg, trees = check_file(truth_path, ["cbmsim", "truth"])
+    ok, msg, trees = check_file(truth_path, ["cbmsim", truth_tree_cands])
     if not ok:
         res["valid"] = False
         res["errors"].append(f"TruthFile:{msg}")
     else:
-        res["truth_entries"] = trees.get("truth", 0)
+        truth_tree_name = next(k for k in truth_tree_cands if k in trees)
+        res["truth_entries"] = trees.get(truth_tree_name, 0)
         if trees.get("cbmsim", 0) != res["truth_entries"]:
             res["valid"] = False
-            res["errors"].append(f"TRUTH_INTERNAL_MISMATCH:cbm={trees.get('cbmsim')}!=truth={res['truth_entries']}")
+            res["errors"].append(f"TRUTH_INTERNAL_MISMATCH:cbm={trees.get('cbmsim')}!={truth_tree_name}={res['truth_entries']}")
         if res["tracked_entries"] > 0 and res["truth_entries"] != res["tracked_entries"]:
             res["valid"] = False
             res["errors"].append(f"TRACK_TRUTH_MISMATCH:track={res['tracked_entries']}!=truth={res['truth_entries']}")
@@ -148,7 +156,7 @@ def verify_single_partition(partition: int, base_dir: str) -> Dict[str, Any]:
         # Count expected direct / indirect yields directly from truth tree
         tf = ROOT.TFile.Open(truth_path, "READ")
         if tf and not tf.IsZombie():
-            t = tf.Get("truth")
+            t = tf.Get("mctruth") or tf.Get("mc_truth") or tf.Get("truth")
             if t:
                 res["truth_expected_direct"] = int(t.GetEntries("is_cc == 1 && has_charm == 1 && charm_has_direct_muon == 1"))
                 res["truth_expected_indirect"] = int(t.GetEntries("is_cc == 1 && has_charm == 1 && charm_has_direct_muon == 0 && has_charm_hadronic_downstream_muon == 1"))
@@ -156,24 +164,26 @@ def verify_single_partition(partition: int, base_dir: str) -> Dict[str, Any]:
 
     # 4. Direct Skim
     direct_path = os.path.join(part_dir, f"{prefix}_truth_charmDimuonDirect.root")
-    ok, msg, trees = check_file(direct_path, ["cbmsim", "truth"])
+    ok, msg, trees = check_file(direct_path, ["cbmsim", truth_tree_cands])
     if not ok:
         res["valid"] = False
         res["errors"].append(f"DirectSkim:{msg}")
     else:
-        res["direct_entries"] = trees.get("truth", 0)
+        found_truth = next((k for k in truth_tree_cands if k in trees), None)
+        res["direct_entries"] = trees.get(found_truth, 0)
         if res["direct_entries"] != res["truth_expected_direct"]:
             res["valid"] = False
             res["errors"].append(f"DIRECT_YIELD_MISMATCH:got={res['direct_entries']}!=expected={res['truth_expected_direct']}")
 
     # 5. Indirect Skim
     indirect_path = os.path.join(part_dir, f"{prefix}_truth_charmDimuonIndirect.root")
-    ok, msg, trees = check_file(indirect_path, ["cbmsim", "truth"])
+    ok, msg, trees = check_file(indirect_path, ["cbmsim", truth_tree_cands])
     if not ok:
         res["valid"] = False
         res["errors"].append(f"IndirectSkim:{msg}")
     else:
-        res["indirect_entries"] = trees.get("truth", 0)
+        found_truth = next((k for k in truth_tree_cands if k in trees), None)
+        res["indirect_entries"] = trees.get(found_truth, 0)
         if res["indirect_entries"] != res["truth_expected_indirect"]:
             res["valid"] = False
             res["errors"].append(f"INDIRECT_YIELD_MISMATCH:got={res['indirect_entries']}!=expected={res['truth_expected_indirect']}")

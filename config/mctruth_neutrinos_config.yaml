@@ -16,6 +16,8 @@ output:
   file_suffix: "_truth"
   preserve_subdirs: true
   symlink_input_root_files: true
+  truth_tree_name: "mctruth"
+  store_in_cbmsim: false
 
 # Interaction channels and topology lookup table
 channels:

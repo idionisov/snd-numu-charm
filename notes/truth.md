@@ -1,100 +1,248 @@
-# Signal Definition & Monte Carlo Truth Processing
+# Monte Carlo Truth Definition & Observables in SND@LHC
 
-This document explains how a signal event for **$\nu_\mu$-induced charm production with dimuon decay** is defined and identified in the codebase, detailing the roles of `ShipMCTrack`, `ScifiPoint`, `MuFilterPoint`, PDG codes, Geant4 process IDs, and target material/geometry.
-
----
-
-## 1. Physics Signal Topology
-
-A golden signal event corresponds to a muon neutrino (or anti-neutrino) deep-inelastic charged-current (CC) interaction in the tungsten target producing an open charmed hadron ($D^0, D^+, D_s^+, \Lambda_c^+, \dots$), where the charmed hadron subsequently decays semi-muonically:
-
-$$\nu_\mu + \mathcal{N}(\text{W}) \longrightarrow \mu_1^- + C + X, \quad C \longrightarrow \mu_2^+ + \nu_\mu + Y$$
-$$\bar{\nu}_\mu + \mathcal{N}(\text{W}) \longrightarrow \mu_1^+ + \bar{C} + X, \quad \bar{C} \longrightarrow \mu_2^- + \bar{\nu}_\mu + Y$$
-
-Key physical signatures:
-1. **Primary CC Muon ($\mu_1$)**: Outgoing charged lepton at the primary neutrino interaction vertex.
-2. **Open Charmed Hadron ($C$)**: Produced directly at the primary interaction vertex.
-3. **Secondary Muon ($\mu_2$)**: Produced at a displaced decay vertex ($c\tau \sim 60\text{--}300\ \mu\text{m}$) from prompt semi-leptonic charm decay.
-4. **Opposite-Sign Dimuon (OS $\mu\mu$)**: $\mu_1^- \mu_2^+$ (for $\nu_\mu$) or $\mu_1^+ \mu_2^-$ (for $\bar{\nu}_\mu$).
+This document provides a comprehensive technical reference for the Monte Carlo truth identification, categorization logic, particle genealogy, and detector hit requirements implemented across the simulation analysis pipeline.
 
 ---
 
-## 2. How Signal Events are Defined in the Current Code
+## 1. Overview of the 3 Physical Categories
 
-The signal identification logic is implemented in [`MuonNeutrinoTruthProcessor`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.h) (inheriting from [`NeutrinoTruthProcessor`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/NeutrinoTruthProcessor.h)).
+The simulation classifies neutrino events into three primary categories relevant to dimuon physics:
 
-The processor operates on the `MCTrack` branch (`TClonesArray` of `ShipMCTrack`) from the simulation tree `cbmsim`.
-
-### Step-by-Step Selection Logic
-
-| Step | Observable | Requirement in Code | Method in Code |
-| :--- | :--- | :--- | :--- |
-| **1. Neutrino** | Incoming $\nu_\mu$ / $\bar{\nu}_\mu$ | `MCTrack[0]` has `abs(nuPdg) == 14` | [`MuonNeutrinoTruthProcessor::processMuonNeutrino`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.cxx#L245) |
-| **2. Primary Muon ($\mu_1$)** | Primary outgoing CC lepton | `motherId == 0`, `pdg == 13` ($\mu^-$ for $\nu_\mu$) or `-13` ($\mu^+$ for $\bar{\nu}_\mu$), $p \ge p_{\min}$ | [`MuonNeutrinoTruthProcessor::findPrimaryMuon`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.cxx#L26) |
-| **3. Charmed Hadron ($C$)** | Open charm at primary vertex | `motherId == 0`, quark content contains charm quark ($q=4$), excluding charmonium ($c\bar{c}$) | [`NeutrinoTruthProcessor::findPrimaryCharmedHadrons`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/NeutrinoTruthProcessor.cxx#L256) |
-| **4. Charm Decay Muon ($\mu_2$)** | Prompt decay $\mu$ | `abs(pdg) == 13`, parent ancestry traces back to charmed hadron ($C$), flight distance $\le 20\text{ cm}$ | [`MuonNeutrinoTruthProcessor::findCharmDecayMuon`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.cxx#L78) |
-| **5. Dimuon System** | Opposite-sign charge | `mu1Pdg * mu2Pdg < 0` (`isOppositeSignDimuon == true`) | [`MuonNeutrinoTruthProcessor::processMuonNeutrino`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.cxx#L386) |
-| **6. Golden Candidate Flag** | Complete signal | `hasCandidate = isCC && (isNuMuCC || isAntiNuMuCC) && hasPromptCharmMuon` | [`MuonNeutrinoTruthProcessor::processMuonNeutrino`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.cxx#L389) |
-
----
-
-## 3. Specific Questions Answered
-
-### Q1: Do we identify the signal by Process ID or by PDG code?
-**We identify it primarily by PDG codes and particle genealogy (`motherId`), NOT by Geant4 process ID.**
-- **Why not Geant4 Process ID?**
-  In GENIE + Geant4 Monte Carlo simulations:
-  - The primary neutrino-nucleus interaction (the hard scattering, nuclear remnant breakup, and hadronization) is simulated by **GENIE**, not Geant4. All primary particles emerge directly from GENIE with `motherId == 0`.
-  - Geant4 is only invoked downstream for particle transport, secondary nuclear interactions, and decays in flight.
-  - Process IDs (`trk->GetProcID()`, e.g. `kPDecay`) vary across Geant4 physics lists and generator interfaces. In contrast, standard PDG codes and parent-daughter tree links (`motherId`) are deterministic and generator-independent.
-- **How PDG codes identify Charm:**
-  [`isCharmedHadron(pdgCode)`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/NeutrinoTruthProcessor.cxx#L21) decodes the quark content according to the PDG numbering scheme:
-  - Mesons ($q_1 q_2$): $D^0 (421)$, $D^+ (411)$, $D_s^+ (431)$, $D^{*+} (413)$, etc.
-  - Baryons ($q_1 q_2 q_3$): $\Lambda_c^+ (4122)$, $\Sigma_c (4222, 4212, 4112)$, $\Xi_c (4232, 4132)$, $\Omega_c^0 (4332)$, etc.
-  - Hidden charm ($c\bar{c}$ charmonium like $J/\psi\ [443]$) is explicitly excluded via [`isOpenCharm()`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/NeutrinoTruthProcessor.cxx#L34).
-
----
-
-### Q2: How is the Target / Tungsten interaction identified?
-In the current code:
-- **Current implementation:**
-  Target selection is defined purely by **geometric fiducial coordinates** in [`isFiducial(x, y, z)`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/NeutrinoTruthProcessor.cxx#L195):
-  - $260.0\text{ cm} \le Z_{\text{vtx}} \le 360.0\text{ cm}$ (the 5 Target walls / SciFi region)
-  - $-46.0\text{ cm} \le X_{\text{vtx}} \le -10.0\text{ cm}$
-  - $+17.0\text{ cm} \le Y_{\text{vtx}} \le +53.0\text{ cm}$
-  - Events originating in the upstream rock ($Z < 260\text{ cm}$) or downstream Muon Filter ($Z > 360\text{ cm}$) are classified as `kRegionRock` and `kRegionMuonFilter`.
-- **Target Material Nuance (Tungsten vs Emulsion/SciFi):**
-  - In the simulated dataset `...volTarget...`, vertices are generated within the volume `volTarget`.
-  - The actual SND@LHC target bricks consist of **tungsten plates** (`volPassive`, material `tungstensifon`), interleaved with nuclear emulsion films, encased in walls.
-  - If one requires the vertex to be strictly *inside tungsten* (as opposed to in the emulsion layers or acrylic supports), the TGeoManager can be queried at truth level:
-    ```cpp
-    TGeoNode* node = gGeoManager->FindNode(vtxX, vtxY, vtxZ);
-    bool inTungsten = (node && std::string(node->GetVolume()->GetName()) == "volPassive");
-    // or checking the material name:
-    // node->GetVolume()->GetMaterial()->GetName() == "tungstensifon"
-    ```
-
----
-
-### Q3: What is the role of `ScifiPoint` and `MuFilterPoint`?
-- **Do we use `ScifiPoint` or `MuFilterPoint` to define the truth signal?**
-  **No.** `ScifiPoint` and `MuFilterPoint` are **detector simulation hits** (Geant4 energy depositions in active fibers and scintillator bars), not truth genealogy objects.
-- **Where are MCPoints used?**
-  - **Detector Acceptance & Tracking Efficiency:** You can inspect `ScifiPoint` and `MuFilterPoint` to determine whether $\mu_1$ and $\mu_2$ actually traversed the active detector (e.g., checking if `trk1` and `trk2` produced hits in $\ge 3$ SciFi stations or penetrated into the Downstream Muon Filter).
-  - **Digitization cross-checks:** Associating digitized hits back to truth tracks via `Digi_ScifiHits2MCPoints` and `Digi_MuFilterHits2MCPoints`.
-  - `ShipMCTrack` already caches hit counts via `trk->GetNPoints(kScifi)` and `trk->GetNPoints(kMuFilter)`.
-
----
-
-## 4. Summary of Signal Flags in `truth` Info Struct
-
-When running with RDataFrame:
-```python
-df = df.Define("truth", "snd::MuonNeutrinoTruthProcessor()", ["MCTrack"])
 ```
-The resulting `MuonNeutrinoTruthInfo` provides:
-- `truth.hasCandidate`: `true` if $\nu_\mu$ CC + primary muon + prompt charm decay muon.
-- `truth.isOppositeSignDimuon`: `true` if $\mu_1$ and $\mu_2$ have opposite electric charges.
-- `truth.isFiducial`: `true` if interaction vertex is within Target fiducial coordinates.
-- `truth.charmPdg` & `truth.charmType`: Specific charmed hadron produced ($D^0, D^+, D_s^+, \Lambda_c^+$).
-- `truth.dimuonInvMass`, `truth.dimuonOpeningAngle`: Kinematic observables of the two muons.
+                                  All Simulated Events
+                                           │
+                     ┌─────────────────────┴─────────────────────┐
+                     │                                           │
+             has_charm == 1                              has_charm == 0
+                     │                                           │
+         ┌───────────┴───────────┐                               │
+         │                       │                               │
+charm_has_direct_muon == 1       │                               │
+         │                       │                               │
+  ┌──────────────┐   has_charm_hadronic_downstream_muon == 1     │
+  │  Category 1  │               │                               │
+  │ Direct Charm │        ┌──────────────┐                       │
+  │ Dimuon Signal│        │  Category 2  │                       │
+  └──────────────┘        │Indirect Charm│                       │
+                          │ Dimuon Fake  │                       │
+                          └──────────────┘                       │
+                                 │                               │
+                         !is_direct && !is_indirect              │
+                                 │                               │
+                                 └───────────────┬───────────────┘
+                                                 │
+                                     has_two_muons_in_ds == 1
+                                                 │
+                                          ┌──────────────┐
+                                          │  Category 3  │
+                                          │Other DS Dimu │
+                                          │(Signal-Like) │
+                                          └──────────────┘
+```
+
+1. **Category 1: Direct Charm Dimuon Signal (`is_direct_charm_decay`)**
+   - Prompt semi-leptonic decay of an open charmed hadron: $\nu_\mu + \mathcal{N} \to \mu_1^- + C + X$, with $C \to \mu_2^+ + \nu_\mu + Y$.
+   - Evaluated both **in DS acceptance** and **outside DS acceptance**.
+2. **Category 2: Indirect Charm Dimuon Fake (`is_indirect_charm_decay`)**
+   - Hadronic decay of an open charmed hadron followed by in-flight decay of a downstream hadronic daughter: $\nu_\mu + \mathcal{N} \to \mu_1^- + C + X$, with $C \to h^\pm + Y$, and $h^\pm \to \mu_2^\pm + \nu_\mu$.
+   - Evaluated both **in DS acceptance** and **outside DS acceptance**.
+3. **Category 3: Other Signal-Like Dimuons (`is_other_ds_dimuon`)**
+   - Any event with $\ge 2$ muons traversing the Downstream MuFilter (DS) that is neither direct nor indirect charm dimuon: `has_two_muons_in_ds && !is_direct && !is_indirect`.
+   - Represents all non-charm or non-charm-decay dimuons reaching the DS (primary $\pi/K$ decay in flight, shower punch-through, meson decays like $\eta,\rho,\omega \to \mu\mu$, neutral current dimuons).
+
+---
+
+## 2. MCTrack Requirements & Particle Genealogy
+
+Monte Carlo tracks are stored in the simulation tree `cbmsim` under the `MCTrack` branch as a `TClonesArray` of [`ShipMCTrack`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.h).
+
+### 2.1 Track Indexing & Genealogy (`motherId`)
+- **`MCTrack[0]` (Incoming Neutrino)**:
+  - Mother ID: `motherId == -1`.
+  - PDG code: `nuPdg = trk[0]->GetPdgCode()`.
+    - Muon neutrino: `nuPdg == 14` ($\nu_\mu$) or `-14` ($\bar{\nu}_\mu$).
+    - Electron neutrino: `nuPdg == 12` ($\nu_e$) or `-12` ($\bar{\nu}_e$).
+    - Tau neutrino: `nuPdg == 16` ($\nu_\tau$) or `-16` ($\bar{\nu}_\tau$).
+- **Primary Interaction Products (`motherId == 0`)**:
+  - Particles produced directly at the primary neutrino-nucleus collision generated by **GENIE**.
+  - All primary particles have `trk->GetMotherId() == 0`.
+- **Secondary Particles (`motherId > 0`)**:
+  - Particles produced in subsequent decays, hadron showers, or material interactions transported by **Geant4**.
+  - Traced back recursively to their ancestor:
+    $$\text{Parent}(i) = \text{MCTrack}[\text{trk}[i]\text{->GetMotherId()}]$$
+
+> [!NOTE]
+> **Why Genealogy (`motherId`) over Geant4 Process ID (`trk->GetProcID()`):**
+> Primary hard-scattering vertices, nuclear remnant breakup, and hadronization are performed by **GENIE**, not Geant4. All primary particles emerge with `motherId == 0` without a Geant4 process ID. Geant4 process IDs (`kPDecay`, `kPElastic`, etc.) vary across physics lists, while PDG codes and `motherId` links provide an unambiguous, generator-independent definition.
+
+### 2.2 Primary Lepton Identification ($\mu_1$)
+Implemented in [`MuonNeutrinoTruthProcessor::findPrimaryMuon`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.cxx#L27-L77):
+- **Condition**: Charged Current (CC) interaction of $\nu_\mu$ / $\bar{\nu}_\mu$.
+- **Mother ID**: `trk->GetMotherId() == 0`.
+- **PDG Code**:
+  - For $\nu_\mu$ interaction (`nuPdg == 14`): `pdg == 13` ($\mu^-$).
+  - For $\bar{\nu}_\mu$ interaction (`nuPdg == -14`): `pdg == -13` ($\mu^+$).
+  - General CC check: `std::abs(pdg) == 13`.
+- **Kinematics**: Momentum $p \ge p_{\min}$ (configurable in [`NeutrinoTruthConfig::minPrimaryLeptonMomentum`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/NeutrinoTruthProcessor.h#L60), default: $0.5\ \text{GeV}/c$).
+- **Disambiguation**: If multiple primary muons exist, selects the highest momentum muon.
+
+### 2.3 Charmed Hadron Identification ($C$)
+Implemented in [`NeutrinoTruthProcessor::isCharmedHadron`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/NeutrinoTruthProcessor.cxx#L21-L47):
+- **Mother ID**: `trk->GetMotherId() == 0` (open charm produced at primary vertex).
+- **PDG Content Analysis**:
+  Decodes quark content $|PDG| = \pm(1000 \cdot q_1 + 100 \cdot q_2 + 10 \cdot q_3 + 2J+1)$:
+  - **Open Charm Mesons** ($q_2 = 4$ or $q_1 = 4$):
+    - Ground state pseudoscalar: $D^0 (421)$, $D^+ (411)$, $D_s^+ (431)$.
+    - Vector / excited states: $D^{*0} (423)$, $D^{*+} (413)$, $D_s^{*+} (433)$.
+  - **Open Charm Baryons** ($q_1 = 4$ or $q_2 = 4$ or $q_3 = 4$):
+    - $\Lambda_c^+ (4122)$, $\Sigma_c^{++} (4222)$, $\Sigma_c^+ (4212)$, $\Sigma_c^0 (4112)$.
+    - $\Xi_c^+ (4232)$, $\Xi_c^0 (4132)$, $\Omega_c^0 (4332)$.
+  - **Hidden Charm Excluded via [`isOpenCharm()`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/NeutrinoTruthProcessor.cxx#L34)**:
+    - $c\bar{c}$ charmonium states ($J/\psi [443]$, $\psi(2S) [100443]$, $\chi_{c0} [10441]$, etc.) are explicitly rejected as they do not constitute open charm production.
+
+### 2.4 Prompt Charm Decay Muon Identification ($\mu_2$)
+Implemented in [`MuonNeutrinoTruthProcessor::findCharmDecayMuon`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.cxx#L79-L150):
+- **Particle**: `std::abs(trk->GetPdgCode()) == 13`.
+- **Ancestry**: `trk->GetMotherId() == charmTrackId` (direct semi-leptonic decay: $C \to \mu_2 \nu X$).
+  - If charm decays to intermediate excited states ($D^* \to D$), the decay chain is traversed recursively up to the primary charmed hadron.
+- **Electric Charge**: Opposite to primary muon:
+  $$\text{Charge}(\mu_1) \cdot \text{Charge}(\mu_2) = -1 \quad (\mu_1^- \mu_2^+ \text{ for } \nu_\mu, \; \mu_1^+ \mu_2^- \text{ for } \bar{\nu}_\mu)$$
+- **Displaced Vertex & Flight Distance**:
+  - Distance between primary vertex $\vec{V}_{\text{prim}}$ and charm decay vertex $\vec{V}_{\text{decay}}$:
+    $$d_{\text{decay}} = \|\vec{V}_{\text{decay}} - \vec{V}_{\text{prim}}\| \le d_{\max} \quad (\text{default: } 20.0\text{ cm})$$
+  - Proper lifetime: $c\tau = d_{\text{decay}} / (\beta\gamma) \sim 60\text{--}300\ \mu\text{m}$.
+
+### 2.5 Downstream Intermediate Hadron Decay to Muon (Indirect Fake)
+Implemented in [`MuonNeutrinoTruthProcessor.cxx#L420-L453`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.cxx#L420-L453):
+- **Charm Decay**: Charmed hadron decays hadronically (`charmHasDirectMuon == false`).
+- **Intermediate Hadrons**:
+  - Charged Pions: $\pi^+ (211)$, $\pi^- (-211)$.
+  - Charged Kaons: $K^+ (321)$, $K^- (-321)$.
+  - Neutral Kaons: $K_L^0 (130)$, $K_S^0 (310)$.
+  - Other light mesons / hyperons: $\rho (213)$, $\eta (221)$, $\Sigma^\pm (3222, 3112)$.
+- **Secondary Muon**:
+  - `std::abs(trk->GetPdgCode()) == 13`.
+  - `trk->GetMotherId()` matches one of the hadronic daughters originating from the charmed hadron decay tree.
+  - Flag: `hasCharmHadronicDownstreamMuon == true`.
+
+---
+
+## 3. MCPoint Requirements & Downstream (DS) Acceptance
+
+Monte Carlo detector hits are stored in the simulation tree `cbmsim` under the `MuFilterPoint` branch as a `TClonesArray` of `FairMCPoint`.
+
+### 3.1 `MuFilterPoint` Detector ID Decoding
+Each point has an integer detector identifier `detID = pt->GetDetectorID()`:
+$$\text{Subsystem} = \left\lfloor \frac{\text{detID}}{10000} \right\rfloor, \quad \text{Bar ID} = \text{detID} \pmod{1000}$$
+
+| Subsystem Value | Subdetector | Function in Code |
+| :---: | :--- | :--- |
+| `1` | Veto Planes | Upstream charged particle veto |
+| `2` | Upstream MuFilter (US) | Target / Hadronic calorimeter tracking |
+| `3` | **Downstream MuFilter (DS)** | **Muon tracking & acceptance definition** |
+
+Within the Downstream system (`detID / 10000 == 3`):
+- **Horizontal Planes (X-view / dy)**: `bar < 60`
+  - Scintillator bars oriented horizontally to measure vertical coordinates ($y$).
+- **Vertical Planes (Y-view / dx)**: `bar >= 60`
+  - Scintillator bars oriented vertically to measure horizontal coordinates ($x$).
+
+### 3.2 Single-Track DS Acceptance: 3H + 3V Threshold
+Implemented in [`TruthExt::is_trk_in_ds`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/get_hists_numu_truth.py#L525-L540):
+A track is defined as **in Downstream (DS) acceptance** if and only if it produces:
+$$N_{\text{DS, horizontal}} \ge 3 \quad \text{AND} \quad N_{\text{DS, vertical}} \ge 3$$
+
+```cpp
+inline bool is_trk_in_ds(int trk_id, const TClonesArray& pts, int min_hor = 3, int min_ver = 3) {
+    if (trk_id < 0) return false;
+    int nHor = 0, nVer = 0;
+    const int nPoints = pts.GetEntriesFast();
+    for (int i = 0; i < nPoints; ++i) {
+        auto* pt = static_cast<const FairMCPoint*>(pts.At(i));
+        if (!pt || pt->GetTrackID() != trk_id) continue;
+        int detID = pt->GetDetectorID();
+        if ((detID / 10000) == 3) {
+            int bar = detID % 1000;
+            if (bar < 60) nHor++;
+            else nVer++;
+        }
+    }
+    return (nHor >= min_hor && nVer >= min_ver);
+}
+```
+
+### 3.3 Two Muons in DS Acceptance (`has_two_muons_in_ds`)
+Implemented in [`TruthExt::has_two_muons_in_ds`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/get_hists_numu_truth.py#L570-L585) and [`snd.filter.analyze_ds_muons`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/snd/filter.py#L340-L365):
+- Scans all tracks in `MCTrack`.
+- Requires that **at least two distinct tracks** with $|PDG| = 13$ independently satisfy the $3\text{H} + 3\text{V}$ threshold in `MuFilterPoint`.
+
+---
+
+## 4. Full Requirements for the 3 Categories
+
+### Category 1: Direct Charm Dimuon Signal (`is_direct_charm_decay`)
+
+$$\nu_\mu + \mathcal{N} \longrightarrow \mu_1^- + C + X, \quad C \longrightarrow \mu_2^+ + \nu_\mu + Y$$
+
+| Feature | Requirement | Source / Function |
+| :--- | :--- | :--- |
+| **Neutrino** | `abs(nu_pdg) == 14` | `MCTrack[0]->GetPdgCode()` |
+| **Interaction** | Charged Current (`is_cc == 1`) | `trk[primary]->GetMotherId() == 0` |
+| **Fiducial Volume** | $260 \le Z_{\text{vtx}} \le 360\text{ cm}$, $-46 \le X_{\text{vtx}} \le -10\text{ cm}$, $17 \le Y_{\text{vtx}} \le 53\text{ cm}$ | [`NeutrinoTruthProcessor::isFiducial`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/NeutrinoTruthProcessor.cxx#L195) |
+| **Primary Lepton ($\mu_1$)** | $|PDG| = 13$, `motherId == 0`, $p \ge 0.5\ \text{GeV}/c$ | [`findPrimaryMuon`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.cxx#L27) |
+| **Charm Hadron ($C$)** | Open charm meson/baryon ($|PDG| \in \{421, 411, 431, 4122, \dots\}$), `motherId == 0` | [`findPrimaryCharmedHadrons`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/NeutrinoTruthProcessor.cxx#L256) |
+| **Secondary Muon ($\mu_2$)** | $|PDG| = 13$, parent is $C$, opposite charge to $\mu_1$, $d_{\text{decay}} \le 20\text{ cm}$ | [`findCharmDecayMuon`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.cxx#L79) |
+| **Truth Flag** | `is_direct_charm_decay == 1` (`charm_has_direct_muon == 1`) | Flat truth branch / `info.charmHasDirectMuon` |
+| **In DS Acceptance** | $\mu_1$ has $\ge 3\text{H} + 3\text{V}$ DS points **AND** $\mu_2$ has $\ge 3\text{H} + 3\text{V}$ DS points | `dimuon_in_ds_acceptance == 1` |
+| **Outside DS Acceptance** | $\mu_1$ fails DS points **OR** $\mu_2$ fails DS points | `dimuon_in_ds_acceptance == 0` |
+
+---
+
+### Category 2: Indirect Charm Dimuon Fake (`is_indirect_charm_decay`)
+
+$$\nu_\mu + \mathcal{N} \longrightarrow \mu_1^- + C + X, \quad C \longrightarrow h^\pm + Y, \quad h^\pm \longrightarrow \mu_2^\pm + \nu_\mu$$
+
+| Feature | Requirement | Source / Function |
+| :--- | :--- | :--- |
+| **Neutrino** | `abs(nu_pdg) == 14`, Charged Current (`is_cc == 1`) | `MCTrack[0]` |
+| **Fiducial Volume** | Target SciFi fiducial box | [`isFiducial(x,y,z)`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/NeutrinoTruthProcessor.cxx#L195) |
+| **Primary Lepton ($\mu_1$)** | $|PDG| = 13$, `motherId == 0` | [`findPrimaryMuon`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/analysis/MuonNeutrinoTruthProcessor.cxx#L27) |
+| **Charm Hadron ($C$)** | Open charm meson/baryon, `motherId == 0` | `has_charm == 1` |
+| **Direct Muon Veto** | Charm hadron does NOT decay directly to a muon | `charm_has_direct_muon == 0` |
+| **Intermediate Hadron ($h$)** | Daughter of $C$ with $|PDG| \in \{211 (\pi^\pm), 321 (K^\pm), 130 (K_L^0), 310 (K_S^0)\}$ | `downstream_muon_mother_pdg` |
+| **Downstream Muon ($\mu_2$)** | $|PDG| = 13$, parent is intermediate hadron $h$ | `has_charm_hadronic_downstream_muon == 1` |
+| **Truth Flag** | `is_indirect_charm_decay == 1` (`charm_has_direct_muon == 0 && has_charm_hadronic_downstream_muon == 1`) | Flat truth branch |
+| **In DS Acceptance** | $\mu_1$ has $\ge 3\text{H} + 3\text{V}$ DS points **AND** downstream $\mu_2$ has $\ge 3\text{H} + 3\text{V}$ DS points | `dimuon_in_ds_acceptance == 1` |
+| **Outside DS Acceptance** | $\mu_1$ or downstream $\mu_2$ fails DS $3\text{H} + 3\text{V}$ threshold | `dimuon_in_ds_acceptance == 0` |
+
+---
+
+### Category 3: Other Signal-Like Dimuons (`is_other_ds_dimuon`)
+
+Any event producing $\ge 2$ muons traversing the Downstream system that is neither direct nor indirect charm:
+
+$$N_{\mu}(\text{in DS}) \ge 2 \quad \text{AND} \quad \text{is\_direct} = 0 \quad \text{AND} \quad \text{is\_indirect} = 0$$
+
+| Feature | Requirement | Source / Function |
+| :--- | :--- | :--- |
+| **Muons in DS Acceptance** | $\ge 2$ distinct tracks with $|PDG| = 13$, each having $\ge 3\text{H} + 3\text{V}$ MCPoints in DS (`detID / 10000 == 3`) | [`TruthExt::has_two_muons_in_ds`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/get_hists_numu_truth.py#L570), [`analyze_ds_muons`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/snd/filter.py#L340) |
+| **Direct Charm Veto** | Not direct charm semi-leptonic decay | `charm_has_direct_muon == 0` |
+| **Indirect Charm Veto** | Not charm hadronic daughter decay to muon | `has_charm_hadronic_downstream_muon == 0` |
+| **Charm Invariance** | Applies whether `has_charm == 0` or `has_charm == 1` (e.g. charm decays hadronically with no muon, but an independent fragmentation meson produces a muon) | `is_other_ds_dimuon` |
+| **Secondary Muon Selection** | Muon in DS distinct from primary $\mu_1$ (highest momentum in DS) | [`find_other_ds_mu2_track_id`](file:///afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/get_hists_numu_truth.py#L590) |
+| **Physical Sources** | - Non-charm $\nu_\mu$ CC with primary $\pi^\pm / K^\pm \to \mu^\pm\nu$<br>- Charm CC where $\mu_2$ comes from primary vertex fragmentation meson<br>- Electromagnetic / meson decays ($\eta, \rho, \omega \to \mu^+\mu^-$)<br>- Neutral Current (NC) or $\nu_e / \nu_\tau$ interactions producing 2 muons reaching DS | `other_ds_mu2_mother_pdg` |
+| **Truth Flag** | `is_other_ds_dimuon == 1` | `has_two_muons_in_ds == 1 && is_direct == 0 && is_indirect == 0` |
+| **Inclusive Signal-Like** | All backgrounds mimicking a dimuon signal | `is_signal_like = is_indirect_charm_decay \|\| is_other_ds_dimuon` |
+
+---
+
+## 5. Summary Reference Table
+
+| Category | `has_charm` | `charm_has_direct_muon` | `has_charm_hadronic_downstream_muon` | `has_two_muons_in_ds` ($\ge 3\text{H} + 3\text{V}$) | Category Flag |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **Direct Charm Signal (In Acc)** | `1` | `1` | `0` | `1` | `is_direct_charm_decay = 1`, `in_acc = 1` |
+| **Direct Charm Signal (Out Acc)** | `1` | `1` | `0` | `0` | `is_direct_charm_decay = 1`, `in_acc = 0` |
+| **Indirect Charm Fake (In Acc)** | `1` | `0` | `1` | `1` | `is_indirect_charm_decay = 1`, `in_acc = 1` |
+| **Indirect Charm Fake (Out Acc)** | `1` | `0` | `1` | `0` | `is_indirect_charm_decay = 1`, `in_acc = 0` |
+| **Other DS Dimuons (Signal-Like)** | `0` or `1` | `0` | `0` | `1` | `is_other_ds_dimuon = 1` |
+| **All Signal-Like Backgrounds** | `0` or `1` | `0` | `1` or `0` | `1` (if other) | `is_signal_like = is_indirect \|\| is_other` |

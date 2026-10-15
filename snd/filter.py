@@ -237,7 +237,11 @@ def setup_truth_branches(trees: List[ROOT.TTree], active_tiers: Set[str]) -> Dic
             "charm_has_direct_pion", "charm_has_direct_kaon",
             "has_downstream_charm_muon", "downstream_muon_track_id",
             "downstream_muon_pdg", "downstream_muon_mother_pdg",
-            "has_charm_hadronic_downstream_muon"
+            "has_charm_hadronic_downstream_muon",
+            "has_two_muons_in_ds", "n_muons_in_ds",
+            "is_direct_charm_decay", "is_indirect_charm_decay",
+            "is_other_ds_dimuon", "is_signal_like",
+            "other_ds_mu2_track_id", "other_ds_mu2_pdg", "other_ds_mu2_mother_pdg"
         ])
         double_vars.extend([
             "mc_weight", "raw_weight", "mctruth_weight",
@@ -245,7 +249,8 @@ def setup_truth_branches(trees: List[ROOT.TTree], active_tiers: Set[str]) -> Dic
             "vtx_x", "vtx_y", "vtx_z", "vtx_t",
             "q2", "bjorken_x", "inelasticity_y", "hadronic_w",
             "hadronic_e_total", "hadronic_pt", "missing_pt",
-            "downstream_muon_p", "downstream_muon_pt"
+            "downstream_muon_p", "downstream_muon_pt",
+            "other_ds_mu2_p", "other_ds_mu2_pt", "other_ds_mu2_eta", "other_ds_mu2_theta"
         ])
 
     # 2. Primary Lepton Tier
@@ -315,7 +320,56 @@ def setup_truth_branches(trees: List[ROOT.TTree], active_tiers: Set[str]) -> Dic
     return buffers
 
 
-def fill_truth_buffers(buffers: dict, info: Any, entry_idx: int, active_tiers: Set[str], mctruth_weight: float = 1.0):
+def check_track_in_ds(trk_id: int, mu_filter_points, min_hor: int = 3, min_ver: int = 3) -> bool:
+    """Checks if a track has >= min_hor and >= min_ver MCPoints in Downstream MuFilter (detectorID / 10000 == 3)."""
+    if trk_id < 0 or not mu_filter_points:
+        return False
+    n_pts = mu_filter_points.GetEntriesFast()
+    n_hor = 0
+    n_ver = 0
+    for i in range(n_pts):
+        pt = mu_filter_points.At(i)
+        if not pt or pt.GetTrackID() != trk_id:
+            continue
+        det_id = pt.GetDetectorID()
+        if (det_id // 10000) == 3:
+            bar = det_id % 1000
+            if bar < 60:
+                n_hor += 1
+            else:
+                n_ver += 1
+    return (n_hor >= min_hor and n_ver >= min_ver)
+
+
+def analyze_ds_muons(mc_tracks, mu_filter_points, min_hor: int = 3, min_ver: int = 3):
+    """
+    Finds all muons (|pdg| == 13) traversing the Downstream MuFilter system
+    requiring >= min_hor and >= min_ver MC points in horizontal and vertical projections.
+    Returns list of (momentum, track_id) sorted in descending order of momentum.
+    """
+    ds_muons = []
+    if not mc_tracks or not mu_filter_points:
+        return ds_muons
+    n_tracks = mc_tracks.GetEntriesFast()
+    for i in range(n_tracks):
+        trk = mc_tracks.At(i)
+        if not trk or abs(trk.GetPdgCode()) != 13:
+            continue
+        if check_track_in_ds(i, mu_filter_points, min_hor=min_hor, min_ver=min_ver):
+            ds_muons.append((trk.GetP(), i))
+    ds_muons.sort(reverse=True)
+    return ds_muons
+
+
+def fill_truth_buffers(
+    buffers: dict,
+    info: Any,
+    entry_idx: int,
+    active_tiers: Set[str],
+    mctruth_weight: float = 1.0,
+    mc_tracks: Any = None,
+    mu_filter_points: Any = None,
+):
     """Populate truth buffers according to active tiers."""
     # 1. Universal Tier
     if "universal" in active_tiers:
@@ -398,6 +452,63 @@ def fill_truth_buffers(buffers: dict, info: Any, entry_idx: int, active_tiers: S
         buffers["hadronic_e_total"][0] = float(info.hadronicEnergyTotal)
         buffers["hadronic_pt"][0] = float(info.hadronicRecoilPt)
         buffers["missing_pt"][0] = float(info.missingPt)
+
+        # Downstream MuFilter dimuon & signal-like categorization (>=3 Hor, >=3 Ver points)
+        has_two_ds_muons = 0
+        n_ds_muons = 0
+        other_mu2_id = -1
+        other_mu2_p = 0.0
+        other_mu2_pt = 0.0
+        other_mu2_eta = 0.0
+        other_mu2_theta = 0.0
+        other_mu2_pdg = 0
+        other_mu2_mother_pdg = 0
+
+        is_dir = 1 if getattr(info, "charmHasDirectMuon", False) else 0
+        is_indir = 1 if (not getattr(info, "charmHasDirectMuon", False) and getattr(info, "hasCharmHadronicDownstreamMuon", False)) else 0
+
+        if mc_tracks and mu_filter_points:
+            ds_muons = analyze_ds_muons(mc_tracks, mu_filter_points, min_hor=3, min_ver=3)
+            n_ds_muons = len(ds_muons)
+            has_two_ds_muons = 1 if n_ds_muons >= 2 else 0
+
+            if not is_dir and not is_indir and has_two_ds_muons:
+                mu1_id = getattr(info, "mu1TrackId", -1)
+                for p_val, trk_id in ds_muons:
+                    if trk_id != mu1_id:
+                        other_mu2_id = trk_id
+                        trk = mc_tracks.At(trk_id)
+                        if trk:
+                            other_mu2_p = float(trk.GetP())
+                            other_mu2_pt = float(trk.GetPt())
+                            other_mu2_eta = float(trk.GetEta())
+                            other_mu2_theta = float(trk.GetTheta()) if hasattr(trk, "GetTheta") else 0.0
+                            other_mu2_pdg = int(trk.GetPdgCode())
+                            m_id = trk.GetMotherId()
+                            if 0 <= m_id < mc_tracks.GetEntriesFast():
+                                m_trk = mc_tracks.At(m_id)
+                                if m_trk:
+                                    other_mu2_mother_pdg = int(m_trk.GetPdgCode())
+                        break
+
+        is_other_ds = 1 if (not is_dir and not is_indir and has_two_ds_muons) else 0
+        is_sig_like = 1 if (is_indir or is_other_ds) else 0
+
+        if "has_two_muons_in_ds" in buffers:
+            buffers["has_two_muons_in_ds"][0] = int(has_two_ds_muons)
+            buffers["n_muons_in_ds"][0] = int(n_ds_muons)
+            buffers["is_direct_charm_decay"][0] = int(is_dir)
+            buffers["is_indirect_charm_decay"][0] = int(is_indir)
+            buffers["is_other_ds_dimuon"][0] = int(is_other_ds)
+            buffers["is_signal_like"][0] = int(is_sig_like)
+            buffers["other_ds_mu2_track_id"][0] = int(other_mu2_id)
+            buffers["other_ds_mu2_pdg"][0] = int(other_mu2_pdg)
+            buffers["other_ds_mu2_mother_pdg"][0] = int(other_mu2_mother_pdg)
+
+            buffers["other_ds_mu2_p"][0] = float(other_mu2_p)
+            buffers["other_ds_mu2_pt"][0] = float(other_mu2_pt)
+            buffers["other_ds_mu2_eta"][0] = float(other_mu2_eta)
+            buffers["other_ds_mu2_theta"][0] = float(other_mu2_theta)
 
     # 2. Lepton Tier
     if "lepton" in active_tiers:
@@ -1197,6 +1308,8 @@ def process_categorized_neutrino_file(
     max_entries: int = -1,
     create_symlinks: bool = True,
     weight_fn: Optional[Callable[[Any, Any], float]] = None,
+    truth_tree_name: Optional[str] = None,
+    store_in_cbmsim: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
     Process an SND@LHC neutrino simulation file and categorize all events:
@@ -1213,6 +1326,12 @@ def process_categorized_neutrino_file(
 
     if cfg is None:
         cfg = load_config()
+    out_cfg = cfg.get("output", {})
+    if truth_tree_name is None:
+        truth_tree_name = out_cfg.get("truth_tree_name", "mctruth")
+    if store_in_cbmsim is None:
+        store_in_cbmsim = out_cfg.get("store_in_cbmsim", False)
+
     if processor is None:
         processor = build_processor(cfg.get("processor", {}))
 
@@ -1251,10 +1370,13 @@ def process_categorized_neutrino_file(
 
     out_tree = t_in.CloneTree(0)
     out_tree.SetName(actual_tree_name)
-    truth_tree = ROOT.TTree("truth", "Categorized Neutrino Truth Observables")
+    truth_tree = ROOT.TTree(truth_tree_name, "Categorized Neutrino Truth Observables")
 
     all_tiers = {"universal", "lepton", "charm", "decay_muon", "dimuon"}
-    truth_buffers = setup_truth_branches([out_tree, truth_tree], all_tiers)
+    target_trees = [truth_tree]
+    if store_in_cbmsim:
+        target_trees.append(out_tree)
+    truth_buffers = setup_truth_branches(target_trees, all_tiers)
 
     # Statistics tracking
     flavor_counts = Counter()
@@ -1264,15 +1386,19 @@ def process_categorized_neutrino_file(
     n_charm_to_electron = 0
     n_charm_hadronic = 0
     n_charm_hadronic_downstream_mu = 0
+    n_two_muons_in_ds = 0
+    n_other_ds_dimuon = 0
+    n_signal_like = 0
     channel_ids = set()
 
     for iev in range(n_process):
         t_in.GetEntry(iev)
         mufilter_pts = getattr(t_in, "MuFilterPoint", None)
+        mc_tracks = getattr(t_in, "MCTrack", None)
         if hasattr(processor, "processMuonNeutrino"):
-            info = processor.processMuonNeutrino(t_in.MCTrack, mufilter_pts)
+            info = processor.processMuonNeutrino(mc_tracks, mufilter_pts)
         else:
-            info = processor.process(t_in.MCTrack)
+            info = processor.process(mc_tracks)
 
         ev_weight = 1.0
         if weight_fn is not None:
@@ -1281,7 +1407,15 @@ def process_categorized_neutrino_file(
             except Exception:
                 ev_weight = 1.0
 
-        fill_truth_buffers(truth_buffers, info, iev, all_tiers, mctruth_weight=ev_weight)
+        fill_truth_buffers(
+            truth_buffers,
+            info,
+            iev,
+            all_tiers,
+            mctruth_weight=ev_weight,
+            mc_tracks=mc_tracks,
+            mu_filter_points=mufilter_pts,
+        )
         out_tree.Fill()
         truth_tree.Fill()
 
@@ -1301,6 +1435,14 @@ def process_categorized_neutrino_file(
                 n_charm_hadronic += 1
             if getattr(info, "hasCharmHadronicDownstreamMuon", False):
                 n_charm_hadronic_downstream_mu += 1
+
+        if truth_buffers["has_two_muons_in_ds"][0]:
+            n_two_muons_in_ds += 1
+        if truth_buffers["is_other_ds_dimuon"][0]:
+            n_other_ds_dimuon += 1
+        if truth_buffers["is_signal_like"][0]:
+            n_signal_like += 1
+
         channel_ids.add(truth_buffers["channel_id"][0])
 
     f_out.cd()
@@ -1342,6 +1484,9 @@ def process_categorized_neutrino_file(
         "n_charm_to_electron": n_charm_to_electron,
         "n_charm_hadronic": n_charm_hadronic,
         "n_charm_hadronic_downstream_mu": n_charm_hadronic_downstream_mu,
+        "n_two_muons_in_ds": n_two_muons_in_ds,
+        "n_other_ds_dimuon": n_other_ds_dimuon,
+        "n_signal_like": n_signal_like,
         "n_unique_channels": len(channel_ids),
         "symlinks_created": symlinks_created,
         "status": "success",

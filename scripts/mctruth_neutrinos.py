@@ -131,7 +131,12 @@ def get_mctruth_weight(event: Any = None, info: Any = None) -> float:
 
 def _run_worker_task(task_args: tuple) -> dict:
     """Worker task execution function for parallel partition processing."""
-    part_str, in_file, out_file, max_entries, create_symlinks, config_path = task_args
+    if len(task_args) >= 8:
+        part_str, in_file, out_file, max_entries, create_symlinks, config_path, truth_tree_name, store_in_cbmsim = task_args[:8]
+    else:
+        part_str, in_file, out_file, max_entries, create_symlinks, config_path = task_args[:6]
+        truth_tree_name = "mctruth"
+        store_in_cbmsim = False
     global _worker_processor, _worker_cfg
     if _worker_processor is None:
         _init_worker(config_path)
@@ -147,6 +152,8 @@ def _run_worker_task(task_args: tuple) -> dict:
             max_entries=max_entries,
             create_symlinks=create_symlinks,
             weight_fn=get_mctruth_weight,
+            truth_tree_name=truth_tree_name,
+            store_in_cbmsim=store_in_cbmsim,
         )
         res["elapsed"] = time.time() - t0
         res["partition"] = part_str
@@ -221,6 +228,19 @@ def parse_arguments():
         help="Disable creating symlinks in output partition directory",
     )
     parser.add_argument(
+        "--truth-tree-name",
+        type=str,
+        default=None,
+        help="Name of dedicated truth TTree (default: from config or 'mctruth')",
+    )
+    parser.add_argument(
+        "--store-in-cbmsim",
+        dest="store_in_cbmsim",
+        action="store_true",
+        default=None,
+        help="Also duplicate truth branches inside the cbmsim tree (default: False)",
+    )
+    parser.add_argument(
         "--skip-existing",
         dest="skip_existing",
         action="store_true",
@@ -263,6 +283,8 @@ def main():
     )
 
     do_symlink = args.symlink_input
+    truth_tree_name = args.truth_tree_name if args.truth_tree_name is not None else output_cfg.get("truth_tree_name", "mctruth")
+    store_in_cbmsim = args.store_in_cbmsim if args.store_in_cbmsim is not None else output_cfg.get("store_in_cbmsim", False)
 
     # 2. Resolve Tasks
     selected_partitions = parse_partitions(args.partitions)
@@ -337,6 +359,8 @@ def main():
     print(f"Channel lookup table         : {ch_mgr.table_path}")
     print(f"Known primary channels       : {len(ch_mgr.primary_channels)}")
     print(f"Known charm decay channels   : {len(ch_mgr.charm_decay_channels)}")
+    print(f"Truth tree name              : {truth_tree_name}")
+    print(f"Store truth in cbmsim        : {store_in_cbmsim}")
     print(f"Total partitions to process  : {total_tasks}")
     print(f"Max events per partition     : {args.entries if args.entries > 0 else 'All'}")
     print(f"Parallel worker processes    : {args.jobs}")
@@ -350,7 +374,7 @@ def main():
     if args.jobs > 1 and total_tasks > 1:
         from concurrent.futures import ProcessPoolExecutor, as_completed
         worker_args = [
-            (part_str, in_f, out_f, args.entries, do_symlink, config_path)
+            (part_str, in_f, out_f, args.entries, do_symlink, config_path, truth_tree_name, store_in_cbmsim)
             for (part_str, in_f, out_f) in tasks
         ]
         print(f"\nDispatching {total_tasks} partition tasks to pool of {args.jobs} worker processes...\n")
@@ -389,6 +413,8 @@ def main():
                 max_entries=args.entries,
                 create_symlinks=do_symlink,
                 weight_fn=get_mctruth_weight,
+                truth_tree_name=truth_tree_name,
+                store_in_cbmsim=store_in_cbmsim,
             )
             res["elapsed"] = time.time() - t0
             res["partition"] = part_str
@@ -413,6 +439,9 @@ def main():
     tot_charm_e = 0
     tot_charm_had = 0
     tot_charm_ds_mu = 0
+    tot_two_muons_in_ds = 0
+    tot_other_ds_dimuon = 0
+    tot_signal_like = 0
 
     for r in results:
         for flv, cnt in r.get("flavor_counts", {}).items():
@@ -424,6 +453,9 @@ def main():
         tot_charm_e += r.get("n_charm_to_electron", 0)
         tot_charm_had += r.get("n_charm_hadronic", 0)
         tot_charm_ds_mu += r.get("n_charm_hadronic_downstream_mu", 0)
+        tot_two_muons_in_ds += r.get("n_two_muons_in_ds", 0)
+        tot_other_ds_dimuon += r.get("n_other_ds_dimuon", 0)
+        tot_signal_like += r.get("n_signal_like", 0)
 
     print("\n" + "=" * 80)
     print(" OVERALL NEUTRINO CATEGORIZATION SUMMARY")
@@ -450,6 +482,13 @@ def main():
     print(f"  Direct Decay to Electron            : {tot_charm_e:8d} ({100.0 * tot_charm_e / max(tot_charm, 1):6.2f}% of charm)")
     print(f"  Direct Hadronic Decay               : {tot_charm_had:8d} ({100.0 * tot_charm_had / max(tot_charm, 1):6.2f}% of charm)")
     print(f"  Hadronic Decay with Downstream Muon : {tot_charm_ds_mu:8d} ({100.0 * tot_charm_ds_mu / max(tot_charm, 1):6.2f}% of charm)")
+    print("-" * 80)
+    print(" DOWNSTREAM (DS) DIMUONS & SIGNAL-LIKE CANDIDATES (>=3 Hor & >=3 Ver Points):")
+    print(f"  Events with >=2 Muons in DS         : {tot_two_muons_in_ds:8d} ({100.0 * tot_two_muons_in_ds / max(tot_events_all, 1):6.2f}% of all events)")
+    print(f"  Direct Charm Dimuon Signal          : {tot_charm_mu:8d} ({100.0 * tot_charm_mu / max(tot_events_all, 1):6.2f}% of all events)")
+    print(f"  Indirect Charm Dimuon Fake          : {tot_charm_ds_mu:8d} ({100.0 * tot_charm_ds_mu / max(tot_events_all, 1):6.2f}% of all events)")
+    print(f"  Other Signal-Like Dimuon Bkg        : {tot_other_ds_dimuon:8d} ({100.0 * tot_other_ds_dimuon / max(tot_events_all, 1):6.2f}% of all events)")
+    print(f"  Total Signal-Like Dimuons           : {tot_signal_like:8d} ({100.0 * tot_signal_like / max(tot_events_all, 1):6.2f}% of all events)")
     print("-" * 80)
     print(f"Unique Primary Channels in Lookup Table : {len(ch_mgr.primary_channels)}")
     print(f"Unique Charm Decays in Lookup Table    : {len(ch_mgr.charm_decay_channels)}")

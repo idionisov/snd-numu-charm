@@ -74,6 +74,7 @@ def process_single_partition(
             input_file = input_pattern % str(partition)
         else:
             input_file = input_pattern
+            part_dir = os.path.dirname(os.path.abspath(input_file))
     else:
         for cand in [
             "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root",
@@ -123,7 +124,7 @@ def process_single_partition(
             "indirect": 0,
         }
 
-    t_truth = f_in.Get("truth")
+    t_truth = f_in.Get("mctruth") or f_in.Get("mc_truth") or f_in.Get("truth")
     t_cbm = f_in.Get("cbmsim")
     branch_list = f_in.Get("BranchList")
 

@@ -111,18 +111,13 @@ def verify_single_partition(partition: int, base_dir: str) -> Dict[str, Any]:
         res["errors"].append("DIR_NOT_FOUND")
         return res
 
-    # 1. Raw MCEB input
-    raw_path = os.path.join(part_dir, "sndLHC.Genie-TGeant4_MCEB_dig.root")
+    raw_path = os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig.root")
     if os.path.isfile(raw_path):
         ok, msg, trees = check_file(raw_path, ["cbmsim"])
         if ok:
             res["raw_entries"] = trees.get("cbmsim", 0)
 
-    # Determine prefix (prefer MCEB if present)
-    prefix = "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks"
-    if not os.path.isfile(os.path.join(part_dir, f"{prefix}.root")):
-        if os.path.isfile(os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig_2MuTrks.root")):
-            prefix = "sndLHC.Genie-TGeant4_dig_2MuTrks"
+    prefix = "sndLHC.Genie-TGeant4_dig_2MuTrks"
 
     # 2. Tracked 2MuTrks
     track_path = os.path.join(part_dir, f"{prefix}.root")

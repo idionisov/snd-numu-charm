@@ -18,9 +18,9 @@ environment             = "FORCE=1 ALL_EVENTS=1"
 flavour                 = $(flavour:longlunch)
 args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
 
-input_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig.root
-track_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks.root
-truth_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root
+input_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig.root
+track_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks.root
+truth_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root
 disp_pattern            = /eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions/displays_part%s.root
 
 output                  = $(base_dir)/out/pipeline_part$(partition)_$(ClusterId)_$(ProcId).out

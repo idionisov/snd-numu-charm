@@ -77,15 +77,15 @@ def process_single_partition(
             part_dir = os.path.dirname(os.path.abspath(input_file))
     else:
         for cand in [
-            "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root",
             "sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root",
+            "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root",
         ]:
             cand_path = os.path.join(part_dir, cand)
             if os.path.isfile(cand_path):
                 input_file = cand_path
                 break
         if not input_file:
-            input_file = os.path.join(part_dir, "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root")
+            input_file = os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root")
 
     prefix = os.path.basename(input_file)
     if prefix.endswith(".root"):

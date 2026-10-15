@@ -121,17 +121,22 @@ def discover_available_partitions(input_pattern: str, max_check: int = 500) -> L
 
 
 def resolve_tracking_script() -> str:
-    """Find the path to run_TrackSelections.py in SNDSW_ROOT or known user locations."""
+    """Find the path to run_TrackSelections.py in user source or SNDSW_ROOT."""
     candidates = []
-    sndsw_root = os.environ.get("SNDSW_ROOT")
-    if sndsw_root:
-        candidates.append(os.path.join(sndsw_root, "shipLHC", "scripts", "run_TrackSelections.py"))
+    for env_var in ["SNDSW_SRC", "USER_SNDSW_SRC"]:
+        src_dir = os.environ.get(env_var)
+        if src_dir:
+            candidates.append(os.path.join(src_dir, "shipLHC", "scripts", "run_TrackSelections.py"))
 
-    # User local source repos
+    # User local source repos (containing dimuon_DS additions)
     candidates.extend([
         "/afs/cern.ch/user/i/idioniso/snd_master/sndsw/shipLHC/scripts/run_TrackSelections.py",
         "/afs/cern.ch/user/i/idioniso/snd_master/sw3.12/slc9_x86-64/sndsw/master-local1/shipLHC/scripts/run_TrackSelections.py",
     ])
+
+    sndsw_root = os.environ.get("SNDSW_ROOT")
+    if sndsw_root:
+        candidates.append(os.path.join(sndsw_root, "shipLHC", "scripts", "run_TrackSelections.py"))
 
     for path in candidates:
         if os.path.isfile(path):

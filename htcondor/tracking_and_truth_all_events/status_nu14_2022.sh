@@ -18,11 +18,11 @@ echo " Dataset: sndlhc_15000fb-1_2022_down_nu14_volume_volTarget"
 echo "=========================================================="
 
 if [ -d "$DATA_DIR" ]; then
-    TRACK_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*MCEB_dig_2MuTrks.root" -type f -size +500c 2>/dev/null | wc -l)
-    TRUTH_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*MCEB_dig_2MuTrks_truth.root" -type f -size +500c 2>/dev/null | wc -l)
-    DIRECT_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*MCEB_dig_2MuTrks_truth_charmDimuonDirect.root" -type f -size +500c 2>/dev/null | wc -l)
-    INDIRECT_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*MCEB_dig_2MuTrks_truth_charmDimuonIndirect.root" -type f -size +500c 2>/dev/null | wc -l)
-    
+    TRACK_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*dig_2MuTrks.root" -type f -size +500c 2>/dev/null | wc -l)
+    TRUTH_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*dig_2MuTrks_truth.root" -type f -size +500c 2>/dev/null | wc -l)
+    DIRECT_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*dig_2MuTrks_truth_charmDimuonDirect.root" -type f -size +500c 2>/dev/null | wc -l)
+    INDIRECT_DONE=$(find "$DATA_DIR" -maxdepth 2 -name "*dig_2MuTrks_truth_charmDimuonIndirect.root" -type f -size +500c 2>/dev/null | wc -l)
+
     TRACK_PCT=$(awk "BEGIN {printf \"%.1f\", ($TRACK_DONE / $TOTAL_COUNT) * 100}")
     TRUTH_PCT=$(awk "BEGIN {printf \"%.1f\", ($TRUTH_DONE / $TOTAL_COUNT) * 100}")
     DIRECT_PCT=$(awk "BEGIN {printf \"%.1f\", ($DIRECT_DONE / $TOTAL_COUNT) * 100}")

@@ -190,6 +190,12 @@ def main():
         help="Base dataset directory on EOS.",
     )
     parser.add_argument("-j", "--jobs", type=int, default=4, help="Parallel worker threads.")
+    parser.add_argument(
+        "-w", "--write-failed",
+        dest="failed_file",
+        default=None,
+        help="Path to write failed partition IDs (one per line) for re-submission or retry.",
+    )
 
     args = parser.parse_args()
     partitions = parse_partitions(args.partitions)
@@ -200,6 +206,8 @@ def main():
     print(f" Base Directory : {args.base_dir}")
     print(f" Partitions     : {len(partitions)} partition(s) ({partitions[0]}..{partitions[-1]})")
     print(f" Workers        : {args.jobs}")
+    if args.failed_file:
+        print(f" Failed Output  : {args.failed_file}")
     print("=" * 80)
 
     t0 = time.time()
@@ -218,7 +226,8 @@ def main():
     t1 = time.time()
 
     valid_count = sum(1 for r in results if r["valid"])
-    failed_count = len(results) - valid_count
+    failed_results = [r for r in results if not r["valid"]]
+    failed_count = len(failed_results)
 
     print(f"\n{'Part':<6} | {'Status':<6} | {'Raw':<5} | {'Track':<5} | {'Truth':<5} | {'Direct':<6} | {'Indirect':<8} | Notes / Errors")
     print("-" * 80)
@@ -230,6 +239,12 @@ def main():
     print("=" * 80)
     print(f" SUMMARY: {valid_count}/{len(results)} partitions PASSED QA ({failed_count} failed)")
     print(f" Total Elapsed Time: {t1 - t0:.2f}s")
+    if args.failed_file and failed_results:
+        os.makedirs(os.path.dirname(os.path.abspath(args.failed_file)) or ".", exist_ok=True)
+        with open(args.failed_file, "w") as f:
+            for fr in failed_results:
+                f.write(f"{fr['partition']}\n")
+        print(f" Failed Partitions File: {os.path.abspath(args.failed_file)} ({failed_count} partitions saved)")
     print("=" * 80)
 
     if failed_count > 0:

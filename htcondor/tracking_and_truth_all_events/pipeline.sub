@@ -15,7 +15,7 @@ executable              = $(base_dir)/run_pipeline_partition.sh
 arguments               = $(partition) $(input_pattern) $(track_pattern) $(truth_pattern) $(disp_pattern) all
 environment             = "FORCE=1 ALL_EVENTS=1"
 
-flavour                 = $(flavour:microcentury)
+flavour                 = $(flavour:longlunch)
 args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
 
 input_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig.root
@@ -32,8 +32,8 @@ notification            = Never
 requirements            = (OpSysAndVer =?= "AlmaLinux9")
 
 # CERN Job Flavours:
-#   microcentury : 1 hour (default - recommended for combined tracking + truth + displays)
-#   longlunch    : 2 hours
+#   microcentury : 1 hour
+#   longlunch    : 2 hours (default)
 #   workday      : 8 hours
 +JobFlavour             = "$(flavour)"
 +AccountingGroup        = "group_u_SNDLHC.users"

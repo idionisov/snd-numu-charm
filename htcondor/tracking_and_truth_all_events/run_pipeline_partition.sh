@@ -176,6 +176,7 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
     echo " ~ [5/7] Step 3/4: Creating charm dimuon category skims (direct & indirect)..."
     DATA_BASE_DIR="$(dirname "$OUTPUT_DIR")"
     "${PYTHON_BIN}" "${SKIM_SCRIPT}" \
+        -i "${TRUTH_PATTERN}" \
         -b "${DATA_BASE_DIR}" \
         -p "${PARTITION}" \
         -j 1 \

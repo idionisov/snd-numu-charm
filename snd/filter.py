@@ -8,6 +8,7 @@ and single-file RDataFrame processing pipelines for SND@LHC.
 from __future__ import annotations
 
 import os
+import math
 import array
 from typing import Set, Dict, Any, Tuple, Callable, Optional, List
 import ROOT
@@ -479,10 +480,15 @@ def fill_truth_buffers(
                         other_mu2_id = trk_id
                         trk = mc_tracks.At(trk_id)
                         if trk:
-                            other_mu2_p = float(trk.GetP())
+                            p = float(trk.GetP())
+                            pz = float(trk.GetPz())
+                            other_mu2_p = p
                             other_mu2_pt = float(trk.GetPt())
-                            other_mu2_eta = float(trk.GetEta())
-                            other_mu2_theta = float(trk.GetTheta()) if hasattr(trk, "GetTheta") else 0.0
+                            if (p - pz > 1e-9) and (p + pz > 1e-9):
+                                other_mu2_eta = 0.5 * math.log((p + pz) / (p - pz))
+                            else:
+                                other_mu2_eta = 999.0 if pz >= 0.0 else -999.0
+                            other_mu2_theta = math.acos(max(-1.0, min(1.0, pz / p))) if p > 1e-9 else 0.0
                             other_mu2_pdg = int(trk.GetPdgCode())
                             m_id = trk.GetMotherId()
                             if 0 <= m_id < mc_tracks.GetEntriesFast():

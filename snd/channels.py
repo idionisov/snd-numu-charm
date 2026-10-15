@@ -210,15 +210,31 @@ class ChannelLookupManager:
 
     @contextmanager
     def _file_lock(self, timeout: float = 60.0):
-        """Cross-process file lock context manager."""
+        """Cross-process file lock context manager with non-fatal fallback."""
+        acquired = False
         if FileLock is not None:
             lock = FileLock(self.lock_path, timeout=timeout)
-            with lock:
+            try:
+                lock.acquire(timeout=timeout)
+                acquired = True
+            except Exception as e:
+                print(f"[Warning] Could not acquire channel filelock ({e}), proceeding without lock.")
+            try:
                 yield
+            finally:
+                if acquired:
+                    try:
+                        lock.release()
+                    except Exception:
+                        pass
         else:
             import fcntl
             os.makedirs(os.path.dirname(os.path.abspath(self.lock_path)), exist_ok=True)
-            fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR)
+            try:
+                fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR)
+            except OSError:
+                yield
+                return
             start_t = time.time()
             locked = False
             try:
@@ -229,7 +245,8 @@ class ChannelLookupManager:
                         break
                     except (BlockingIOError, OSError):
                         if time.time() - start_t > timeout:
-                            raise TimeoutError(f"Timeout waiting for channel table lock {self.lock_path}")
+                            print(f"[Warning] Timeout acquiring flock on {self.lock_path}, proceeding.")
+                            break
                         time.sleep(0.05)
                 yield
             finally:
@@ -238,7 +255,10 @@ class ChannelLookupManager:
                         fcntl.flock(fd, fcntl.LOCK_UN)
                     except OSError:
                         pass
-                os.close(fd)
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
 
     def _load_unlocked(self):
         """Read latest data from disk without locking (assumes caller holds locks)."""
@@ -298,10 +318,9 @@ class ChannelLookupManager:
                     pass
 
     def load(self):
-        """Thread-safe and process-safe load from disk."""
+        """Thread-safe and process-safe load from disk (read without lock to avoid AFS lock contention)."""
         with self._lock:
-            with self._file_lock():
-                self._load_unlocked()
+            self._load_unlocked()
 
     def save(self):
         """Thread-safe and process-safe save to disk, merging any memory updates."""

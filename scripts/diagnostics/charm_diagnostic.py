@@ -944,6 +944,98 @@ def create_slow_rescaling_function(
     return f_sr
 
 
+def load_lhapdf_charm_prediction(
+    csv_filename: str,
+    name: str = "lhapdf_charm_prediction",
+    line_color: int = ROOT.kBlack,
+    line_width: int = 2,
+) -> Tuple[ROOT.TGraph, ROOT.TGraphAsymmErrors, ROOT.TGraphAsymmErrors]:
+    """
+    Loads precalculated LHAPDF nCTEQ15 charm cross-section ratio predictions from CSV.
+    Returns:
+      (g_central, g_inner_band, g_outer_band)
+    matching the base kinematics 1-sigma belt and LHAPDF nCTEQ15 1-sigma (+ Nuclear PDF & QCD Evol.) bands.
+    """
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "predictions", csv_filename),
+        os.path.join("/afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/predictions", csv_filename),
+        os.path.join("scripts/diagnostics/predictions", csv_filename),
+        csv_filename,
+    ]
+    resolved_path = None
+    for c in candidates:
+        if os.path.exists(c):
+            resolved_path = c
+            break
+
+    if not resolved_path:
+        raise FileNotFoundError(f"LHAPDF prediction CSV '{csv_filename}' not found in candidates: {candidates}")
+
+    e_vals: List[float] = []
+    y_cens: List[float] = []
+    y_in_los: List[float] = []
+    y_in_his: List[float] = []
+    y_out_his: List[float] = []
+
+    with open(resolved_path, "r", encoding="utf-8-sig") as f:
+        clean_lines = [line for line in f if not line.strip().startswith("#")]
+        reader = csv.DictReader(clean_lines)
+        for row in reader:
+            e_vals.append(float(row["E_nu_GeV"]))
+            y_cens.append(float(row["ratio_central"]))
+            y_in_los.append(float(row["base_band_low"]))
+            y_in_his.append(float(row["base_band_high"]))
+            y_out_his.append(float(row["total_band_high"]))
+
+    n_pts = len(e_vals)
+    g_central = ROOT.TGraph(n_pts)
+    g_central.SetName(f"g_{name}_central")
+    g_central.SetLineColor(line_color)
+    g_central.SetLineWidth(line_width)
+
+    g_inner = ROOT.TGraphAsymmErrors(n_pts)
+    g_inner.SetName(f"g_{name}_1sigma_inner_band")
+
+    g_outer = ROOT.TGraphAsymmErrors(n_pts)
+    g_outer.SetName(f"g_{name}_1sigma_outer_band")
+
+    for i in range(n_pts):
+        x = e_vals[i]
+        y = y_cens[i]
+        y_in_lo = y_in_los[i]
+        y_in_hi = y_in_his[i]
+        y_out_hi = y_out_his[i]
+
+        g_central.SetPoint(i, x, y)
+
+        # Base kinematics 1sigma belt: [base_band_low, base_band_high]
+        ey_in_lo = max(0.0, y - y_in_lo)
+        ey_in_hi = max(0.0, y_in_hi - y)
+        g_inner.SetPoint(i, x, y)
+        g_inner.SetPointError(i, 0.0, 0.0, ey_in_lo, ey_in_hi)
+
+        # LHAPDF nCTEQ15 1sigma (+ Nuclear PDF & QCD Evol.): [base_band_low, total_band_high]
+        ey_out_lo = max(0.0, y - y_in_lo)
+        ey_out_hi = max(0.0, y_out_hi - y)
+        g_outer.SetPoint(i, x, y)
+        g_outer.SetPointError(i, 0.0, 0.0, ey_out_lo, ey_out_hi)
+
+    col_outer = ROOT.TColor.GetColor("#dcdcdc")
+    col_inner = ROOT.TColor.GetColor("#a8a8a8")
+
+    g_outer.SetFillColorAlpha(col_outer, 0.70)
+    g_outer.SetFillStyle(1001)
+    g_outer.SetLineColor(col_outer)
+    g_outer.SetLineWidth(0)
+
+    g_inner.SetFillColorAlpha(col_inner, 0.70)
+    g_inner.SetFillStyle(1001)
+    g_inner.SetLineColor(col_inner)
+    g_inner.SetLineWidth(0)
+
+    return g_central, g_inner, g_outer
+
+
 def create_species_fraction_model(
     e_min: float = 4.5,
     e_max: float = 1500.0,
@@ -2367,6 +2459,26 @@ def write_histograms_and_canvases(
     f_sr_iso_antinu.SetLineStyle(7)
     f_sr_iso_antinu.SetLineWidth(2)
 
+    # 5. LHAPDF nCTEQ15 theoretical predictions from CSV
+    g_lhapdf_nu, g_lhapdf_nu_inner, g_lhapdf_nu_outer = load_lhapdf_charm_prediction(
+        "numuCC_charm_cross_section_ratio_prediction_lhapdf.csv",
+        name="lhapdf_nu",
+        line_color=ROOT.kBlack,
+        line_width=2,
+    )
+    g_lhapdf_antinu, g_lhapdf_antinu_inner, g_lhapdf_antinu_outer = load_lhapdf_charm_prediction(
+        "antinumuCC_charm_cross_section_ratio_prediction_lhapdf.csv",
+        name="lhapdf_antinu",
+        line_color=ROOT.kBlack,
+        line_width=2,
+    )
+    g_lhapdf_inc, g_lhapdf_inc_inner, g_lhapdf_inc_outer = load_lhapdf_charm_prediction(
+        "inclusive_numu_antinumu_charm_cross_section_ratio_prediction_lhapdf.csv",
+        name="lhapdf_inclusive",
+        line_color=ROOT.kBlack,
+        line_width=2,
+    )
+
     # Load external experimental measurements:
     # 1. CHORUS (New J. Phys. 13 (2011) 093002, Emulsion target, nu_mu CC)
     g_chorus = None
@@ -2416,7 +2528,7 @@ def write_histograms_and_canvases(
     if chorus_pts:
         g_chorus = ROOT.TGraphErrors(len(chorus_pts))
         g_chorus.SetName("g_chorus_measurement")
-        g_chorus.SetTitle("CHORUS (Emulsion, #nu_{#mu})")
+        g_chorus.SetTitle("CHORUS (2011, Emulsion, inclusive)")
         for idx_ch, (enu, enu_err, val, val_err) in enumerate(chorus_pts):
             g_chorus.SetPoint(idx_ch, enu, val)
             g_chorus.SetPointError(idx_ch, enu_err, val_err)
@@ -2475,7 +2587,7 @@ def write_histograms_and_canvases(
     if e531_pts:
         g_e531 = ROOT.TGraphAsymmErrors(len(e531_pts))
         g_e531.SetName("g_e531_measurement")
-        g_e531.SetTitle("E531 (Emulsion, #nu_{#mu})")
+        g_e531.SetTitle("E531 (1988, Emulsion, inclusive)")
         for idx_e, p in enumerate(e531_pts):
             e_mean = p[3]
             e_err_lo = p[4]
@@ -2570,29 +2682,27 @@ def write_histograms_and_canvases(
     h_frame_inc.SetTitle("Charm Production Rate: Inclusive (#nu_{#mu} + #bar{#nu}_{#mu});E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
     h_frame_inc.GetYaxis().SetTitleOffset(1.25)
 
-    g_sr_w_inc_outer.Draw("3 same")
-    g_sr_w_inc_inner.Draw("3 same")
-    f_sr_iso_inc.Draw("same")
-    f_sr_w_inc.Draw("same")
+    g_lhapdf_inc_outer.Draw("3 same")
+    g_lhapdf_inc_inner.Draw("3 same")
+    g_lhapdf_inc.Draw("L same")
     g_charm_rate_mc.Draw("P E1 same")
     if g_chorus:
         g_chorus.Draw("P E1 same")
     if g_e531:
         g_e531.Draw("P E1 same")
 
-    leg_inc = ROOT.TLegend(0.48, 0.58, 0.92, 0.89)
+    leg_inc = ROOT.TLegend(0.44, 0.58, 0.92, 0.89)
     leg_inc.SetBorderSize(1)
     leg_inc.SetFillColorAlpha(ROOT.kWhite, 0.92)
     leg_inc.SetTextSize(0.022)
     leg_inc.AddEntry(g_charm_rate_mc, "MC Inclusive (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
     if g_chorus:
-        leg_inc.AddEntry(g_chorus, "CHORUS (Emulsion, #nu_{#mu})", "lep")
+        leg_inc.AddEntry(g_chorus, "CHORUS (2011, Emulsion, inclusive)", "lep")
     if g_e531:
-        leg_inc.AddEntry(g_e531, "E531 (Emulsion, #nu_{#mu})", "lep")
-    leg_inc.AddEntry(f_sr_w_inc, "Slow Rescaling (W, #nu+#bar{#nu})", "l")
-    leg_inc.AddEntry(g_sr_w_inc_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
-    leg_inc.AddEntry(g_sr_w_inc_outer, "+ High-E QCD / Sea Evolution", "f")
-    leg_inc.AddEntry(f_sr_iso_inc, "Slow Rescaling (Isoscalar N=Z)", "l")
+        leg_inc.AddEntry(g_e531, "E531 (1988, Emulsion, inclusive)", "lep")
+    leg_inc.AddEntry(g_lhapdf_inc, "QCD Prediction (Emulsion, <Z/A> ~ 0.467, #nu_{#mu}+#bar{#nu}_{#mu})", "l")
+    leg_inc.AddEntry(g_lhapdf_inc_inner, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 #pm 0.10 GeV & CKM |V_{cd}|)", "f")
+    leg_inc.AddEntry(g_lhapdf_inc_outer, "LHAPDF nCTEQ15 1#sigma (+ Nuclear PDF & QCD Evol.)", "f")
     leg_inc.Draw("same")
     c_rate_inc.Write()
 
@@ -2610,29 +2720,27 @@ def write_histograms_and_canvases(
     h_frame_nu.SetTitle("Charm Production Rate: #nu_{#mu} CC;E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
     h_frame_nu.GetYaxis().SetTitleOffset(1.25)
 
-    g_sr_w_nu_outer.Draw("3 same")
-    g_sr_w_nu_inner.Draw("3 same")
-    f_sr_iso_nu.Draw("same")
-    f_sr_w_nu.Draw("same")
+    g_lhapdf_nu_outer.Draw("3 same")
+    g_lhapdf_nu_inner.Draw("3 same")
+    g_lhapdf_nu.Draw("L same")
     g_charm_rate_mc_nu.Draw("P E1 same")
     if g_chorus:
         g_chorus.Draw("P E1 same")
     if g_e531:
         g_e531.Draw("P E1 same")
 
-    leg_nu = ROOT.TLegend(0.48, 0.58, 0.92, 0.89)
+    leg_nu = ROOT.TLegend(0.44, 0.58, 0.92, 0.89)
     leg_nu.SetBorderSize(1)
     leg_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
     leg_nu.SetTextSize(0.022)
     leg_nu.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
     if g_chorus:
-        leg_nu.AddEntry(g_chorus, "CHORUS (Emulsion, #nu_{#mu})", "lep")
+        leg_nu.AddEntry(g_chorus, "CHORUS (2011, Emulsion, inclusive)", "lep")
     if g_e531:
-        leg_nu.AddEntry(g_e531, "E531 (Emulsion, #nu_{#mu})", "lep")
-    leg_nu.AddEntry(f_sr_w_nu, "Slow Rescaling (W, #nu_{#mu})", "l")
-    leg_nu.AddEntry(g_sr_w_nu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
-    leg_nu.AddEntry(g_sr_w_nu_outer, "+ High-E QCD / Sea Evolution", "f")
-    leg_nu.AddEntry(f_sr_iso_nu, "Slow Rescaling (Isoscalar N=Z)", "l")
+        leg_nu.AddEntry(g_e531, "E531 (1988, Emulsion, inclusive)", "lep")
+    leg_nu.AddEntry(g_lhapdf_nu, "QCD Prediction (Emulsion, <Z/A> ~ 0.467, #nu_{#mu})", "l")
+    leg_nu.AddEntry(g_lhapdf_nu_inner, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 #pm 0.10 GeV & CKM |V_{cd}|)", "f")
+    leg_nu.AddEntry(g_lhapdf_nu_outer, "LHAPDF nCTEQ15 1#sigma (+ Nuclear PDF & QCD Evol.)", "f")
     leg_nu.Draw("same")
     c_rate_nu.Write()
 
@@ -2651,21 +2759,19 @@ def write_histograms_and_canvases(
     h_frame_antinu.SetTitle("Charm Production Rate: #bar{#nu}_{#mu} CC;E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
     h_frame_antinu.GetYaxis().SetTitleOffset(1.25)
 
-    g_sr_w_antinu_outer.Draw("3 same")
-    g_sr_w_antinu_inner.Draw("3 same")
-    f_sr_iso_antinu.Draw("same")
-    f_sr_w_antinu.Draw("same")
+    g_lhapdf_antinu_outer.Draw("3 same")
+    g_lhapdf_antinu_inner.Draw("3 same")
+    g_lhapdf_antinu.Draw("L same")
     g_charm_rate_mc_antinu.Draw("P E1 same")
 
-    leg_antinu = ROOT.TLegend(0.48, 0.66, 0.92, 0.89)
+    leg_antinu = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
     leg_antinu.SetBorderSize(1)
     leg_antinu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_antinu.SetTextSize(0.024)
+    leg_antinu.SetTextSize(0.022)
     leg_antinu.AddEntry(g_charm_rate_mc_antinu, "MC #bar{#nu}_{#mu} CC", "lep")
-    leg_antinu.AddEntry(f_sr_w_antinu, "Slow Rescaling (W, #bar{#nu}_{#mu})", "l")
-    leg_antinu.AddEntry(g_sr_w_antinu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
-    leg_antinu.AddEntry(g_sr_w_antinu_outer, "+ High-E QCD / Sea Evolution", "f")
-    leg_antinu.AddEntry(f_sr_iso_antinu, "Slow Rescaling (Isoscalar N=Z)", "l")
+    leg_antinu.AddEntry(g_lhapdf_antinu, "QCD Prediction (Emulsion, <Z/A> ~ 0.467, #bar{#nu}_{#mu})", "l")
+    leg_antinu.AddEntry(g_lhapdf_antinu_inner, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 #pm 0.10 GeV & CKM |V_{cd}|)", "f")
+    leg_antinu.AddEntry(g_lhapdf_antinu_outer, "LHAPDF nCTEQ15 1#sigma (+ Nuclear PDF & QCD Evol.)", "f")
     leg_antinu.Draw("same")
     c_rate_antinu.Write()
 
@@ -3084,6 +3190,16 @@ def write_histograms_and_canvases(
     g_charm_rate_mc.Write("g_charm_rate_mc")
     g_charm_rate_mc_nu.Write("g_charm_rate_mc_nu")
     g_charm_rate_mc_antinu.Write("g_charm_rate_mc_antinu")
+
+    g_lhapdf_inc.Write("g_lhapdf_prediction_inclusive")
+    g_lhapdf_inc_inner.Write("g_lhapdf_inclusive_1sigma_inner_band")
+    g_lhapdf_inc_outer.Write("g_lhapdf_inclusive_1sigma_outer_band")
+    g_lhapdf_nu.Write("g_lhapdf_prediction_nu")
+    g_lhapdf_nu_inner.Write("g_lhapdf_nu_1sigma_inner_band")
+    g_lhapdf_nu_outer.Write("g_lhapdf_nu_1sigma_outer_band")
+    g_lhapdf_antinu.Write("g_lhapdf_prediction_antinu")
+    g_lhapdf_antinu_inner.Write("g_lhapdf_antinu_1sigma_inner_band")
+    g_lhapdf_antinu_outer.Write("g_lhapdf_antinu_1sigma_outer_band")
 
     f_sr_2mu_w_inc.Write("f_slow_rescaling_dimuon_w_inclusive")
     f_sr_2mu_w_nu.Write("f_slow_rescaling_dimuon_w_nu")

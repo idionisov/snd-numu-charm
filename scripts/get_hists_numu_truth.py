@@ -39,6 +39,7 @@ import sys
 import glob
 import array
 import argparse
+import numpy as np
 import ROOT
 
 # Add repo root to python path to import snd package
@@ -1507,21 +1508,35 @@ def main():
         else:
             booked_histograms_2d[name] = node.Histo2D(model, xcol, ycol)
 
+    nu_e_eff_bins = np.array([0.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 725.0, 850.0, 1200.0, 1600.0], dtype=np.float64)
+
     # Helper function to book TProfile
-    def book_prof(name, title, xcol, ycol, node, nbins=40, xmin=0.0, xmax=1.0, ymin=None, ymax=None, weight="mc_weight"):
-        if ymin is not None and ymax is not None:
-            model = ROOT.RDF.TProfile1DModel(name, title, nbins, xmin, xmax, ymin, ymax)
+    def book_prof(name, title, xcol, ycol, node, nbins=40, xmin=0.0, xmax=1.0, ymin=None, ymax=None, weight="mc_weight", bin_edges=None):
+        if bin_edges is not None:
+            edges = np.array(bin_edges, dtype=np.float64) if not isinstance(bin_edges, np.ndarray) else bin_edges
+            if ymin is not None and ymax is not None:
+                model = ROOT.RDF.TProfile1DModel(name, title, len(edges) - 1, edges, ymin, ymax)
+            else:
+                model = ROOT.RDF.TProfile1DModel(name, title, len(edges) - 1, edges)
         else:
-            model = ROOT.RDF.TProfile1DModel(name, title, nbins, xmin, xmax)
+            if ymin is not None and ymax is not None:
+                model = ROOT.RDF.TProfile1DModel(name, title, nbins, xmin, xmax, ymin, ymax)
+            else:
+                model = ROOT.RDF.TProfile1DModel(name, title, nbins, xmin, xmax)
         if weight:
             booked_profiles[name] = node.Profile1D(model, xcol, ycol, weight)
         else:
             booked_profiles[name] = node.Profile1D(model, xcol, ycol)
 
     # Helper function to book TEfficiency pairs (unweighted for Clopper-Pearson frequentist evaluation)
-    def book_teff(name, title, col, node_pass, node_tot, nbins=40, xmin=0.0, xmax=1.0):
-        m_pass = ROOT.RDF.TH1DModel(f"{name}_pass", title, nbins, xmin, xmax)
-        m_tot = ROOT.RDF.TH1DModel(f"{name}_tot", title, nbins, xmin, xmax)
+    def book_teff(name, title, col, node_pass, node_tot, nbins=40, xmin=0.0, xmax=1.0, bin_edges=None):
+        if bin_edges is not None:
+            edges = np.array(bin_edges, dtype=np.float64) if not isinstance(bin_edges, np.ndarray) else bin_edges
+            m_pass = ROOT.RDF.TH1DModel(f"{name}_pass", title, len(edges) - 1, edges)
+            m_tot = ROOT.RDF.TH1DModel(f"{name}_tot", title, len(edges) - 1, edges)
+        else:
+            m_pass = ROOT.RDF.TH1DModel(f"{name}_pass", title, nbins, xmin, xmax)
+            m_tot = ROOT.RDF.TH1DModel(f"{name}_tot", title, nbins, xmin, xmax)
         h_pass = node_pass.Histo1D(m_pass, col)
         h_tot = node_tot.Histo1D(m_tot, col)
         booked_teff_pairs[name] = (title, h_pass, h_tot)
@@ -1872,7 +1887,7 @@ def main():
     book_prof("p_signal_ip3d_vs_decay_length", "Mean Secondary #mu_{2} IP_{3D} vs Flight Length;L_{3D} [cm];<IP_{3D}> [cm]", "decay_length_3d", "mu2_ip3d", df_candidate, 30, 0.0, 2.0)
 
     # Acceptance Probability Profiles (TProfile on 0/1 indicator = exact acceptance efficiency!)
-    book_prof("p_acc_eff_vs_nu_e", "Dimuon DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance Efficiency #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_candidate, 60, 0.0, 1200.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_nu_e", "Dimuon DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance Efficiency #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_candidate, bin_edges=nu_e_eff_bins, ymin=0.0, ymax=1.0)
     book_prof("p_acc_eff_vs_mu1_e", "Dimuon DS Acceptance Efficiency vs E_{#mu1};E_{#mu1} [GeV];Acceptance Efficiency #epsilon_{DS}", "mu1_e", "dimuon_in_ds_acc_double", df_candidate, 60, 0.0, 1200.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_mu2_e", "Dimuon DS Acceptance Efficiency vs E_{#mu2};E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}", "sec_mu_e", "dimuon_in_ds_acc_double", df_candidate, 200, 0.0, 1200.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_dimuon_delta_e", "Dimuon DS Acceptance Efficiency vs (E_{#mu1} - E_{#mu2});E_{#mu1} - E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}", "dimuon_delta_e_unified", "dimuon_in_ds_acc_double", df_candidate, 40, -50.0, 600.0, 0.0, 1.0)
@@ -1889,11 +1904,11 @@ def main():
     book_prof("p_acc_eff_vs_vtx_z", "Dimuon DS Acceptance Efficiency vs z_{vtx};z_{vtx} [cm];Acceptance Efficiency #epsilon_{DS}", "vtx_z", "dimuon_in_ds_acc_double", df_candidate, 40, 260.0, 360.0, 0.0, 1.0)
 
     # Acceptance Profiles for Direct Signal and Indirect Fake Signal
-    book_prof("p_direct_acc_eff_vs_nu_e", "Direct Signal DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_direct, 60, 0.0, 1200.0, 0.0, 1.0)
+    book_prof("p_direct_acc_eff_vs_nu_e", "Direct Signal DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_direct, bin_edges=nu_e_eff_bins, ymin=0.0, ymax=1.0)
     book_prof("p_direct_acc_eff_vs_mu2_e", "Direct Signal DS Acceptance Efficiency vs E_{#mu2};E_{#mu2} [GeV];Acceptance #epsilon_{DS}", "sec_mu_e", "dimuon_in_ds_acc_double", df_direct, 200, 0.0, 1200.0, 0.0, 1.0)
     book_prof("p_direct_acc_eff_vs_dimuon_delta_e", "Direct Signal DS Acceptance vs #Delta E;#Delta E [GeV];Acceptance #epsilon_{DS}", "dimuon_delta_e_unified", "dimuon_in_ds_acc_double", df_direct, 40, -50.0, 600.0, 0.0, 1.0)
 
-    book_prof("p_indirect_acc_eff_vs_nu_e", "Indirect Fake DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_indirect, 60, 0.0, 1200.0, 0.0, 1.0)
+    book_prof("p_indirect_acc_eff_vs_nu_e", "Indirect Fake DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_indirect, bin_edges=nu_e_eff_bins, ymin=0.0, ymax=1.0)
     book_prof("p_indirect_acc_eff_vs_mu2_e", "Indirect Fake DS Acceptance Efficiency vs E_{#mu2};E_{#mu2} [GeV];Acceptance #epsilon_{DS}", "sec_mu_e", "dimuon_in_ds_acc_double", df_indirect, 50, 0.0, 50.0, 0.0, 1.0)
     book_prof("p_indirect_acc_eff_vs_dimuon_delta_e", "Indirect Fake DS Acceptance vs #Delta E;#Delta E [GeV];Acceptance #epsilon_{DS}", "dimuon_delta_e_unified", "dimuon_in_ds_acc_double", df_indirect, 40, -50.0, 600.0, 0.0, 1.0)
 
@@ -1916,7 +1931,7 @@ def main():
     ]
 
     for pref, node_p, node_t, lbl in eff_acc_targets:
-        book_teff(f"teff_ds_acc_{pref}_vs_nu_e", f"DS Acceptance Efficiency vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{DS}}", "nu_e", node_p, node_t, 60, 0.0, 1200.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_nu_e", f"DS Acceptance Efficiency vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{DS}}", "nu_e", node_p, node_t, bin_edges=nu_e_eff_bins)
         book_teff(f"teff_ds_acc_{pref}_vs_mu1_e", f"DS Acceptance Efficiency vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{DS}}", "mu1_e", node_p, node_t, 60, 0.0, 1200.0)
         book_teff(f"teff_ds_acc_{pref}_vs_mu2_e", f"DS Acceptance Efficiency vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{DS}}", "sec_mu_e", node_p, node_t, 200, 0.0, 1200.0)
         book_teff(f"teff_ds_acc_{pref}_vs_dimuon_delta_e", f"DS Acceptance Efficiency vs #Delta E ({lbl});E_{{#mu1}} - E_{{#mu2}} [GeV];#epsilon_{{DS}}", "dimuon_delta_e_unified", node_p, node_t, 40, -50.0, 600.0)
@@ -1944,7 +1959,7 @@ def main():
     ]
 
     for pref, node_p, node_t, lbl in eff_2ds_targets:
-        book_teff(f"teff_2ds_overall_{pref}_vs_nu_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{2 DS}}", "nu_e", node_p, node_t, 60, 0.0, 1200.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_nu_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{2 DS}}", "nu_e", node_p, node_t, bin_edges=nu_e_eff_bins)
         book_teff(f"teff_2ds_overall_{pref}_vs_mu1_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{2 DS}}", "mu1_e", node_p, node_t, 60, 0.0, 1200.0)
         book_teff(f"teff_2ds_overall_{pref}_vs_mu2_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{2 DS}}", "sec_mu_e", node_p, node_t, 200, 0.0, 1200.0)
         book_teff(f"teff_2ds_overall_{pref}_vs_vtx_z", f"Two DS Tracks Efficiency (Overall) vs z_{{vtx}} ({lbl});z_{{vtx}} [cm];#epsilon_{{2 DS}}", "vtx_z", node_p, node_t, 40, 260.0, 360.0)
@@ -1965,7 +1980,7 @@ def main():
     ]
 
     for pref, node_p, node_t, lbl in eff_2ds_in_acc_targets:
-        book_teff(f"teff_2ds_in_acc_{pref}_vs_nu_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{2 DS | DS Acc}}", "nu_e", node_p, node_t, 60, 0.0, 1200.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_nu_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{2 DS | DS Acc}}", "nu_e", node_p, node_t, bin_edges=nu_e_eff_bins)
         book_teff(f"teff_2ds_in_acc_{pref}_vs_mu1_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{2 DS | DS Acc}}", "mu1_e", node_p, node_t, 60, 0.0, 1200.0)
         book_teff(f"teff_2ds_in_acc_{pref}_vs_mu2_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{2 DS | DS Acc}}", "sec_mu_e", node_p, node_t, 200, 0.0, 1200.0)
         book_teff(f"teff_2ds_in_acc_{pref}_vs_vtx_z", f"Two DS Tracks Reconstruction Efficiency vs z_{{vtx}} ({lbl});z_{{vtx}} [cm];#epsilon_{{2 DS | DS Acc}}", "vtx_z", node_p, node_t, 40, 260.0, 360.0)

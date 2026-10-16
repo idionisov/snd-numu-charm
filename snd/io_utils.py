@@ -54,7 +54,7 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
         xrootd_prefix = xrd_match.group(1)
         effective_pattern = xrd_match.group(2)
         if not any(ch in effective_pattern for ch in ["*", "%s", "["]):
-            return [pattern]
+            return [f"{xrootd_prefix}//{effective_pattern.lstrip('/')}"]
 
     if os.path.isfile(effective_pattern):
         matched_files = [effective_pattern]
@@ -170,7 +170,7 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
         )
 
     if xrootd_prefix:
-        matched_files = [f"{xrootd_prefix}/{f.lstrip('/')}" for f in matched_files]
+        matched_files = [f"{xrootd_prefix}//{f.lstrip('/')}" for f in matched_files]
 
     if max_files > 0:
         matched_files = matched_files[:max_files]

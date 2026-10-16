@@ -1530,25 +1530,25 @@ def main():
     # 8a. Energy Distributions of All Muon Neutrinos Interacting in Detector
     # --------------------------------------------------------------------------
     # 1. Total Interacting Muon Neutrinos (CC + NC, inclusive across full detector)
-    book_1d("h_all_numu_nu_e", "Energy of All Interacting #nu_{#mu} (CC+NC);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_all, 100, 0.0, 1000.0)
-    book_1d("h_all_numu_nu_e_unweighted", "Energy of All Interacting #nu_{#mu} (Unweighted);E_{#nu} [GeV];Raw Counts / 10 GeV", "nu_e", df_numu_all, 100, 0.0, 1000.0, weight=None)
+    book_1d("h_all_numu_nu_e", "Energy of All Interacting #nu_{#mu} (CC+NC);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_all, 120, 0.0, 1200.0)
+    book_1d("h_all_numu_nu_e_unweighted", "Energy of All Interacting #nu_{#mu} (Unweighted);E_{#nu} [GeV];Raw Counts / 10 GeV", "nu_e", df_numu_all, 120, 0.0, 1200.0, weight=None)
 
     # 2. Fiducial Interacting Muon Neutrinos (Target Fiducial Volume, CC + NC)
-    book_1d("h_all_numu_fiducial_nu_e", "Energy of Fiducial Interacting #nu_{#mu} (CC+NC);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_all_fiducial, 100, 0.0, 1000.0)
-    book_1d("h_all_numu_fiducial_nu_e_unweighted", "Energy of Fiducial Interacting #nu_{#mu} (Unweighted);E_{#nu} [GeV];Raw Counts / 10 GeV", "nu_e", df_numu_all_fiducial, 100, 0.0, 1000.0, weight=None)
+    book_1d("h_all_numu_fiducial_nu_e", "Energy of Fiducial Interacting #nu_{#mu} (CC+NC);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_all_fiducial, 120, 0.0, 1200.0)
+    book_1d("h_all_numu_fiducial_nu_e_unweighted", "Energy of Fiducial Interacting #nu_{#mu} (Unweighted);E_{#nu} [GeV];Raw Counts / 10 GeV", "nu_e", df_numu_all_fiducial, 120, 0.0, 1200.0, weight=None)
 
     # 3. Interaction Mode Breakdown: Charged Current (CC) vs Neutral Current (NC)
-    book_1d("h_all_numu_cc_nu_e", "Energy of Interacting #nu_{#mu} CC;E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_cc, 100, 0.0, 1000.0)
-    book_1d("h_all_numu_nc_nu_e", "Energy of Interacting #nu_{#mu} NC;E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_nc, 100, 0.0, 1000.0)
+    book_1d("h_all_numu_cc_nu_e", "Energy of Interacting #nu_{#mu} CC;E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_cc, 120, 0.0, 1200.0)
+    book_1d("h_all_numu_nc_nu_e", "Energy of Interacting #nu_{#mu} NC;E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_nc, 120, 0.0, 1200.0)
 
     # 4. Neutrino (#nu_{#mu}, PDG +14) vs Anti-Neutrino (#bar{#nu}_{#mu}, PDG -14)
-    book_1d("h_all_numu_pdg14_nu_e", "Energy of Interacting #nu_{#mu} (PDG +14);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_nu, 100, 0.0, 1000.0)
-    book_1d("h_all_numu_pdg_minus14_nu_e", "Energy of Interacting #bar{#nu}_{#mu} (PDG -14);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_antinu, 100, 0.0, 1000.0)
+    book_1d("h_all_numu_pdg14_nu_e", "Energy of Interacting #nu_{#mu} (PDG +14);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_nu, 120, 0.0, 1200.0)
+    book_1d("h_all_numu_pdg_minus14_nu_e", "Energy of Interacting #bar{#nu}_{#mu} (PDG -14);E_{#nu} [GeV];Events / 10 GeV", "nu_e", df_numu_antinu, 120, 0.0, 1200.0)
 
     # 5. Interaction Vertex and Kinematic Profiles for All Interacting Nu_mu
     book_2d("h2_all_numu_vtx_xy", "Interaction Vertex Transverse Profile (All Nu_mu);x_{vtx} [cm];y_{vtx} [cm]", "vtx_x", "vtx_y", df_numu_all, 60, -60.0, 0.0, 60, 3.0, 63.0)
-    book_2d("h2_all_numu_vtx_z_vs_nu_e", "Interaction Vertex Z vs E_{#nu} (All Nu_mu);E_{#nu} [GeV];z_{vtx} [cm]", "nu_e", "vtx_z", df_numu_all, 50, 0.0, 1000.0, 50, 260.0, 360.0)
-    book_2d("h2_all_numu_q2_vs_nu_e", "Q^{2} vs E_{#nu} (All Nu_mu);E_{#nu} [GeV];Q^{2} [GeV^{2}]", "nu_e", "q2", df_numu_all, 50, 0.0, 1000.0, 50, 0.0, 50.0)
+    book_2d("h2_all_numu_vtx_z_vs_nu_e", "Interaction Vertex Z vs E_{#nu} (All Nu_mu);E_{#nu} [GeV];z_{vtx} [cm]", "nu_e", "vtx_z", df_numu_all, 60, 0.0, 1200.0, 50, 260.0, 360.0)
+    book_2d("h2_all_numu_q2_vs_nu_e", "Q^{2} vs E_{#nu} (All Nu_mu);E_{#nu} [GeV];Q^{2} [GeV^{2}]", "nu_e", "q2", df_numu_all, 60, 0.0, 1200.0, 50, 0.0, 50.0)
 
     # --------------------------------------------------------------------------
     # 8b. Primary Muon (mu1) and Decay Muon (mu2) Energies & Kinematics
@@ -1574,9 +1574,9 @@ def main():
 
     for prefix, node, label in samples_1d:
         # Muon Energies (user-requested core focus)
-        book_1d(f"h_{prefix}_mu1_e", f"Primary #mu_{{1}} Energy ({label});E_{{#mu1}} [GeV];Events", "mu1_e", node, 100, 0.0, 800.0)
-        book_1d(f"h_{prefix}_mu2_e", f"Secondary #mu_{{2}} Energy ({label});E_{{#mu2}} [GeV];Events", "sec_mu_e", node, 100, 0.0, 300.0)
-        book_1d(f"h_{prefix}_dimuon_e_sum", f"Total Muon Energy E_{{#mu1}} + E_{{#mu2}} ({label});E_{{#mu1}} + E_{{#mu2}} [GeV];Events", "dimuon_e_sum_unified", node, 100, 0.0, 1000.0)
+        book_1d(f"h_{prefix}_mu1_e", f"Primary #mu_{{1}} Energy ({label});E_{{#mu1}} [GeV];Events", "mu1_e", node, 150, 0.0, 1200.0)
+        book_1d(f"h_{prefix}_mu2_e", f"Secondary #mu_{{2}} Energy ({label});E_{{#mu2}} [GeV];Events", "sec_mu_e", node, 400, 0.0, 1200.0)
+        book_1d(f"h_{prefix}_dimuon_e_sum", f"Total Muon Energy E_{{#mu1}} + E_{{#mu2}} ({label});E_{{#mu1}} + E_{{#mu2}} [GeV];Events", "dimuon_e_sum_unified", node, 120, 0.0, 1200.0)
         book_1d(f"h_{prefix}_dimuon_delta_e", f"Muon Energy Difference E_{{#mu1}} - E_{{#mu2}} ({label});E_{{#mu1}} - E_{{#mu2}} [GeV];Events", "dimuon_delta_e_unified", node, 100, -50.0, 700.0)
         book_1d(f"h_{prefix}_dimuon_abs_delta_e", f"Absolute Muon Energy Difference |E_{{#mu1}} - E_{{#mu2}}| ({label});|E_{{#mu1}} - E_{{#mu2}}| [GeV];Events", "dimuon_abs_delta_e_unified", node, 100, 0.0, 700.0)
         book_1d(f"h_{prefix}_dimuon_e_ratio", f"Muon Energy Ratio E_{{#mu2}} / E_{{#mu1}} ({label});E_{{#mu2}} / E_{{#mu1}};Events", "dimuon_e_ratio_unified", node, 50, 0.0, 1.0)
@@ -1587,8 +1587,8 @@ def main():
         book_1d(f"h_{prefix}_mu2_e_frac_charm", f"Secondary #mu_{{2}} Energy Fraction of E_{{charm}} ({label});E_{{#mu2}} / E_{{charm}};Events", "sec_mu_e_frac_charm", node, 50, 0.0, 1.0)
 
         # Muon Momenta and Angles
-        book_1d(f"h_{prefix}_mu1_p", f"Primary #mu_{{1}} Total Momentum ({label});p_{{#mu1}} [GeV/c];Events", "mu1_p", node, 100, 0.0, 800.0)
-        book_1d(f"h_{prefix}_mu2_p", f"Secondary #mu_{{2}} Total Momentum ({label});p_{{#mu2}} [GeV/c];Events", "sec_mu_p", node, 100, 0.0, 300.0)
+        book_1d(f"h_{prefix}_mu1_p", f"Primary #mu_{{1}} Total Momentum ({label});p_{{#mu1}} [GeV/c];Events", "mu1_p", node, 150, 0.0, 1200.0)
+        book_1d(f"h_{prefix}_mu2_p", f"Secondary #mu_{{2}} Total Momentum ({label});p_{{#mu2}} [GeV/c];Events", "sec_mu_p", node, 400, 0.0, 1200.0)
         book_1d(f"h_{prefix}_mu1_pt", f"Primary #mu_{{1}} Transverse Momentum ({label});p_{{T,#mu1}} [GeV/c];Events", "mu1_pt", node, 50, 0.0, 5.0)
         book_1d(f"h_{prefix}_mu2_pt", f"Secondary #mu_{{2}} Transverse Momentum ({label});p_{{T,#mu2}} [GeV/c];Events", "sec_mu_pt", node, 50, 0.0, 5.0)
         book_1d(f"h_{prefix}_mu1_eta", f"Primary #mu_{{1}} Pseudorapidity ({label});#eta_{{#mu1}};Events", "mu1_eta", node, 50, 4.0, 10.0)
@@ -1607,7 +1607,7 @@ def main():
         # Dimuon System Observables (Unified 3D Kinematics)
         book_1d(f"h_{prefix}_dimuon_mass", f"Dimuon Invariant Mass ({label});M_{{#mu#mu}} [GeV/c^{{2}}];Events", "dimuon_mass_unified", node, 60, 0.0, 15.0)
         book_1d(f"h_{prefix}_dimuon_pt", f"Dimuon Pair Transverse Momentum ({label});p_{{T,#mu#mu}} [GeV/c];Events", "dimuon_pt_unified", node, 50, 0.0, 8.0)
-        book_1d(f"h_{prefix}_dimuon_p", f"Dimuon Pair Total Momentum ({label});p_{{#mu#mu}} [GeV/c];Events", "dimuon_p", node, 50, 0.0, 800.0)
+        book_1d(f"h_{prefix}_dimuon_p", f"Dimuon Pair Total Momentum ({label});p_{{#mu#mu}} [GeV/c];Events", "dimuon_p", node, 75, 0.0, 1200.0)
         book_1d(f"h_{prefix}_dimuon_opening_angle_mrad", f"Dimuon 3D Opening Angle ({label});#theta_{{#mu#mu}} [mrad];Events", "dimuon_opening_angle_mrad_unified", node, 64, 0.0, 3200.0)
         book_1d(f"h_{prefix}_dimuon_delta_phi", f"Dimuon Azimuthal Separation ({label});#Delta#phi_{{#mu#mu}} [rad];Events", "dimuon_delta_phi_unified", node, 50, 0.0, 3.14159)
         book_1d(f"h_{prefix}_dimuon_delta_eta", f"Dimuon Pseudorapidity Separation ({label});#Delta#eta_{{#mu#mu}};Events", "dimuon_delta_eta_unified", node, 50, 0.0, 6.0)
@@ -1616,7 +1616,7 @@ def main():
         book_1d(f"h_{prefix}_dimuon_p_ratio", f"Dimuon Momentum Ratio p_{{2}} / p_{{1}} ({label});p_{{#mu2}} / p_{{#mu1}};Events", "dimuon_p_ratio_unified", node, 50, 0.0, 2.0)
 
         # Incoming Neutrino & DIS Variables
-        book_1d(f"h_{prefix}_nu_e", f"Incoming #nu_{{#mu}} Energy ({label});E_{{#nu}} [GeV];Events", "nu_e", node, 50, 0.0, 1000.0)
+        book_1d(f"h_{prefix}_nu_e", f"Incoming #nu_{{#mu}} Energy ({label});E_{{#nu}} [GeV];Events", "nu_e", node, 60, 0.0, 1200.0)
         book_1d(f"h_{prefix}_q2", f"4-Momentum Transfer Squared Q^{{2}} ({label});Q^{{2}} [GeV^{{2}}];Events", "q2", node, 50, 0.0, 50.0)
         book_1d(f"h_{prefix}_bjorken_x", f"Bjorken x ({label});x;Events", "bjorken_x", node, 50, 0.0, 1.0)
         book_1d(f"h_{prefix}_inelasticity_y", f"Inelasticity y ({label});y_{{inel}};Events", "inelasticity_y", node, 50, 0.0, 1.0)
@@ -1654,7 +1654,7 @@ def main():
         book_1d(f"h_indirect_{m_key}_sec_mu_p", f"Secondary #mu Momentum ({m_lbl});p_{{#mu2}} [GeV/c];Events", "sec_mu_p", m_node, 100, 0.0, 10.0)
         book_1d(f"h_indirect_{m_key}_sec_mu_pt", f"Secondary #mu p_{{T}} ({m_lbl});p_{{T,#mu2}} [GeV/c];Events", "sec_mu_pt", m_node, 60, 0.0, 1.5)
         book_1d(f"h_indirect_{m_key}_dimuon_delta_e", f"Dimuon #Delta E ({m_lbl});E_{{#mu1}} - E_{{#mu2}} [GeV];Events", "dimuon_delta_e_unified", m_node, 100, -50.0, 700.0)
-        book_1d(f"h_indirect_{m_key}_nu_e", f"Incoming #nu Energy ({m_lbl});E_{{#nu}} [GeV];Events", "nu_e", m_node, 50, 0.0, 1000.0)
+        book_1d(f"h_indirect_{m_key}_nu_e", f"Incoming #nu Energy ({m_lbl});E_{{#nu}} [GeV];Events", "nu_e", m_node, 60, 0.0, 1200.0)
 
     # Non-Charm intermediate mother particles
     book_1d("h_non_charm_downstream_muon_mother_pdg", "Non-Charm Muon Mother PDG (#pi/K #rightarrow #mu);PDG ID;Events", "sec_mu_mother_pdg", df_non_charm, 800, -400.0, 400.0)
@@ -1671,18 +1671,18 @@ def main():
         book_1d(f"h_non_charm_{m_key}_sec_mu_p", f"Secondary #mu Momentum ({m_lbl});p_{{#mu2}} [GeV/c];Events", "sec_mu_p", m_node, 100, 0.0, 10.0)
         book_1d(f"h_non_charm_{m_key}_sec_mu_pt", f"Secondary #mu p_{{T}} ({m_lbl});p_{{T,#mu2}} [GeV/c];Events", "sec_mu_pt", m_node, 60, 0.0, 1.5)
         book_1d(f"h_non_charm_{m_key}_dimuon_delta_e", f"Dimuon #Delta E ({m_lbl});E_{{#mu1}} - E_{{#mu2}} [GeV];Events", "dimuon_delta_e_unified", m_node, 100, -50.0, 700.0)
-        book_1d(f"h_non_charm_{m_key}_nu_e", f"Incoming #nu Energy ({m_lbl});E_{{#nu}} [GeV];Events", "nu_e", m_node, 50, 0.0, 1000.0)
+        book_1d(f"h_non_charm_{m_key}_nu_e", f"Incoming #nu Energy ({m_lbl});E_{{#nu}} [GeV];Events", "nu_e", m_node, 60, 0.0, 1200.0)
 
     # --------------------------------------------------------------------------
     # 8b-3. 2D Histograms: Dimuon Energy & Kinematic Correlations
     # --------------------------------------------------------------------------
     # Core Dimuon Energy Correlation (E_mu2 vs E_mu1) across samples
     for prefix, node, label in samples_1d:
-        book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e", f"Dimuon Energy Correlation ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "sec_mu_e", node, 35, 0.0, 700.0, 35, 0.0, 700.0)
+        book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e", f"Dimuon Energy Correlation ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "sec_mu_e", node, 60, 0.0, 1200.0, 60, 0.0, 1200.0)
         if prefix in ["signal", "direct", "indirect", "non_charm", "signal_like"]:
-            book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e_zoom", f"Dimuon Energy Correlation (Zoom) ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "sec_mu_e", node, 35, 0.0, 700.0, 50, 0.0, 10.0)
+            book_2d(f"h2_{prefix}_mu2_e_vs_mu1_e_zoom", f"Dimuon Energy Correlation (Zoom) ({label});E_{{#mu1}} [GeV];E_{{#mu2}} [GeV]", "mu1_e", "sec_mu_e", node, 60, 0.0, 1200.0, 50, 0.0, 10.0)
 
-        book_2d(f"h2_{prefix}_mu2_p_vs_mu1_p", f"Dimuon Momentum Correlation ({label});p_{{#mu1}} [GeV/c];p_{{#mu2}} [GeV/c]", "mu1_p", "sec_mu_p", node, 35, 0.0, 700.0, 35, 0.0, 700.0)
+        book_2d(f"h2_{prefix}_mu2_p_vs_mu1_p", f"Dimuon Momentum Correlation ({label});p_{{#mu1}} [GeV/c];p_{{#mu2}} [GeV/c]", "mu1_p", "sec_mu_p", node, 60, 0.0, 1200.0, 60, 0.0, 1200.0)
         book_2d(f"h2_{prefix}_mu2_pt_vs_mu1_pt", f"Dimuon Transverse Momentum Correlation ({label});p_{{T,#mu1}} [GeV/c];p_{{T,#mu2}} [GeV/c]", "mu1_pt", "sec_mu_pt", node, 50, 0.0, 4.0, 50, 0.0, 1.5)
         book_2d(f"h2_{prefix}_mu2_eta_vs_mu1_eta", f"Dimuon Pseudorapidity Correlation ({label});#eta_{{#mu1}};#eta_{{#mu2}}", "mu1_eta", "sec_mu_eta", node, 50, 4.0, 10.0, 50, 2.0, 10.0)
 
@@ -1694,9 +1694,9 @@ def main():
         ("non_charm", df_non_charm, "Non-Charm Dimuon"),
         ("signal_like", df_signal_like, "All Signal-Like"),
     ]:
-        book_2d(f"h2_{pref}_mu1_e_vs_nu_e", f"Primary #mu_{{1}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];E_{{#mu1}} [GeV]", "nu_e", "mu1_e", node, 50, 0.0, 800.0, 50, 0.0, 600.0)
-        book_2d(f"h2_{pref}_mu2_e_vs_nu_e", f"Secondary #mu_{{2}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];E_{{#mu2}} [GeV]", "nu_e", "sec_mu_e", node, 50, 0.0, 800.0, 50, 0.0, 10.0)
-        book_2d(f"h2_{pref}_dimuon_delta_e_vs_nu_e", f"Muon Energy Difference vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];E_{{#mu1}} - E_{{#mu2}} [GeV]", "nu_e", "dimuon_delta_e_unified", node, 50, 0.0, 800.0, 50, -50.0, 600.0)
+        book_2d(f"h2_{pref}_mu1_e_vs_nu_e", f"Primary #mu_{{1}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];E_{{#mu1}} [GeV]", "nu_e", "mu1_e", node, 75, 0.0, 1200.0, 100, 0.0, 1200.0)
+        book_2d(f"h2_{pref}_mu2_e_vs_nu_e", f"Secondary #mu_{{2}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];E_{{#mu2}} [GeV]", "nu_e", "sec_mu_e", node, 75, 0.0, 1200.0, 50, 0.0, 10.0)
+        book_2d(f"h2_{pref}_dimuon_delta_e_vs_nu_e", f"Muon Energy Difference vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];E_{{#mu1}} - E_{{#mu2}} [GeV]", "nu_e", "dimuon_delta_e_unified", node, 75, 0.0, 1200.0, 50, -50.0, 600.0)
         book_2d(f"h2_{pref}_mu2_e_vs_charm_e", f"Secondary #mu_{{2}} Energy vs Charm Energy ({lbl});E_{{charm}} [GeV];E_{{#mu2}} [GeV]", "charm_e", "sec_mu_e", node, 50, 0.0, 500.0, 50, 0.0, 10.0)
 
     book_2d("h2_signal_dimuon_delta_e_vs_dimuon_mass", "Muon Energy Difference vs M_{#mu#mu};M_{#mu#mu} [GeV/c^{2}];E_{#mu1} - E_{#mu2} [GeV]", "dimuon_mass_unified", "dimuon_delta_e_unified", df_candidate, 60, 0.0, 15.0, 50, -50.0, 600.0)
@@ -1710,7 +1710,7 @@ def main():
     book_2d("h2_signal_decay_length_vs_charm_p", "Charm Flight Length vs Momentum;p_{charm} [GeV/c];L_{3D} [cm]", "charm_p", "decay_length_3d", df_candidate, 50, 0.0, 500.0, 50, 0.0, 5.0)
     book_2d("h2_signal_q2_vs_bjorken_x", "Q^{2} vs Bjorken x;Bjorken x;Q^{2} [GeV^{2}]", "bjorken_x", "q2", df_candidate, 50, 0.0, 1.0, 50, 0.0, 50.0)
     book_2d("h2_signal_vtx_xy", "Interaction Vertex Transverse Profile;x_{vtx} [cm];y_{vtx} [cm]", "vtx_x", "vtx_y", df_candidate, 60, -60.0, 0.0, 60, 3.0, 63.0)
-    book_2d("h2_signal_mu1_nds_vs_mu1_e", "Primary #mu_{1} DS MCPoints vs Energy;E_{#mu1} [GeV];N_{DS}(#mu_{1})", "mu1_e", "mu1_n_ds_points", df_candidate, 50, 0.0, 800.0, 20, -0.5, 19.5)
+    book_2d("h2_signal_mu1_nds_vs_mu1_e", "Primary #mu_{1} DS MCPoints vs Energy;E_{#mu1} [GeV];N_{DS}(#mu_{1})", "mu1_e", "mu1_n_ds_points", df_candidate, 75, 0.0, 1200.0, 20, -0.5, 19.5)
     book_2d("h2_signal_mu2_nds_vs_mu2_e", "Secondary #mu_{2} DS MCPoints vs Energy;E_{#mu2} [GeV];N_{DS}(#mu_{2})", "sec_mu_e", "mu2_n_ds_points", df_candidate, 50, 0.0, 10.0, 20, -0.5, 19.5)
     book_2d("h2_signal_mu2_nds_vs_mu2_eta", "Secondary #mu_{2} DS MCPoints vs #eta;#eta_{#mu2};N_{DS}(#mu_{2})", "sec_mu_eta", "mu2_n_ds_points", df_candidate, 50, 2.0, 10.0, 20, -0.5, 19.5)
 
@@ -1856,30 +1856,30 @@ def main():
         ("non_charm", df_non_charm, "Non-Charm Dimuons"),
         ("signal_like", df_signal_like, "All Signal-Like"),
     ]:
-        book_prof(f"p_{pref}_mu1_e_vs_nu_e", f"Mean Primary #mu_{{1}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<E_{{#mu1}}> [GeV]", "nu_e", "mu1_e", node, 40, 0.0, 800.0)
-        book_prof(f"p_{pref}_mu2_e_vs_nu_e", f"Mean Secondary #mu_{{2}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<E_{{#mu2}}> [GeV]", "nu_e", "sec_mu_e", node, 40, 0.0, 800.0)
+        book_prof(f"p_{pref}_mu1_e_vs_nu_e", f"Mean Primary #mu_{{1}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<E_{{#mu1}}> [GeV]", "nu_e", "mu1_e", node, 60, 0.0, 1200.0)
+        book_prof(f"p_{pref}_mu2_e_vs_nu_e", f"Mean Secondary #mu_{{2}} Energy vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<E_{{#mu2}}> [GeV]", "nu_e", "sec_mu_e", node, 60, 0.0, 1200.0)
         book_prof(f"p_{pref}_mu2_e_vs_charm_e", f"Mean Secondary #mu_{{2}} Energy vs Charm Energy ({lbl});E_{{charm}} [GeV];<E_{{#mu2}}> [GeV]", "charm_e", "sec_mu_e", node, 40, 0.0, 500.0)
-        book_prof(f"p_{pref}_mu1_p_vs_nu_e", f"Mean Primary #mu_{{1}} Momentum vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<p_{{#mu1}}> [GeV/c]", "nu_e", "mu1_p", node, 40, 0.0, 800.0)
-        book_prof(f"p_{pref}_mu2_p_vs_nu_e", f"Mean Secondary #mu_{{2}} Momentum vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<p_{{#mu2}}> [GeV/c]", "nu_e", "sec_mu_p", node, 40, 0.0, 800.0)
-        book_prof(f"p_{pref}_mu1_pt_vs_nu_e", f"Mean Primary #mu_{{1}} p_{{T}} vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<p_{{T,#mu1}}> [GeV/c]", "nu_e", "mu1_pt", node, 40, 0.0, 800.0)
-        book_prof(f"p_{pref}_mu2_pt_vs_nu_e", f"Mean Secondary #mu_{{2}} p_{{T}} vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<p_{{T,#mu2}}> [GeV/c]", "nu_e", "sec_mu_pt", node, 40, 0.0, 800.0)
+        book_prof(f"p_{pref}_mu1_p_vs_nu_e", f"Mean Primary #mu_{{1}} Momentum vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<p_{{#mu1}}> [GeV/c]", "nu_e", "mu1_p", node, 60, 0.0, 1200.0)
+        book_prof(f"p_{pref}_mu2_p_vs_nu_e", f"Mean Secondary #mu_{{2}} Momentum vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<p_{{#mu2}}> [GeV/c]", "nu_e", "sec_mu_p", node, 60, 0.0, 1200.0)
+        book_prof(f"p_{pref}_mu1_pt_vs_nu_e", f"Mean Primary #mu_{{1}} p_{{T}} vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<p_{{T,#mu1}}> [GeV/c]", "nu_e", "mu1_pt", node, 60, 0.0, 1200.0)
+        book_prof(f"p_{pref}_mu2_pt_vs_nu_e", f"Mean Secondary #mu_{{2}} p_{{T}} vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];<p_{{T,#mu2}}> [GeV/c]", "nu_e", "sec_mu_pt", node, 60, 0.0, 1200.0)
 
-    book_prof("p_signal_charm_p_vs_nu_e", "Mean Charmed Hadron Momentum vs E_{#nu};E_{#nu} [GeV];<p_{charm}> [GeV/c]", "nu_e", "charm_p", df_candidate, 40, 0.0, 800.0)
-    book_prof("p_signal_dimuon_mass_vs_nu_e", "Mean Dimuon Invariant Mass vs E_{#nu};E_{#nu} [GeV];<M_{#mu#mu}> [GeV/c^{2}]", "nu_e", "dimuon_mass_unified", df_candidate, 30, 0.0, 800.0)
-    book_prof("p_signal_opening_angle_vs_nu_e", "Mean Dimuon Opening Angle vs E_{#nu};E_{#nu} [GeV];<#theta_{#mu#mu}> [mrad]", "nu_e", "dimuon_opening_angle_mrad_unified", df_candidate, 30, 0.0, 800.0)
+    book_prof("p_signal_charm_p_vs_nu_e", "Mean Charmed Hadron Momentum vs E_{#nu};E_{#nu} [GeV];<p_{charm}> [GeV/c]", "nu_e", "charm_p", df_candidate, 60, 0.0, 1200.0)
+    book_prof("p_signal_dimuon_mass_vs_nu_e", "Mean Dimuon Invariant Mass vs E_{#nu};E_{#nu} [GeV];<M_{#mu#mu}> [GeV/c^{2}]", "nu_e", "dimuon_mass_unified", df_candidate, 45, 0.0, 1200.0)
+    book_prof("p_signal_opening_angle_vs_nu_e", "Mean Dimuon Opening Angle vs E_{#nu};E_{#nu} [GeV];<#theta_{#mu#mu}> [mrad]", "nu_e", "dimuon_opening_angle_mrad_unified", df_candidate, 45, 0.0, 1200.0)
     book_prof("p_signal_charm_z_frac_vs_hadronic_w", "Mean Charm Energy Fraction vs Hadronic Mass W;W [GeV/c^{2}];<z_{c}>", "hadronic_w", "charm_z_frac", df_candidate, 30, 2.0, 30.0)
     book_prof("p_signal_decay_length_vs_charm_p", "Mean Charm Flight Length vs Momentum;p_{charm} [GeV/c];<L_{3D}> [cm]", "charm_p", "decay_length_3d", df_candidate, 30, 0.0, 400.0)
     book_prof("p_signal_ip3d_vs_decay_length", "Mean Secondary #mu_{2} IP_{3D} vs Flight Length;L_{3D} [cm];<IP_{3D}> [cm]", "decay_length_3d", "mu2_ip3d", df_candidate, 30, 0.0, 2.0)
 
     # Acceptance Probability Profiles (TProfile on 0/1 indicator = exact acceptance efficiency!)
-    book_prof("p_acc_eff_vs_nu_e", "Dimuon DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance Efficiency #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 800.0, 0.0, 1.0)
-    book_prof("p_acc_eff_vs_mu1_e", "Dimuon DS Acceptance Efficiency vs E_{#mu1};E_{#mu1} [GeV];Acceptance Efficiency #epsilon_{DS}", "mu1_e", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 800.0, 0.0, 1.0)
-    book_prof("p_acc_eff_vs_mu2_e", "Dimuon DS Acceptance Efficiency vs E_{#mu2};E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}", "sec_mu_e", "dimuon_in_ds_acc_double", df_candidate, 50, 0.0, 300.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_nu_e", "Dimuon DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance Efficiency #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_candidate, 60, 0.0, 1200.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_mu1_e", "Dimuon DS Acceptance Efficiency vs E_{#mu1};E_{#mu1} [GeV];Acceptance Efficiency #epsilon_{DS}", "mu1_e", "dimuon_in_ds_acc_double", df_candidate, 60, 0.0, 1200.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_mu2_e", "Dimuon DS Acceptance Efficiency vs E_{#mu2};E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}", "sec_mu_e", "dimuon_in_ds_acc_double", df_candidate, 200, 0.0, 1200.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_dimuon_delta_e", "Dimuon DS Acceptance Efficiency vs (E_{#mu1} - E_{#mu2});E_{#mu1} - E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}", "dimuon_delta_e_unified", "dimuon_in_ds_acc_double", df_candidate, 40, -50.0, 600.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_dimuon_abs_delta_e", "Dimuon DS Acceptance Efficiency vs |E_{#mu1} - E_{#mu2}|;|E_{#mu1} - E_{#mu2}| [GeV];Acceptance Efficiency #epsilon_{DS}", "dimuon_abs_delta_e_unified", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 600.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_dimuon_energy_asym", "Dimuon DS Acceptance Efficiency vs Energy Asymmetry;A_{E} = (E_{1}-E_{2})/(E_{1}+E_{2});Acceptance Efficiency #epsilon_{DS}", "dimuon_energy_asym_unified", "dimuon_in_ds_acc_double", df_candidate, 40, -1.0, 1.0, 0.0, 1.0)
-    book_prof("p_acc_eff_vs_mu1_p", "Dimuon DS Acceptance Efficiency vs p_{#mu1};p_{#mu1} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "mu1_p", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 800.0, 0.0, 1.0)
-    book_prof("p_acc_eff_vs_mu2_p", "Dimuon DS Acceptance Efficiency vs p_{#mu2};p_{#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "sec_mu_p", "dimuon_in_ds_acc_double", df_candidate, 50, 0.0, 300.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_mu1_p", "Dimuon DS Acceptance Efficiency vs p_{#mu1};p_{#mu1} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "mu1_p", "dimuon_in_ds_acc_double", df_candidate, 60, 0.0, 1200.0, 0.0, 1.0)
+    book_prof("p_acc_eff_vs_mu2_p", "Dimuon DS Acceptance Efficiency vs p_{#mu2};p_{#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "sec_mu_p", "dimuon_in_ds_acc_double", df_candidate, 200, 0.0, 1200.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_mu1_pt", "Dimuon DS Acceptance Efficiency vs p_{T,#mu1};p_{T,#mu1} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "mu1_pt", "dimuon_in_ds_acc_double", df_candidate, 40, 0.0, 4.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_mu2_pt", "Dimuon DS Acceptance Efficiency vs p_{T,#mu2};p_{T,#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}", "sec_mu_pt", "dimuon_in_ds_acc_double", df_candidate, 50, 0.0, 5.0, 0.0, 1.0)
     book_prof("p_acc_eff_vs_mu1_eta", "Dimuon DS Acceptance Efficiency vs #eta_{#mu1};#eta_{#mu1};Acceptance Efficiency #epsilon_{DS}", "mu1_eta", "dimuon_in_ds_acc_double", df_candidate, 40, 4.0, 10.0, 0.0, 1.0)
@@ -1889,17 +1889,17 @@ def main():
     book_prof("p_acc_eff_vs_vtx_z", "Dimuon DS Acceptance Efficiency vs z_{vtx};z_{vtx} [cm];Acceptance Efficiency #epsilon_{DS}", "vtx_z", "dimuon_in_ds_acc_double", df_candidate, 40, 260.0, 360.0, 0.0, 1.0)
 
     # Acceptance Profiles for Direct Signal and Indirect Fake Signal
-    book_prof("p_direct_acc_eff_vs_nu_e", "Direct Signal DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_direct, 40, 0.0, 800.0, 0.0, 1.0)
-    book_prof("p_direct_acc_eff_vs_mu2_e", "Direct Signal DS Acceptance Efficiency vs E_{#mu2};E_{#mu2} [GeV];Acceptance #epsilon_{DS}", "sec_mu_e", "dimuon_in_ds_acc_double", df_direct, 50, 0.0, 300.0, 0.0, 1.0)
+    book_prof("p_direct_acc_eff_vs_nu_e", "Direct Signal DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_direct, 60, 0.0, 1200.0, 0.0, 1.0)
+    book_prof("p_direct_acc_eff_vs_mu2_e", "Direct Signal DS Acceptance Efficiency vs E_{#mu2};E_{#mu2} [GeV];Acceptance #epsilon_{DS}", "sec_mu_e", "dimuon_in_ds_acc_double", df_direct, 200, 0.0, 1200.0, 0.0, 1.0)
     book_prof("p_direct_acc_eff_vs_dimuon_delta_e", "Direct Signal DS Acceptance vs #Delta E;#Delta E [GeV];Acceptance #epsilon_{DS}", "dimuon_delta_e_unified", "dimuon_in_ds_acc_double", df_direct, 40, -50.0, 600.0, 0.0, 1.0)
 
-    book_prof("p_indirect_acc_eff_vs_nu_e", "Indirect Fake DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_indirect, 40, 0.0, 800.0, 0.0, 1.0)
+    book_prof("p_indirect_acc_eff_vs_nu_e", "Indirect Fake DS Acceptance Efficiency vs E_{#nu};E_{#nu} [GeV];Acceptance #epsilon_{DS}", "nu_e", "dimuon_in_ds_acc_double", df_indirect, 60, 0.0, 1200.0, 0.0, 1.0)
     book_prof("p_indirect_acc_eff_vs_mu2_e", "Indirect Fake DS Acceptance Efficiency vs E_{#mu2};E_{#mu2} [GeV];Acceptance #epsilon_{DS}", "sec_mu_e", "dimuon_in_ds_acc_double", df_indirect, 50, 0.0, 50.0, 0.0, 1.0)
     book_prof("p_indirect_acc_eff_vs_dimuon_delta_e", "Indirect Fake DS Acceptance vs #Delta E;#Delta E [GeV];Acceptance #epsilon_{DS}", "dimuon_delta_e_unified", "dimuon_in_ds_acc_double", df_indirect, 40, -50.0, 600.0, 0.0, 1.0)
 
-    book_prof("p_mu1_acc_eff_vs_mu1_e", "Primary #mu_{1} DS Acceptance vs E_{#mu1};E_{#mu1} [GeV];Acceptance Efficiency #epsilon_{DS}(#mu_{1})", "mu1_e", "mu1_in_ds_acc_double", df_candidate, 40, 0.0, 800.0, 0.0, 1.0)
+    book_prof("p_mu1_acc_eff_vs_mu1_e", "Primary #mu_{1} DS Acceptance vs E_{#mu1};E_{#mu1} [GeV];Acceptance Efficiency #epsilon_{DS}(#mu_{1})", "mu1_e", "mu1_in_ds_acc_double", df_candidate, 60, 0.0, 1200.0, 0.0, 1.0)
     book_prof("p_mu1_acc_eff_vs_mu1_eta", "Primary #mu_{1} DS Acceptance vs #eta_{#mu1};#eta_{#mu1};Acceptance Efficiency #epsilon_{DS}(#mu_{1})", "mu1_eta", "mu1_in_ds_acc_double", df_candidate, 40, 4.0, 10.0, 0.0, 1.0)
-    book_prof("p_mu2_acc_eff_vs_mu2_e", "Secondary #mu_{2} DS Acceptance vs E_{#mu2};E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "sec_mu_e", "mu2_in_ds_acc_double", df_candidate, 50, 0.0, 300.0, 0.0, 1.0)
+    book_prof("p_mu2_acc_eff_vs_mu2_e", "Secondary #mu_{2} DS Acceptance vs E_{#mu2};E_{#mu2} [GeV];Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "sec_mu_e", "mu2_in_ds_acc_double", df_candidate, 200, 0.0, 1200.0, 0.0, 1.0)
     book_prof("p_mu2_acc_eff_vs_mu2_eta", "Secondary #mu_{2} DS Acceptance vs #eta_{#mu2};#eta_{#mu2};Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "sec_mu_eta", "mu2_in_ds_acc_double", df_candidate, 40, 2.0, 10.0, 0.0, 1.0)
     book_prof("p_mu2_acc_eff_vs_mu2_pt", "Secondary #mu_{2} DS Acceptance vs p_{T,#mu2};p_{T,#mu2} [GeV/c];Acceptance Efficiency #epsilon_{DS}(#mu_{2})", "sec_mu_pt", "mu2_in_ds_acc_double", df_candidate, 50, 0.0, 5.0, 0.0, 1.0)
 
@@ -1916,9 +1916,9 @@ def main():
     ]
 
     for pref, node_p, node_t, lbl in eff_acc_targets:
-        book_teff(f"teff_ds_acc_{pref}_vs_nu_e", f"DS Acceptance Efficiency vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{DS}}", "nu_e", node_p, node_t, 40, 0.0, 800.0)
-        book_teff(f"teff_ds_acc_{pref}_vs_mu1_e", f"DS Acceptance Efficiency vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{DS}}", "mu1_e", node_p, node_t, 40, 0.0, 800.0)
-        book_teff(f"teff_ds_acc_{pref}_vs_mu2_e", f"DS Acceptance Efficiency vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{DS}}", "sec_mu_e", node_p, node_t, 50, 0.0, 300.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_nu_e", f"DS Acceptance Efficiency vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{DS}}", "nu_e", node_p, node_t, 60, 0.0, 1200.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_mu1_e", f"DS Acceptance Efficiency vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{DS}}", "mu1_e", node_p, node_t, 60, 0.0, 1200.0)
+        book_teff(f"teff_ds_acc_{pref}_vs_mu2_e", f"DS Acceptance Efficiency vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{DS}}", "sec_mu_e", node_p, node_t, 200, 0.0, 1200.0)
         book_teff(f"teff_ds_acc_{pref}_vs_dimuon_delta_e", f"DS Acceptance Efficiency vs #Delta E ({lbl});E_{{#mu1}} - E_{{#mu2}} [GeV];#epsilon_{{DS}}", "dimuon_delta_e_unified", node_p, node_t, 40, -50.0, 600.0)
         book_teff(f"teff_ds_acc_{pref}_vs_dimuon_energy_asym", f"DS Acceptance Efficiency vs Energy Asymmetry ({lbl});A_{{E}};#epsilon_{{DS}}", "dimuon_energy_asym_unified", node_p, node_t, 40, -1.0, 1.0)
         book_teff(f"teff_ds_acc_{pref}_vs_vtx_z", f"DS Acceptance Efficiency vs z_{{vtx}} ({lbl});z_{{vtx}} [cm];#epsilon_{{DS}}", "vtx_z", node_p, node_t, 40, 260.0, 360.0)
@@ -1929,9 +1929,9 @@ def main():
 
     # Single muon acceptance
     df_mu1_in_acc_node = df_candidate.Filter("mu1_in_ds_acceptance")
-    book_teff("teff_ds_acc_mu1_vs_mu1_e", "Primary #mu_{1} DS Acceptance vs E_{#mu1};E_{#mu1} [GeV];#epsilon_{DS}(#mu_{1})", "mu1_e", df_mu1_in_acc_node, df_candidate, 40, 0.0, 800.0)
+    book_teff("teff_ds_acc_mu1_vs_mu1_e", "Primary #mu_{1} DS Acceptance vs E_{#mu1};E_{#mu1} [GeV];#epsilon_{DS}(#mu_{1})", "mu1_e", df_mu1_in_acc_node, df_candidate, 60, 0.0, 1200.0)
     book_teff("teff_ds_acc_mu1_vs_mu1_eta", "Primary #mu_{1} DS Acceptance vs #eta_{#mu1};#eta_{#mu1};#epsilon_{DS}(#mu_{1})", "mu1_eta", df_mu1_in_acc_node, df_candidate, 40, 4.0, 10.0)
-    book_teff("teff_ds_acc_mu2_vs_mu2_e", "Secondary #mu_{2} DS Acceptance vs E_{#mu2};E_{#mu2} [GeV];#epsilon_{DS}(#mu_{2})", "sec_mu_e", df_mu2_in_acc, df_candidate, 50, 0.0, 300.0)
+    book_teff("teff_ds_acc_mu2_vs_mu2_e", "Secondary #mu_{2} DS Acceptance vs E_{#mu2};E_{#mu2} [GeV];#epsilon_{DS}(#mu_{2})", "sec_mu_e", df_mu2_in_acc, df_candidate, 200, 0.0, 1200.0)
     book_teff("teff_ds_acc_mu2_vs_mu2_eta", "Secondary #mu_{2} DS Acceptance vs #eta_{#mu2};#eta_{#mu2};#epsilon_{DS}(#mu_{2})", "sec_mu_eta", df_mu2_in_acc, df_candidate, 40, 2.0, 10.0)
 
     # 2. Reconstructed Two DS Tracks Overall Efficiency (relative to candidate sample)
@@ -1944,9 +1944,9 @@ def main():
     ]
 
     for pref, node_p, node_t, lbl in eff_2ds_targets:
-        book_teff(f"teff_2ds_overall_{pref}_vs_nu_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{2 DS}}", "nu_e", node_p, node_t, 40, 0.0, 800.0)
-        book_teff(f"teff_2ds_overall_{pref}_vs_mu1_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{2 DS}}", "mu1_e", node_p, node_t, 40, 0.0, 800.0)
-        book_teff(f"teff_2ds_overall_{pref}_vs_mu2_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{2 DS}}", "sec_mu_e", node_p, node_t, 50, 0.0, 300.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_nu_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{2 DS}}", "nu_e", node_p, node_t, 60, 0.0, 1200.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_mu1_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{2 DS}}", "mu1_e", node_p, node_t, 60, 0.0, 1200.0)
+        book_teff(f"teff_2ds_overall_{pref}_vs_mu2_e", f"Two DS Tracks Efficiency (Overall) vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{2 DS}}", "sec_mu_e", node_p, node_t, 200, 0.0, 1200.0)
         book_teff(f"teff_2ds_overall_{pref}_vs_vtx_z", f"Two DS Tracks Efficiency (Overall) vs z_{{vtx}} ({lbl});z_{{vtx}} [cm];#epsilon_{{2 DS}}", "vtx_z", node_p, node_t, 40, 260.0, 360.0)
         book_teff(f"teff_2ds_overall_{pref}_vs_opening_angle_3d", f"Two DS Tracks Efficiency (Overall) vs #theta_{{3D}} ({lbl});#theta_{{#mu#mu}} [mrad];#epsilon_{{2 DS}}", "dimuon_opening_angle_mrad_unified", node_p, node_t, 50, 0.0, 2000.0)
         book_teff(f"teff_2ds_overall_{pref}_vs_opening_angle_xz", f"Two DS Tracks Efficiency (Overall) vs #Delta#theta_{{XZ}} ({lbl});#Delta#theta_{{XZ}} [mrad];#epsilon_{{2 DS}}", "dimuon_opening_angle_xz_mrad", node_p, node_t, 50, 0.0, 500.0)
@@ -1965,9 +1965,9 @@ def main():
     ]
 
     for pref, node_p, node_t, lbl in eff_2ds_in_acc_targets:
-        book_teff(f"teff_2ds_in_acc_{pref}_vs_nu_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{2 DS | DS Acc}}", "nu_e", node_p, node_t, 40, 0.0, 800.0)
-        book_teff(f"teff_2ds_in_acc_{pref}_vs_mu1_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{2 DS | DS Acc}}", "mu1_e", node_p, node_t, 40, 0.0, 800.0)
-        book_teff(f"teff_2ds_in_acc_{pref}_vs_mu2_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{2 DS | DS Acc}}", "sec_mu_e", node_p, node_t, 50, 0.0, 300.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_nu_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#nu}} ({lbl});E_{{#nu}} [GeV];#epsilon_{{2 DS | DS Acc}}", "nu_e", node_p, node_t, 60, 0.0, 1200.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_mu1_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#mu1}} ({lbl});E_{{#mu1}} [GeV];#epsilon_{{2 DS | DS Acc}}", "mu1_e", node_p, node_t, 60, 0.0, 1200.0)
+        book_teff(f"teff_2ds_in_acc_{pref}_vs_mu2_e", f"Two DS Tracks Reconstruction Efficiency vs E_{{#mu2}} ({lbl});E_{{#mu2}} [GeV];#epsilon_{{2 DS | DS Acc}}", "sec_mu_e", node_p, node_t, 200, 0.0, 1200.0)
         book_teff(f"teff_2ds_in_acc_{pref}_vs_vtx_z", f"Two DS Tracks Reconstruction Efficiency vs z_{{vtx}} ({lbl});z_{{vtx}} [cm];#epsilon_{{2 DS | DS Acc}}", "vtx_z", node_p, node_t, 40, 260.0, 360.0)
         book_teff(f"teff_2ds_in_acc_{pref}_vs_opening_angle_3d", f"Two DS Tracks Reconstruction Efficiency vs #theta_{{3D}} ({lbl});#theta_{{#mu#mu}} [mrad];#epsilon_{{2 DS | DS Acc}}", "dimuon_opening_angle_mrad_unified", node_p, node_t, 50, 0.0, 2000.0)
         book_teff(f"teff_2ds_in_acc_{pref}_vs_opening_angle_xz", f"Two DS Tracks Reconstruction Efficiency vs #Delta#theta_{{XZ}} ({lbl});#Delta#theta_{{XZ}} [mrad];#epsilon_{{2 DS | DS Acc}}", "dimuon_opening_angle_xz_mrad", node_p, node_t, 50, 0.0, 500.0)
@@ -1996,8 +1996,8 @@ def main():
     ]
 
     for sp_key, sp_node, sp_lbl in species_samples:
-        book_1d(f"h_species_{sp_key}_mu1_e", f"Primary #mu_{{1}} Energy ({sp_lbl});E_{{#mu1}} [GeV];Events", "mu1_e", sp_node, 50, 0.0, 600.0)
-        book_1d(f"h_species_{sp_key}_mu2_e", f"Secondary #mu_{{2}} Energy ({sp_lbl});E_{{#mu2}} [GeV];Events", "sec_mu_e", sp_node, 50, 0.0, 300.0)
+        book_1d(f"h_species_{sp_key}_mu1_e", f"Primary #mu_{{1}} Energy ({sp_lbl});E_{{#mu1}} [GeV];Events", "mu1_e", sp_node, 100, 0.0, 1200.0)
+        book_1d(f"h_species_{sp_key}_mu2_e", f"Secondary #mu_{{2}} Energy ({sp_lbl});E_{{#mu2}} [GeV];Events", "sec_mu_e", sp_node, 200, 0.0, 1200.0)
         book_1d(f"h_species_{sp_key}_dimuon_delta_e", f"Muon Energy Difference E_{{#mu1}} - E_{{#mu2}} ({sp_lbl});E_{{#mu1}} - E_{{#mu2}} [GeV];Events", "dimuon_delta_e_unified", sp_node, 50, -50.0, 600.0)
         book_1d(f"h_species_{sp_key}_charm_p", f"{sp_lbl} Momentum;p_{{charm}} [GeV/c];Events", "charm_p", sp_node, 50, 0.0, 500.0)
         book_1d(f"h_species_{sp_key}_decay_length", f"{sp_lbl} 3D Flight Length;L_{{3D}} [cm];Events", "decay_length_3d", sp_node, 50, 0.0, 5.0)
@@ -2017,7 +2017,7 @@ def main():
     ]
 
     for cf_key, cf_node, cf_lbl in cutflow_stages:
-        book_1d(f"h_cutflow_{cf_key}_nu_e", f"Incoming #nu_{{#mu}} Energy ({cf_lbl});E_{{#nu}} [GeV];Events", "nu_e", cf_node, 50, 0.0, 1000.0)
+        book_1d(f"h_cutflow_{cf_key}_nu_e", f"Incoming #nu_{{#mu}} Energy ({cf_lbl});E_{{#nu}} [GeV];Events", "nu_e", cf_node, 60, 0.0, 1200.0)
         book_1d(f"h_cutflow_{cf_key}_vtx_z", f"Vertex Z Position ({cf_lbl});z_{{vtx}} [cm];Events", "vtx_z", cf_node, 50, 260.0, 360.0)
 
     # --------------------------------------------------------------------------

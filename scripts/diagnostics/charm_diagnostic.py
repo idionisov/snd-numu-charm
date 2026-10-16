@@ -208,38 +208,38 @@ CHARM_NOMINAL_MASSES: Dict[int, float] = {
 
 # Species color palette for multi-line and superimposed plots
 SPECIES_COLORS: Dict[int, int] = {
-    421: ROOT.kRed + 1,       # D0
-    411: ROOT.kAzure + 1,     # D+
-    431: ROOT.kGreen + 2,     # Ds
-    4122: ROOT.kMagenta + 1,  # Lambda_c
-    -421: ROOT.kRed + 1,      # anti-D0
-    -411: ROOT.kAzure + 1,    # D-
-    -431: ROOT.kGreen + 2,    # Ds-
-    -4122: ROOT.kMagenta + 1, # anti-Lambda_c
+    421: ROOT.TColor.GetColor("#d91e18"),       # D0
+    411: ROOT.TColor.GetColor("#1e88e5"),       # D+
+    431: ROOT.TColor.GetColor("#2e7d32"),       # Ds
+    4122: ROOT.TColor.GetColor("#8e24aa"),      # Lambda_c
+    -421: ROOT.TColor.GetColor("#d91e18"),      # anti-D0
+    -411: ROOT.TColor.GetColor("#1e88e5"),      # D-
+    -431: ROOT.TColor.GetColor("#2e7d32"),      # Ds-
+    -4122: ROOT.TColor.GetColor("#8e24aa"),     # anti-Lambda_c
 }
 
 # Pale pastel fill colors for model 1-sigma uncertainty bands
 SPECIES_FILL_COLORS: Dict[int, int] = {
-    421: ROOT.kRed - 10,       # D0 pale pastel red
-    411: ROOT.kBlue - 10,      # D+ pale pastel blue
-    431: ROOT.kGreen - 10,     # Ds pale pastel green
-    4122: ROOT.kMagenta - 10,  # Lambda_c pale pastel magenta
-    -421: ROOT.kRed - 10,
-    -411: ROOT.kBlue - 10,
-    -431: ROOT.kGreen - 10,
-    -4122: ROOT.kMagenta - 10,
+    421: ROOT.TColor.GetColor("#d91e18"),
+    411: ROOT.TColor.GetColor("#1e88e5"),
+    431: ROOT.TColor.GetColor("#2e7d32"),
+    4122: ROOT.TColor.GetColor("#8e24aa"),
+    -421: ROOT.TColor.GetColor("#d91e18"),
+    -411: ROOT.TColor.GetColor("#1e88e5"),
+    -431: ROOT.TColor.GetColor("#2e7d32"),
+    -4122: ROOT.TColor.GetColor("#8e24aa"),
 }
 
 # Darker prominent colors for external CHORUS measurements
 CHORUS_COLORS: Dict[int, int] = {
-    421: ROOT.kRed + 3,        # D0 deep dark red / maroon
-    411: ROOT.kBlue + 3,       # D+ deep dark navy blue
-    431: ROOT.kGreen + 3,      # Ds deep dark forest green
-    4122: ROOT.kMagenta + 3,   # Lambda_c deep dark violet
-    -421: ROOT.kRed + 3,
-    -411: ROOT.kBlue + 3,
-    -431: ROOT.kGreen + 3,
-    -4122: ROOT.kMagenta + 3,
+    421: ROOT.TColor.GetColor("#800000"),        # D0 deep dark red / maroon
+    411: ROOT.TColor.GetColor("#000080"),        # D+ deep dark navy blue
+    431: ROOT.TColor.GetColor("#004d00"),        # Ds deep dark forest green
+    4122: ROOT.TColor.GetColor("#4b0082"),       # Lambda_c deep dark violet
+    -421: ROOT.TColor.GetColor("#800000"),
+    -411: ROOT.TColor.GetColor("#000080"),
+    -431: ROOT.TColor.GetColor("#004d00"),
+    -4122: ROOT.TColor.GetColor("#4b0082"),
 }
 
 # ROOT TLatex formatted titles for charm hadron species
@@ -949,6 +949,9 @@ def load_lhapdf_charm_prediction(
     name: str = "lhapdf_charm_prediction",
     line_color: int = ROOT.kBlack,
     line_width: int = 2,
+    band_color: Optional[int] = None,
+    inner_alpha: float = 0.35,
+    outer_alpha: float = 0.18,
 ) -> Tuple[ROOT.TGraph, ROOT.TGraphAsymmErrors, ROOT.TGraphAsymmErrors]:
     """
     Loads precalculated LHAPDF nCTEQ15 charm cross-section ratio predictions from CSV.
@@ -1020,20 +1023,270 @@ def load_lhapdf_charm_prediction(
         g_outer.SetPoint(i, x, y)
         g_outer.SetPointError(i, 0.0, 0.0, ey_out_lo, ey_out_hi)
 
-    col_outer = ROOT.TColor.GetColor("#dcdcdc")
-    col_inner = ROOT.TColor.GetColor("#a8a8a8")
+    eff_band_col = band_color if band_color is not None else line_color
 
-    g_outer.SetFillColorAlpha(col_outer, 0.70)
+    g_outer.SetFillColorAlpha(eff_band_col, outer_alpha)
     g_outer.SetFillStyle(1001)
-    g_outer.SetLineColor(col_outer)
+    g_outer.SetLineColor(eff_band_col)
     g_outer.SetLineWidth(0)
 
-    g_inner.SetFillColorAlpha(col_inner, 0.70)
+    g_inner.SetFillColorAlpha(eff_band_col, inner_alpha)
     g_inner.SetFillStyle(1001)
-    g_inner.SetLineColor(col_inner)
+    g_inner.SetLineColor(eff_band_col)
     g_inner.SetLineWidth(0)
 
     return g_central, g_inner, g_outer
+
+
+def load_lhapdf_dimuon_prediction(
+    csv_filename: str,
+    name: str = "lhapdf_dimuon_prediction",
+    line_color: int = ROOT.kBlack,
+    line_width: int = 2,
+    band_color: Optional[int] = None,
+    scale_to_absolute: bool = True,
+    inner_alpha: float = 0.35,
+    outer_alpha: float = 0.18,
+) -> Tuple[ROOT.TGraph, ROOT.TGraphAsymmErrors, ROOT.TGraphAsymmErrors]:
+    """
+    Loads precalculated LHAPDF nCTEQ15 dimuon cross-section ratio predictions from CSV.
+    The CSV stores ratio_nominal_10m3 and sigma_1..4 in units of 10^-3.
+    If scale_to_absolute is True, values are converted to absolute sigma(charm, 2mu)/sigma(CC).
+    Returns:
+      (g_central, g_base_band, g_total_band)
+    where:
+      - g_central is the nominal prediction
+      - g_base_band is the Tier 1 base kinematics (mc & CKM) belt
+      - g_total_band is the Tier 4 total uncertainty belt (incl. hadronization & B_mu)
+    """
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "predictions", csv_filename),
+        os.path.join("/afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/predictions", csv_filename),
+        os.path.join("scripts/diagnostics/predictions", csv_filename),
+        csv_filename,
+    ]
+    resolved_path = None
+    for c in candidates:
+        if os.path.exists(c):
+            resolved_path = c
+            break
+
+    if not resolved_path:
+        raise FileNotFoundError(f"LHAPDF dimuon prediction CSV '{csv_filename}' not found in candidates: {candidates}")
+
+    scale = 1e-3 if scale_to_absolute else 1.0
+
+    e_vals: List[float] = []
+    y_cens: List[float] = []
+    s1_los: List[float] = []
+    s1_his: List[float] = []
+    s4_los: List[float] = []
+    s4_his: List[float] = []
+
+    with open(resolved_path, "r", encoding="utf-8-sig") as f:
+        clean_lines = [line for line in f if not line.strip().startswith("#")]
+        reader = csv.DictReader(clean_lines)
+        for row in reader:
+            e_vals.append(float(row["E_nu_GeV"]))
+            y_cens.append(float(row["ratio_nominal_10m3"]) * scale)
+            s1_los.append(float(row["sigma_1_lo"]) * scale)
+            s1_his.append(float(row["sigma_1_hi"]) * scale)
+            s4_los.append(float(row["sigma_4_lo"]) * scale)
+            s4_his.append(float(row["sigma_4_hi"]) * scale)
+
+    n_pts = len(e_vals)
+    g_central = ROOT.TGraph(n_pts)
+    g_central.SetName(f"g_{name}_central")
+    g_central.SetLineColor(line_color)
+    g_central.SetLineWidth(line_width)
+
+    g_base = ROOT.TGraphAsymmErrors(n_pts)
+    g_base.SetName(f"g_{name}_1sigma_base_band")
+
+    g_total = ROOT.TGraphAsymmErrors(n_pts)
+    g_total.SetName(f"g_{name}_1sigma_total_band")
+
+    for i in range(n_pts):
+        x = e_vals[i]
+        y = y_cens[i]
+        ey1_lo = max(0.0, s1_los[i])
+        ey1_hi = max(0.0, s1_his[i])
+        ey4_lo = max(0.0, s4_los[i])
+        ey4_hi = max(0.0, s4_his[i])
+
+        g_central.SetPoint(i, x, y)
+        g_base.SetPoint(i, x, y)
+        g_base.SetPointError(i, 0.0, 0.0, ey1_lo, ey1_hi)
+        g_total.SetPoint(i, x, y)
+        g_total.SetPointError(i, 0.0, 0.0, ey4_lo, ey4_hi)
+
+    eff_band_col = band_color if band_color is not None else line_color
+
+    g_total.SetFillColorAlpha(eff_band_col, outer_alpha)
+    g_total.SetFillStyle(1001)
+    g_total.SetLineColor(eff_band_col)
+    g_total.SetLineWidth(0)
+
+    g_base.SetFillColorAlpha(eff_band_col, inner_alpha)
+    g_base.SetFillStyle(1001)
+    g_base.SetLineColor(eff_band_col)
+    g_base.SetLineWidth(0)
+
+    return g_central, g_base, g_total
+
+
+# Channel-specific color palettes for charm hadron fragmentation fractions:
+# Red for Inclusive (nu + anti-nu), Blue for Neutrinos, Purple for Anti-neutrinos
+CHANNEL_SPECIES_COLORS: Dict[str, Dict[str, str]] = {
+    "inclusive": {
+        "D0": "#d91e18",        # Bright Red
+        "D+": "#b71c1c",        # Crimson Red
+        "Ds+": "#ff5722",       # Coral / Orange-Red
+        "Lambda_c": "#c2185b",  # Rose / Raspberry Red
+    },
+    "nu": {
+        "D0": "#1e88e5",        # Bright Blue
+        "D+": "#0d47a1",        # Dark Navy Blue
+        "Ds+": "#00acc1",       # Cyan / Aqua Blue
+        "Lambda_c": "#3949ab",  # Indigo / Royal Blue
+    },
+    "antinu": {
+        "D0": "#8e24aa",        # Bright Violet / Purple
+        "D+": "#4a148c",        # Deep Imperial Purple
+        "Ds+": "#ba68c8",       # Orchid / Lilac
+        "Lambda_c": "#7b1fa2",  # Plum / Violet-Red
+    },
+}
+
+CHANNEL_SPECIES_LINE_STYLES: Dict[str, int] = {
+    "D0": 1,        # Solid
+    "D+": 2,        # Dashed
+    "Ds+": 4,       # Dash-dot
+    "Lambda_c": 3,  # Dotted
+}
+
+
+def load_lhapdf_species_fractions(
+    csv_filename: str,
+    name_prefix: str = "lhapdf_sp",
+    channel_mode: str = "inclusive",
+    is_antinu: bool = False,
+) -> Tuple[Dict[int, ROOT.TGraph], Dict[int, ROOT.TGraphAsymmErrors]]:
+    """
+    Loads precalculated LHAPDF nCTEQ15 charm hadron species fragmentation fraction
+    predictions and 1-sigma uncertainty bands from CSV.
+    The colors follow the channel theme:
+      - 'inclusive': Red shades
+      - 'nu': Blue shades
+      - 'antinu': Purple shades
+    Returns:
+      (dict_curves, dict_bands)
+    keyed by hadron PDG code and absolute PDG code.
+    """
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "predictions", csv_filename),
+        os.path.join("/afs/cern.ch/work/i/idioniso/snd-numu-charm/scripts/diagnostics/predictions", csv_filename),
+        os.path.join("scripts/diagnostics/predictions", csv_filename),
+        csv_filename,
+    ]
+    resolved_path = None
+    for c in candidates:
+        if os.path.exists(c):
+            resolved_path = c
+            break
+
+    if not resolved_path:
+        raise FileNotFoundError(f"LHAPDF species prediction CSV '{csv_filename}' not found in candidates: {candidates}")
+
+    mode_key = "antinu" if is_antinu or "antinu" in channel_mode.lower() else ("nu" if "nu" in channel_mode.lower() and "inc" not in channel_mode.lower() else "inclusive")
+    pal = CHANNEL_SPECIES_COLORS.get(mode_key, CHANNEL_SPECIES_COLORS["inclusive"])
+
+    species_info = {
+        "D0": {
+            "pdg": -421 if is_antinu else 421,
+            "color_hex": pal["D0"],
+            "line_style": CHANNEL_SPECIES_LINE_STYLES["D0"],
+            "latex": "#bar{D}^{0}" if is_antinu else "D^{0}",
+        },
+        "D+": {
+            "pdg": -411 if is_antinu else 411,
+            "color_hex": pal["D+"],
+            "line_style": CHANNEL_SPECIES_LINE_STYLES["D+"],
+            "latex": "D^{-}" if is_antinu else "D^{+}",
+        },
+        "Ds+": {
+            "pdg": -431 if is_antinu else 431,
+            "color_hex": pal["Ds+"],
+            "line_style": CHANNEL_SPECIES_LINE_STYLES["Ds+"],
+            "latex": "D_{s}^{-}" if is_antinu else "D_{s}^{+}",
+        },
+        "Lambda_c": {
+            "pdg": -4122 if is_antinu else 4122,
+            "color_hex": pal["Lambda_c"],
+            "line_style": CHANNEL_SPECIES_LINE_STYLES["Lambda_c"],
+            "latex": "#bar{#Lambda}_{c}^{-}" if is_antinu else "#Lambda_{c}^{+}",
+        },
+    }
+
+    e_vals: List[float] = []
+    sp_cens: Dict[str, List[float]] = {sp: [] for sp in species_info}
+    sp_band_los: Dict[str, List[float]] = {sp: [] for sp in species_info}
+    sp_band_his: Dict[str, List[float]] = {sp: [] for sp in species_info}
+
+    with open(resolved_path, "r", encoding="utf-8-sig") as f:
+        clean_lines = [line for line in f if not line.strip().startswith("#")]
+        reader = csv.DictReader(clean_lines)
+        for row in reader:
+            e_vals.append(float(row["E_nu_GeV"]))
+            for sp in species_info:
+                sp_cens[sp].append(float(row[f"f_{sp}_central"]))
+                sp_band_los[sp].append(float(row[f"f_{sp}_band_low"]))
+                sp_band_his[sp].append(float(row[f"f_{sp}_band_high"]))
+
+    curves: Dict[int, ROOT.TGraph] = {}
+    bands: Dict[int, ROOT.TGraphAsymmErrors] = {}
+
+    n_pts = len(e_vals)
+    for sp, s_info in species_info.items():
+        pdg = s_info["pdg"]
+        col = ROOT.TColor.GetColor(s_info["color_hex"])
+        sp_name = get_species_name(abs(pdg))
+
+        g_central = ROOT.TGraph(n_pts)
+        g_central.SetName(f"g_{name_prefix}_fraction_{sp_name}_central")
+        g_central.SetTitle(f"{s_info['latex']};E_{{#nu}} [GeV];f({sp_name})")
+        g_central.SetLineColor(col)
+        g_central.SetLineStyle(s_info["line_style"])
+        g_central.SetLineWidth(2)
+
+        g_band = ROOT.TGraphAsymmErrors(n_pts)
+        g_band.SetName(f"g_{name_prefix}_fraction_{sp_name}_1sigma_band")
+        g_band.SetTitle(f"{s_info['latex']} (QCD calc 1#sigma);E_{{#nu}} [GeV];f({sp_name})")
+
+        for i in range(n_pts):
+            x = e_vals[i]
+            y = sp_cens[sp][i]
+            y_lo = sp_band_los[sp][i]
+            y_hi = sp_band_his[sp][i]
+
+            ey_lo = max(0.0, y - y_lo)
+            ey_hi = max(0.0, y_hi - y)
+
+            g_central.SetPoint(i, x, y)
+            g_band.SetPoint(i, x, y)
+            g_band.SetPointError(i, 0.0, 0.0, ey_lo, ey_hi)
+
+        g_band.SetFillColorAlpha(col, 0.22)
+        g_band.SetFillStyle(1001)
+        g_band.SetLineColor(col)
+        g_band.SetLineWidth(0)
+
+        curves[pdg] = g_central
+        curves[abs(pdg)] = g_central
+        bands[pdg] = g_band
+        bands[abs(pdg)] = g_band
+
+    return curves, bands
 
 
 def create_species_fraction_model(
@@ -2062,11 +2315,12 @@ def write_histograms_and_canvases(
     h2_species_charm_ebin.Write()
 
     # 1D Species Fraction vs E_nu for each major ground state (Inclusive, nu-only, and antinu-only)
-    def _create_species_frac_graphs(counts_per_ebin, species_list=None, name_suffix="", title_suffix=""):
+    def _create_species_frac_graphs(counts_per_ebin, species_list=None, name_suffix="", title_suffix="", channel_mode="inclusive"):
         if species_list is None:
             species_list = species_order
         h_map: Dict[int, ROOT.TH1D] = {}
         g_map: Dict[int, ROOT.TGraphAsymmErrors] = {}
+        pal = CHANNEL_SPECIES_COLORS.get(channel_mode, CHANNEL_SPECIES_COLORS["inclusive"])
         for idx_sp, sp_pdg in enumerate(species_list):
             sp_name = get_species_name(sp_pdg)
             sp_latex = SPECIES_LATEX.get(sp_pdg, sp_name)
@@ -2095,7 +2349,10 @@ def write_histograms_and_canvases(
                 g_frac.SetPoint(i_b, x_c, val)
                 g_frac.SetPointError(i_b, dx_lo, dx_hi, err_lo, err_hi)
 
-            col = SPECIES_COLORS.get(sp_pdg, ROOT.kBlack)
+            sp_key = {421: "D0", -421: "D0", 411: "D+", -411: "D+", 431: "Ds+", -431: "Ds+", 4122: "Lambda_c", -4122: "Lambda_c"}.get(sp_pdg, "D0")
+            col_hex = pal.get(sp_key, "#000000")
+            col = ROOT.TColor.GetColor(col_hex)
+
             h_frac.SetLineColor(col)
             h_frac.SetMarkerColor(col)
             h_frac.SetMarkerStyle(20 + idx_sp)
@@ -2113,13 +2370,13 @@ def write_histograms_and_canvases(
         return h_map, g_map
 
     species_frac_nu_hists, species_frac_nu_graphs = _create_species_frac_graphs(
-        data["species_nu_ebin_counts"], species_order, "", ""
+        data["species_nu_ebin_counts"], species_order, "", "", channel_mode="inclusive"
     )
     species_frac_nu_hists_nu, species_frac_nu_graphs_nu = _create_species_frac_graphs(
-        data.get("species_nu_ebin_counts_nu", {}), species_order, "_nu_only", " (#nu_{#mu} CC)"
+        data.get("species_nu_ebin_counts_nu", {}), species_order, "_nu_only", " (#nu_{#mu} CC)", channel_mode="nu"
     )
     species_frac_nu_hists_antinu, species_frac_nu_graphs_antinu = _create_species_frac_graphs(
-        data.get("species_nu_ebin_counts_antinu", {}), anti_species_order, "_antinu_only", " (#bar{#nu}_{#mu} CC)"
+        data.get("species_nu_ebin_counts_antinu", {}), anti_species_order, "_antinu_only", " (#bar{#nu}_{#mu} CC)", channel_mode="antinu"
     )
 
     # 1D Species Fraction vs E_charm for each major ground state
@@ -2460,23 +2717,30 @@ def write_histograms_and_canvases(
     f_sr_iso_antinu.SetLineWidth(2)
 
     # 5. LHAPDF nCTEQ15 theoretical predictions from CSV
+    col_nu = ROOT.TColor.GetColor("#1e88e5")       # Blue for neutrinos
+    col_antinu = ROOT.TColor.GetColor("#8e24aa")   # Purple for anti-neutrinos
+    col_inc = ROOT.TColor.GetColor("#d91e18")      # Red for inclusive (nu + anti-nu)
+
     g_lhapdf_nu, g_lhapdf_nu_inner, g_lhapdf_nu_outer = load_lhapdf_charm_prediction(
         "numuCC_charm_cross_section_ratio_prediction_lhapdf.csv",
         name="lhapdf_nu",
-        line_color=ROOT.kBlack,
+        line_color=col_nu,
         line_width=2,
+        band_color=col_nu,
     )
     g_lhapdf_antinu, g_lhapdf_antinu_inner, g_lhapdf_antinu_outer = load_lhapdf_charm_prediction(
         "antinumuCC_charm_cross_section_ratio_prediction_lhapdf.csv",
         name="lhapdf_antinu",
-        line_color=ROOT.kBlack,
+        line_color=col_antinu,
         line_width=2,
+        band_color=col_antinu,
     )
     g_lhapdf_inc, g_lhapdf_inc_inner, g_lhapdf_inc_outer = load_lhapdf_charm_prediction(
         "inclusive_numu_antinumu_charm_cross_section_ratio_prediction_lhapdf.csv",
         name="lhapdf_inclusive",
-        line_color=ROOT.kBlack,
+        line_color=col_inc,
         line_width=2,
+        band_color=col_inc,
     )
 
     # Load external experimental measurements:
@@ -2724,20 +2988,12 @@ def write_histograms_and_canvases(
     g_lhapdf_nu_inner.Draw("3 same")
     g_lhapdf_nu.Draw("L same")
     g_charm_rate_mc_nu.Draw("P E1 same")
-    if g_chorus:
-        g_chorus.Draw("P E1 same")
-    if g_e531:
-        g_e531.Draw("P E1 same")
 
-    leg_nu = ROOT.TLegend(0.44, 0.58, 0.92, 0.89)
+    leg_nu = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
     leg_nu.SetBorderSize(1)
     leg_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
     leg_nu.SetTextSize(0.022)
     leg_nu.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
-    if g_chorus:
-        leg_nu.AddEntry(g_chorus, "CHORUS (2011, Emulsion, inclusive)", "lep")
-    if g_e531:
-        leg_nu.AddEntry(g_e531, "E531 (1988, Emulsion, inclusive)", "lep")
     leg_nu.AddEntry(g_lhapdf_nu, "QCD Prediction (Emulsion, <Z/A> ~ 0.467, #nu_{#mu})", "l")
     leg_nu.AddEntry(g_lhapdf_nu_inner, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 #pm 0.10 GeV & CKM |V_{cd}|)", "f")
     leg_nu.AddEntry(g_lhapdf_nu_outer, "LHAPDF nCTEQ15 1#sigma (+ Nuclear PDF & QCD Evol.)", "f")
@@ -2774,6 +3030,49 @@ def write_histograms_and_canvases(
     leg_antinu.AddEntry(g_lhapdf_antinu_outer, "LHAPDF nCTEQ15 1#sigma (+ Nuclear PDF & QCD Evol.)", "f")
     leg_antinu.Draw("same")
     c_rate_antinu.Write()
+
+    # -------------------------------------------------------------------------
+    # Canvas 1d: Combined Charm Production Rate (Inclusive vs Nu vs Anti-Nu)
+    # Red for Inclusive, Blue for Neutrinos, Purple for Anti-Neutrinos
+    # -------------------------------------------------------------------------
+    c_rate_all = ROOT.TCanvas("c_charm_rate_vs_energy_comparison", "Charm Production Rate: Inclusive vs Nu vs Anti-Nu", 950, 700)
+    c_rate_all.SetLeftMargin(0.12)
+    c_rate_all.SetRightMargin(0.06)
+    c_rate_all.SetTopMargin(0.08)
+    c_rate_all.SetBottomMargin(0.12)
+    c_rate_all.SetGrid()
+
+    h_frame_all = c_rate_all.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), y_max_antinu)
+    h_frame_all.SetTitle("Charm Production Rate Comparison: Inclusive vs #nu_{#mu} vs #bar{#nu}_{#mu};E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
+    h_frame_all.GetYaxis().SetTitleOffset(1.25)
+
+    g_lhapdf_inc_outer.Draw("3 same")
+    g_lhapdf_inc_inner.Draw("3 same")
+    g_lhapdf_nu_outer.Draw("3 same")
+    g_lhapdf_nu_inner.Draw("3 same")
+    g_lhapdf_antinu_outer.Draw("3 same")
+    g_lhapdf_antinu_inner.Draw("3 same")
+
+    g_lhapdf_inc.Draw("L same")
+    g_lhapdf_nu.Draw("L same")
+    g_lhapdf_antinu.Draw("L same")
+
+    g_charm_rate_mc.Draw("P E1 same")
+    g_charm_rate_mc_nu.Draw("P E1 same")
+    g_charm_rate_mc_antinu.Draw("P E1 same")
+
+    leg_rate_all = ROOT.TLegend(0.44, 0.58, 0.92, 0.89)
+    leg_rate_all.SetBorderSize(1)
+    leg_rate_all.SetFillColorAlpha(ROOT.kWhite, 0.92)
+    leg_rate_all.SetTextSize(0.021)
+    leg_rate_all.AddEntry(g_charm_rate_mc, "MC Inclusive (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
+    leg_rate_all.AddEntry(g_lhapdf_inc, "QCD Inclusive (Red)", "lf")
+    leg_rate_all.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
+    leg_rate_all.AddEntry(g_lhapdf_nu, "QCD #nu_{#mu} (Blue)", "lf")
+    leg_rate_all.AddEntry(g_charm_rate_mc_antinu, "MC #bar{#nu}_{#mu} CC", "lep")
+    leg_rate_all.AddEntry(g_lhapdf_antinu, "QCD #bar{#nu}_{#mu} (Purple)", "lf")
+    leg_rate_all.Draw("same")
+    c_rate_all.Write()
 
     # =========================================================================
     # Dimuon Rate Canvases: \sigma(charm, 2\mu) / \sigma(CC) vs E_\nu
@@ -2857,6 +3156,34 @@ def write_histograms_and_canvases(
     )
     f_sr_2mu_iso_antinu.SetLineStyle(7)
     f_sr_2mu_iso_antinu.SetLineWidth(2)
+
+    # Theoretical LHAPDF nCTEQ15 dimuon models
+    g_lhapdf_dimuon_inc, g_lhapdf_dimuon_inc_base, g_lhapdf_dimuon_inc_total = load_lhapdf_dimuon_prediction(
+        "neutrino_charm_dimuon_ratio_inclusive_prediction_lhapdf.csv",
+        name="lhapdf_dimuon_inclusive",
+        line_color=col_inc,
+        line_width=2,
+        band_color=col_inc,
+        scale_to_absolute=True,
+    )
+
+    g_lhapdf_dimuon_nu, g_lhapdf_dimuon_nu_base, g_lhapdf_dimuon_nu_total = load_lhapdf_dimuon_prediction(
+        "neutrino_charm_dimuon_ratio_nu_prediction_lhapdf.csv",
+        name="lhapdf_dimuon_nu",
+        line_color=col_nu,
+        line_width=2,
+        band_color=col_nu,
+        scale_to_absolute=True,
+    )
+
+    g_lhapdf_dimuon_antinu, g_lhapdf_dimuon_antinu_base, g_lhapdf_dimuon_antinu_total = load_lhapdf_dimuon_prediction(
+        "neutrino_charm_dimuon_ratio_antinu_prediction_lhapdf.csv",
+        name="lhapdf_dimuon_antinu",
+        line_color=col_antinu,
+        line_width=2,
+        band_color=col_antinu,
+        scale_to_absolute=True,
+    )
 
     # MC Dimuon data points
     g_dimuon_rate_mc = ROOT.TGraphAsymmErrors(n_nu_ebins)
@@ -3082,25 +3409,23 @@ def write_histograms_and_canvases(
     h_frame_dimuon_inc.SetTitle("Charm Dimuon Production Rate: Inclusive (#nu_{#mu} + #bar{#nu}_{#mu});E_{#nu} [GeV];#sigma_{charm, 2#mu} / #sigma_{CC}")
     h_frame_dimuon_inc.GetYaxis().SetTitleOffset(1.25)
 
-    g_sr_2mu_w_inc_outer.Draw("3 same")
-    g_sr_2mu_w_inc_inner.Draw("3 same")
-    f_sr_2mu_iso_inc.Draw("same")
-    f_sr_2mu_w_inc.Draw("same")
+    g_lhapdf_dimuon_inc_total.Draw("3 same")
+    g_lhapdf_dimuon_inc_base.Draw("3 same")
+    g_lhapdf_dimuon_inc.Draw("L same")
     for g_dim in dimuon_graphs.values():
         g_dim.Draw("P E1 same")
     g_dimuon_rate_mc.Draw("P E1 same")
 
-    leg_dimuon_inc = ROOT.TLegend(0.44, 0.48, 0.92, 0.89)
+    leg_dimuon_inc = ROOT.TLegend(0.44, 0.50, 0.92, 0.89)
     leg_dimuon_inc.SetBorderSize(1)
     leg_dimuon_inc.SetFillColorAlpha(ROOT.kWhite, 0.92)
     leg_dimuon_inc.SetTextSize(0.020)
     leg_dimuon_inc.AddEntry(g_dimuon_rate_mc, "MC Inclusive Dimuon (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
     for g_dim in dimuon_graphs.values():
         leg_dimuon_inc.AddEntry(g_dim, g_dim.GetTitle(), "lep")
-    leg_dimuon_inc.AddEntry(f_sr_2mu_w_inc, "Slow Rescaling #times #LTB_{#mu}#GT (W, #nu+#bar{#nu})", "l")
-    leg_dimuon_inc.AddEntry(g_sr_2mu_w_inc_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
-    leg_dimuon_inc.AddEntry(g_sr_2mu_w_inc_outer, "+ High-E QCD / Sea Evolution", "f")
-    leg_dimuon_inc.AddEntry(f_sr_2mu_iso_inc, "Slow Rescaling #times #LTB_{#mu}#GT (Isoscalar N=Z)", "l")
+    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc, "QCD Prediction (Tungsten, #nu_{#mu}+#bar{#nu}_{#mu})", "l")
+    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_base, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 GeV & |V_{cd}|)", "f")
+    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_total, "LHAPDF nCTEQ15 1#sigma (+ nPDF, Lund Var. & B_{#mu})", "f")
     leg_dimuon_inc.Draw("same")
     c_dimuon_inc.Write()
 
@@ -3116,21 +3441,19 @@ def write_histograms_and_canvases(
     h_frame_dimuon_nu.SetTitle("Charm Dimuon Production Rate: #nu_{#mu} CC;E_{#nu} [GeV];#sigma_{charm, 2#mu} / #sigma_{CC}")
     h_frame_dimuon_nu.GetYaxis().SetTitleOffset(1.25)
 
-    g_sr_2mu_w_nu_outer.Draw("3 same")
-    g_sr_2mu_w_nu_inner.Draw("3 same")
-    f_sr_2mu_iso_nu.Draw("same")
-    f_sr_2mu_w_nu.Draw("same")
+    g_lhapdf_dimuon_nu_total.Draw("3 same")
+    g_lhapdf_dimuon_nu_base.Draw("3 same")
+    g_lhapdf_dimuon_nu.Draw("L same")
     g_dimuon_rate_mc_nu.Draw("P E1 same")
 
-    leg_dimuon_nu = ROOT.TLegend(0.48, 0.62, 0.92, 0.89)
+    leg_dimuon_nu = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
     leg_dimuon_nu.SetBorderSize(1)
     leg_dimuon_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
     leg_dimuon_nu.SetTextSize(0.022)
     leg_dimuon_nu.AddEntry(g_dimuon_rate_mc_nu, "MC #nu_{#mu} Dimuon CC", "lep")
-    leg_dimuon_nu.AddEntry(f_sr_2mu_w_nu, "Slow Rescaling #times #LTB_{#mu}#GT (W, #nu_{#mu})", "l")
-    leg_dimuon_nu.AddEntry(g_sr_2mu_w_nu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
-    leg_dimuon_nu.AddEntry(g_sr_2mu_w_nu_outer, "+ High-E QCD / Sea Evolution", "f")
-    leg_dimuon_nu.AddEntry(f_sr_2mu_iso_nu, "Slow Rescaling #times #LTB_{#mu}#GT (Isoscalar N=Z)", "l")
+    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu, "QCD Prediction (Tungsten, #nu_{#mu})", "l")
+    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_base, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 GeV & |V_{cd}|)", "f")
+    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_total, "LHAPDF nCTEQ15 1#sigma (+ nPDF, Lund Var. & B_{#mu})", "f")
     leg_dimuon_nu.Draw("same")
     c_dimuon_nu.Write()
 
@@ -3146,23 +3469,62 @@ def write_histograms_and_canvases(
     h_frame_dimuon_antinu.SetTitle("Charm Dimuon Production Rate: #bar{#nu}_{#mu} CC;E_{#nu} [GeV];#sigma_{charm, 2#mu} / #sigma_{CC}")
     h_frame_dimuon_antinu.GetYaxis().SetTitleOffset(1.25)
 
-    g_sr_2mu_w_antinu_outer.Draw("3 same")
-    g_sr_2mu_w_antinu_inner.Draw("3 same")
-    f_sr_2mu_iso_antinu.Draw("same")
-    f_sr_2mu_w_antinu.Draw("same")
+    g_lhapdf_dimuon_antinu_total.Draw("3 same")
+    g_lhapdf_dimuon_antinu_base.Draw("3 same")
+    g_lhapdf_dimuon_antinu.Draw("L same")
     g_dimuon_rate_mc_antinu.Draw("P E1 same")
 
-    leg_dimuon_antinu = ROOT.TLegend(0.48, 0.62, 0.92, 0.89)
+    leg_dimuon_antinu = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
     leg_dimuon_antinu.SetBorderSize(1)
     leg_dimuon_antinu.SetFillColorAlpha(ROOT.kWhite, 0.92)
     leg_dimuon_antinu.SetTextSize(0.022)
     leg_dimuon_antinu.AddEntry(g_dimuon_rate_mc_antinu, "MC #bar{#nu}_{#mu} Dimuon CC", "lep")
-    leg_dimuon_antinu.AddEntry(f_sr_2mu_w_antinu, "Slow Rescaling #times #LTB_{#mu}#GT (W, #bar{#nu}_{#mu})", "l")
-    leg_dimuon_antinu.AddEntry(g_sr_2mu_w_antinu_inner, "Slow Rescaling Base 1#sigma Belt (W)", "f")
-    leg_dimuon_antinu.AddEntry(g_sr_2mu_w_antinu_outer, "+ High-E QCD / Sea Evolution", "f")
-    leg_dimuon_antinu.AddEntry(f_sr_2mu_iso_antinu, "Slow Rescaling #times #LTB_{#mu}#GT (Isoscalar N=Z)", "l")
+    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu, "QCD Prediction (Tungsten, #bar{#nu}_{#mu})", "l")
+    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu_base, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 GeV & |V_{cd}|)", "f")
+    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu_total, "LHAPDF nCTEQ15 1#sigma (+ nPDF, Lund Var. & B_{#mu})", "f")
     leg_dimuon_antinu.Draw("same")
     c_dimuon_antinu.Write()
+
+    # Canvas 1g: Dimuon Comparison: Inclusive vs nu_mu vs anti_nu_mu
+    c_dimuon_all = ROOT.TCanvas("c_charm_dimuon_rate_vs_energy_comparison", "Charm Dimuon Production Rate: Inclusive vs Nu vs Anti-Nu", 950, 700)
+    c_dimuon_all.SetLeftMargin(0.12)
+    c_dimuon_all.SetRightMargin(0.06)
+    c_dimuon_all.SetTopMargin(0.08)
+    c_dimuon_all.SetBottomMargin(0.12)
+    c_dimuon_all.SetGrid()
+
+    y_max_dim_comp = max(y_max_dimuon, y_max_dimuon_antinu)
+    h_frame_dim_all = c_dimuon_all.DrawFrame(0.0, 0.0, max(1000.0, nu_bin_edges[-1]), y_max_dim_comp)
+    h_frame_dim_all.SetTitle("Charm Dimuon Production Rate Comparison: Inclusive vs #nu_{#mu} vs #bar{#nu}_{#mu};E_{#nu} [GeV];#sigma_{charm, 2#mu} / #sigma_{CC}")
+    h_frame_dim_all.GetYaxis().SetTitleOffset(1.25)
+
+    g_lhapdf_dimuon_inc_total.Draw("3 same")
+    g_lhapdf_dimuon_inc_base.Draw("3 same")
+    g_lhapdf_dimuon_nu_total.Draw("3 same")
+    g_lhapdf_dimuon_nu_base.Draw("3 same")
+    g_lhapdf_dimuon_antinu_total.Draw("3 same")
+    g_lhapdf_dimuon_antinu_base.Draw("3 same")
+
+    g_lhapdf_dimuon_inc.Draw("L same")
+    g_lhapdf_dimuon_nu.Draw("L same")
+    g_lhapdf_dimuon_antinu.Draw("L same")
+
+    g_dimuon_rate_mc.Draw("P E1 same")
+    g_dimuon_rate_mc_nu.Draw("P E1 same")
+    g_dimuon_rate_mc_antinu.Draw("P E1 same")
+
+    leg_dimuon_all = ROOT.TLegend(0.44, 0.58, 0.92, 0.89)
+    leg_dimuon_all.SetBorderSize(1)
+    leg_dimuon_all.SetFillColorAlpha(ROOT.kWhite, 0.92)
+    leg_dimuon_all.SetTextSize(0.021)
+    leg_dimuon_all.AddEntry(g_dimuon_rate_mc, "MC Inclusive Dimuon (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
+    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_inc, "QCD Inclusive (Red)", "lf")
+    leg_dimuon_all.AddEntry(g_dimuon_rate_mc_nu, "MC #nu_{#mu} Dimuon CC", "lep")
+    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_nu, "QCD #nu_{#mu} (Blue)", "lf")
+    leg_dimuon_all.AddEntry(g_dimuon_rate_mc_antinu, "MC #bar{#nu}_{#mu} Dimuon CC", "lep")
+    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_antinu, "QCD #bar{#nu}_{#mu} (Purple)", "lf")
+    leg_dimuon_all.Draw("same")
+    c_dimuon_all.Write()
 
     # Also store into Summary directory
     dir_summary.cd()
@@ -3217,6 +3579,36 @@ def write_histograms_and_canvases(
     g_dimuon_rate_mc_nu.Write("g_dimuon_rate_mc_nu")
     g_dimuon_rate_mc_antinu.Write("g_dimuon_rate_mc_antinu")
 
+    g_lhapdf_dimuon_inc.Write("g_lhapdf_dimuon_prediction_inclusive")
+    g_lhapdf_dimuon_inc_base.Write("g_lhapdf_dimuon_inclusive_1sigma_base_band")
+    g_lhapdf_dimuon_inc_total.Write("g_lhapdf_dimuon_inclusive_1sigma_total_band")
+    g_lhapdf_dimuon_nu.Write("g_lhapdf_dimuon_prediction_nu")
+    g_lhapdf_dimuon_nu_base.Write("g_lhapdf_dimuon_nu_1sigma_base_band")
+    g_lhapdf_dimuon_nu_total.Write("g_lhapdf_dimuon_nu_1sigma_total_band")
+    g_lhapdf_dimuon_antinu.Write("g_lhapdf_dimuon_prediction_antinu")
+    g_lhapdf_dimuon_antinu_base.Write("g_lhapdf_dimuon_antinu_1sigma_base_band")
+    g_lhapdf_dimuon_antinu_total.Write("g_lhapdf_dimuon_antinu_1sigma_total_band")
+
+    # 5. LHAPDF nCTEQ15 theoretical charm species fragmentation fractions from CSV
+    sp_curves_inc, sp_bands_inc = load_lhapdf_species_fractions(
+        "charm_fragmentation_fractions_inclusive_prediction_lhapdf.csv",
+        name_prefix="lhapdf_sp_inc",
+        channel_mode="inclusive",
+        is_antinu=False,
+    )
+    sp_curves_nu, sp_bands_nu = load_lhapdf_species_fractions(
+        "charm_fragmentation_fractions_nu_only_prediction_lhapdf.csv",
+        name_prefix="lhapdf_sp_nu",
+        channel_mode="nu",
+        is_antinu=False,
+    )
+    sp_curves_antinu, sp_bands_antinu = load_lhapdf_species_fractions(
+        "charm_fragmentation_fractions_antinu_only_prediction_lhapdf.csv",
+        name_prefix="lhapdf_sp_antinu",
+        channel_mode="antinu",
+        is_antinu=True,
+    )
+
     # Generate and write theoretical/empirical charm species fraction model
     model_curves, model_bands, g_model_bmu, g_model_band_bmu = create_species_fraction_model(
         e_min=4.5,
@@ -3225,12 +3617,29 @@ def write_histograms_and_canvases(
         n_samples=2000,
         seed=42,
     )
-    for abs_c, g_c in model_curves.items():
+    for abs_c in species_order:
         sp_name = get_species_name(abs_c)
-        g_c.Write(f"g_model_fraction_{sp_name}_vs_nu_energy")
-    for abs_c, g_b in model_bands.items():
-        sp_name = get_species_name(abs_c)
-        g_b.Write(f"g_model_band_fraction_{sp_name}_vs_nu_energy")
+        if abs_c in sp_curves_inc:
+            sp_curves_inc[abs_c].Write(f"g_lhapdf_fraction_{sp_name}_vs_nu_energy")
+            sp_bands_inc[abs_c].Write(f"g_lhapdf_band_fraction_{sp_name}_vs_nu_energy")
+        if abs_c in sp_curves_nu:
+            sp_curves_nu[abs_c].Write(f"g_lhapdf_fraction_{sp_name}_vs_nu_energy_nu_only")
+            sp_bands_nu[abs_c].Write(f"g_lhapdf_band_fraction_{sp_name}_vs_nu_energy_nu_only")
+        if abs_c in model_curves:
+            model_curves[abs_c].Write(f"g_model_fraction_{sp_name}_vs_nu_energy")
+        if abs_c in model_bands:
+            model_bands[abs_c].Write(f"g_model_band_fraction_{sp_name}_vs_nu_energy")
+
+    for anti_c in anti_species_order:
+        sp_name = get_species_name(anti_c)
+        abs_c = abs(anti_c)
+        g_c = sp_curves_antinu.get(anti_c, sp_curves_antinu.get(abs_c))
+        g_b = sp_bands_antinu.get(anti_c, sp_bands_antinu.get(abs_c))
+        if g_c:
+            g_c.Write(f"g_lhapdf_fraction_{sp_name}_vs_nu_energy_antinu_only")
+        if g_b:
+            g_b.Write(f"g_lhapdf_band_fraction_{sp_name}_vs_nu_energy_antinu_only")
+
     g_model_bmu.Write("g_model_effective_bmu_vs_nu_energy")
     g_model_band_bmu.Write("g_model_band_effective_bmu_vs_nu_energy")
 
@@ -3306,19 +3715,19 @@ def write_histograms_and_canvases(
     c_sp_nu.SetGrid()
 
     x_max_sp = max(1000.0, nu_bin_edges[-1])
-    h_sp_nu_frame = c_sp_nu.DrawFrame(4.5, 0.0, x_max_sp, 1.05)
-    h_sp_nu_frame.SetTitle("Charm Species Fragmentation Fractions vs Neutrino Energy;E_{#nu} [GeV];Fraction f_{i} = N_{i} / N_{charm}")
+    h_sp_nu_frame = c_sp_nu.DrawFrame(5.0, 0.0, x_max_sp, 0.95)
+    h_sp_nu_frame.SetTitle("Charm Species Fragmentation Fractions: Inclusive (#nu_{#mu} CC);E_{#nu} [GeV];Fraction f_{i} = #sigma_{i} / #sigma_{charm}")
     h_sp_nu_frame.GetYaxis().SetTitleOffset(1.25)
 
     # 1. Draw 1-sigma uncertainty bands first
     for abs_c in species_order:
-        if abs_c in model_bands:
-            model_bands[abs_c].Draw("3 same")
+        if abs_c in sp_bands_inc:
+            sp_bands_inc[abs_c].Draw("3 same")
 
     # 2. Draw central model median curves
     for abs_c in species_order:
-        if abs_c in model_curves:
-            model_curves[abs_c].Draw("L same")
+        if abs_c in sp_curves_inc:
+            sp_curves_inc[abs_c].Draw("L same")
 
     # 3. Draw CHORUS experimental measurements
     for abs_c in species_order:
@@ -3331,8 +3740,8 @@ def write_histograms_and_canvases(
         if g:
             g.Draw("P E1 same")
 
-    # 5. Legend (3 columns: MC, Model 1-sigma, CHORUS)
-    leg_sp_nu = ROOT.TLegend(0.44, 0.60, 0.92, 0.90)
+    # 5. Legend (3 columns: MC, QCD calc, CHORUS)
+    leg_sp_nu = ROOT.TLegend(0.40, 0.60, 0.92, 0.90)
     leg_sp_nu.SetBorderSize(1)
     leg_sp_nu.SetFillColorAlpha(ROOT.kWhite, 0.94)
     leg_sp_nu.SetTextSize(0.021)
@@ -3343,8 +3752,8 @@ def write_histograms_and_canvases(
         sp_latex = SPECIES_LATEX.get(abs_c, get_species_name(abs_c))
         if g_mc:
             leg_sp_nu.AddEntry(g_mc, f"{sp_latex} (MC)", "lep")
-        if abs_c in model_bands:
-            leg_sp_nu.AddEntry(model_bands[abs_c], f"{sp_latex} (Model 1#sigma)", "f")
+        if abs_c in sp_bands_inc:
+            leg_sp_nu.AddEntry(sp_bands_inc[abs_c], f"{sp_latex} (QCD calc)", "lf")
         if abs_c in chorus_species_graphs:
             leg_sp_nu.AddEntry(chorus_species_graphs[abs_c], f"{sp_latex} (CHORUS)", "lep")
 
@@ -3360,34 +3769,39 @@ def write_histograms_and_canvases(
     c_sp_nu_nu.SetLogx()
     c_sp_nu_nu.SetGrid()
 
-    h_sp_nu_frame_nu = c_sp_nu_nu.DrawFrame(4.5, 0.0, x_max_sp, 1.05)
-    h_sp_nu_frame_nu.SetTitle("Charm Species Fragmentation Fractions vs Neutrino Energy (#nu_{#mu} CC);E_{#nu} [GeV];Fraction f_{i} = N_{i} / N_{charm}")
+    h_sp_nu_frame_nu = c_sp_nu_nu.DrawFrame(5.0, 0.0, x_max_sp, 0.95)
+    h_sp_nu_frame_nu.SetTitle("Charm Species Fragmentation Fractions: #nu_{#mu} CC (#nu Only, C=+1);E_{#nu} [GeV];Fraction f_{i} = #sigma_{i} / #sigma_{charm}")
     h_sp_nu_frame_nu.GetYaxis().SetTitleOffset(1.25)
 
     for abs_c in species_order:
-        if abs_c in model_bands:
-            model_bands[abs_c].Draw("3 same")
+        if abs_c in sp_bands_nu:
+            sp_bands_nu[abs_c].Draw("3 same")
     for abs_c in species_order:
-        if abs_c in model_curves:
-            model_curves[abs_c].Draw("L same")
+        if abs_c in sp_curves_nu:
+            sp_curves_nu[abs_c].Draw("L same")
+    for abs_c in species_order:
+        if abs_c in chorus_species_graphs:
+            chorus_species_graphs[abs_c].Draw("P E1 same")
     for abs_c in species_order:
         g = species_frac_nu_graphs_nu.get(abs_c)
         if g:
             g.Draw("P E1 same")
 
-    leg_sp_nu_nu = ROOT.TLegend(0.50, 0.65, 0.92, 0.90)
+    leg_sp_nu_nu = ROOT.TLegend(0.40, 0.60, 0.92, 0.90)
     leg_sp_nu_nu.SetBorderSize(1)
     leg_sp_nu_nu.SetFillColorAlpha(ROOT.kWhite, 0.94)
     leg_sp_nu_nu.SetTextSize(0.021)
-    leg_sp_nu_nu.SetNColumns(2)
+    leg_sp_nu_nu.SetNColumns(3)
 
     for abs_c in species_order:
         g_mc = species_frac_nu_graphs_nu.get(abs_c)
         sp_latex = SPECIES_LATEX.get(abs_c, get_species_name(abs_c))
         if g_mc:
             leg_sp_nu_nu.AddEntry(g_mc, f"{sp_latex} (MC)", "lep")
-        if abs_c in model_bands:
-            leg_sp_nu_nu.AddEntry(model_bands[abs_c], f"{sp_latex} (Model 1#sigma)", "f")
+        if abs_c in sp_bands_nu:
+            leg_sp_nu_nu.AddEntry(sp_bands_nu[abs_c], f"{sp_latex} (QCD calc)", "lf")
+        if abs_c in chorus_species_graphs:
+            leg_sp_nu_nu.AddEntry(chorus_species_graphs[abs_c], f"{sp_latex} (CHORUS)", "lep")
 
     leg_sp_nu_nu.Draw("same")
     c_sp_nu_nu.Write()
@@ -3401,24 +3815,28 @@ def write_histograms_and_canvases(
     c_sp_nu_antinu.SetLogx()
     c_sp_nu_antinu.SetGrid()
 
-    h_sp_nu_frame_antinu = c_sp_nu_antinu.DrawFrame(4.5, 0.0, x_max_sp, 1.05)
-    h_sp_nu_frame_antinu.SetTitle("Charm Species Fragmentation Fractions vs Neutrino Energy (#bar{#nu}_{#mu} CC);E_{#nu} [GeV];Fraction f_{i} = N_{i} / N_{charm}")
+    h_sp_nu_frame_antinu = c_sp_nu_antinu.DrawFrame(5.0, 0.0, x_max_sp, 0.95)
+    h_sp_nu_frame_antinu.SetTitle("Charm Species Fragmentation Fractions: #bar{#nu}_{#mu} CC (#bar{#nu} Only, C=-1);E_{#nu} [GeV];Fraction f_{i} = #sigma_{i} / #sigma_{charm}")
     h_sp_nu_frame_antinu.GetYaxis().SetTitleOffset(1.25)
 
     for anti_c in anti_species_order:
         abs_c = abs(anti_c)
-        if abs_c in model_bands:
-            model_bands[abs_c].Draw("3 same")
+        if anti_c in sp_bands_antinu:
+            sp_bands_antinu[anti_c].Draw("3 same")
+        elif abs_c in sp_bands_antinu:
+            sp_bands_antinu[abs_c].Draw("3 same")
     for anti_c in anti_species_order:
         abs_c = abs(anti_c)
-        if abs_c in model_curves:
-            model_curves[abs_c].Draw("L same")
+        if anti_c in sp_curves_antinu:
+            sp_curves_antinu[anti_c].Draw("L same")
+        elif abs_c in sp_curves_antinu:
+            sp_curves_antinu[abs_c].Draw("L same")
     for anti_c in anti_species_order:
         g = species_frac_nu_graphs_antinu.get(anti_c)
         if g:
             g.Draw("P E1 same")
 
-    leg_sp_nu_antinu = ROOT.TLegend(0.50, 0.65, 0.92, 0.90)
+    leg_sp_nu_antinu = ROOT.TLegend(0.48, 0.65, 0.92, 0.90)
     leg_sp_nu_antinu.SetBorderSize(1)
     leg_sp_nu_antinu.SetFillColorAlpha(ROOT.kWhite, 0.94)
     leg_sp_nu_antinu.SetTextSize(0.021)
@@ -3430,11 +3848,81 @@ def write_histograms_and_canvases(
         sp_latex = SPECIES_LATEX.get(anti_c, get_species_name(anti_c))
         if g_mc:
             leg_sp_nu_antinu.AddEntry(g_mc, f"{sp_latex} (MC)", "lep")
-        if abs_c in model_bands:
-            leg_sp_nu_antinu.AddEntry(model_bands[abs_c], f"{sp_latex} (Model 1#sigma)", "f")
+        g_band = sp_bands_antinu.get(anti_c, sp_bands_antinu.get(abs_c))
+        if g_band:
+            leg_sp_nu_antinu.AddEntry(g_band, f"{sp_latex} (QCD calc)", "lf")
 
     leg_sp_nu_antinu.Draw("same")
     c_sp_nu_antinu.Write()
+
+    # --- Canvas 3d: Species Fractions Comparison across Beam Modes (4 Pads: D0, D+, Ds+, Lambda_c) ---
+    c_sp_comp = ROOT.TCanvas("c_species_fractions_comparison_all_modes", "Charm Species Fractions: Inclusive vs Nu vs Anti-Nu", 1200, 900)
+    c_sp_comp.Divide(2, 2)
+
+    sp_keys_list = [("D0", 421), ("D+", 411), ("Ds+", 431), ("Lambda_c", 4122)]
+    comp_frames = []
+    comp_legends = []
+
+    for pad_idx, (sp_name_k, pdg_k) in enumerate(sp_keys_list, start=1):
+        pad = c_sp_comp.cd(pad_idx)
+        pad.SetLeftMargin(0.13)
+        pad.SetRightMargin(0.05)
+        pad.SetTopMargin(0.08)
+        pad.SetBottomMargin(0.12)
+        pad.SetLogx()
+        pad.SetGrid()
+
+        sp_latex = SPECIES_LATEX.get(pdg_k, sp_name_k)
+        frame_pad = pad.DrawFrame(5.0, 0.0, x_max_sp, 0.95)
+        frame_pad.SetTitle(f"{sp_latex} Fragmentation Fraction;E_{{#nu}} [GeV];f({sp_latex})")
+        frame_pad.GetYaxis().SetTitleOffset(1.25)
+        comp_frames.append(frame_pad)
+
+        # 1. Uncertainty bands: Inclusive (Red), Nu (Blue), Anti-Nu (Purple)
+        if pdg_k in sp_bands_inc:
+            sp_bands_inc[pdg_k].Draw("3 same")
+        if pdg_k in sp_bands_nu:
+            sp_bands_nu[pdg_k].Draw("3 same")
+        anti_pdg = -pdg_k
+        g_band_an = sp_bands_antinu.get(anti_pdg, sp_bands_antinu.get(pdg_k))
+        if g_band_an:
+            g_band_an.Draw("3 same")
+
+        # 2. Central curves
+        if pdg_k in sp_curves_inc:
+            sp_curves_inc[pdg_k].Draw("L same")
+        if pdg_k in sp_curves_nu:
+            sp_curves_nu[pdg_k].Draw("L same")
+        g_curve_an = sp_curves_antinu.get(anti_pdg, sp_curves_antinu.get(pdg_k))
+        if g_curve_an:
+            g_curve_an.Draw("L same")
+
+        # 3. MC Points
+        g_mc_inc = species_frac_nu_graphs.get(pdg_k)
+        if g_mc_inc:
+            g_mc_inc.Draw("P E1 same")
+        g_mc_nu = species_frac_nu_graphs_nu.get(pdg_k)
+        if g_mc_nu:
+            g_mc_nu.Draw("P E1 same")
+        g_mc_an = species_frac_nu_graphs_antinu.get(anti_pdg)
+        if g_mc_an:
+            g_mc_an.Draw("P E1 same")
+
+        # Legend
+        leg_pad = ROOT.TLegend(0.42, 0.65, 0.92, 0.90)
+        leg_pad.SetBorderSize(1)
+        leg_pad.SetFillColorAlpha(ROOT.kWhite, 0.92)
+        leg_pad.SetTextSize(0.030)
+        if pdg_k in sp_curves_inc:
+            leg_pad.AddEntry(sp_bands_inc[pdg_k], "Inclusive (#nu+#bar{#nu}) [Red]", "lf")
+        if pdg_k in sp_curves_nu:
+            leg_pad.AddEntry(sp_bands_nu[pdg_k], "#nu_{#mu} Only [Blue]", "lf")
+        if g_curve_an:
+            leg_pad.AddEntry(g_band_an, "#bar{#nu}_{#mu} Only [Purple]", "lf")
+        leg_pad.Draw("same")
+        comp_legends.append(leg_pad)
+
+    c_sp_comp.Write()
 
     # --- Canvas 4: Superimposed Species Fractions vs E_charm ---
     c_sp_ce = ROOT.TCanvas("c_species_fractions_vs_charm_energy", "Charm Species Fractions vs Charm Hadron Energy", 950, 700)

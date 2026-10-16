@@ -1105,6 +1105,11 @@ namespace snd {
     std::vector<std::string> DataManager::ResolveFiles(const std::string& source) {
         if (source.empty()) return {};
 
+        // 0. Remote URLs (e.g. root://, http://, https://)
+        if (source.find("://") != std::string::npos) {
+            return {source};
+        }
+
         // 1. Exact regular file
         if (std::filesystem::is_regular_file(source)) {
             return {source};

@@ -720,11 +720,12 @@ def main():
     df = dm.rdf(range_limit=args.entries if args.entries > 0 else None)
 
     # 5. Define Truth Observables
-    existing_cols = set(df.GetColumnNames())
+    existing_cols = set(str(c) for c in df.GetColumnNames())
 
     def safe_def(curr_df, col_name, expr):
         if col_name in existing_cols:
             return curr_df
+        existing_cols.add(col_name)
         return curr_df.Define(col_name, expr)
 
     if actual_tree_name in ("mctruth", "mc_truth", "truth") or ("nu_e" in existing_cols and "is_numu_cc" in existing_cols):
@@ -1116,6 +1117,9 @@ def main():
                       return 0;
                   """)
         )
+
+    # Synchronize defined columns catalog before defining downstream projected observables
+    existing_cols.update(str(c) for c in df_truth.GetColumnNames())
 
     # Define XZ and YZ projected observables and separation at detector planes
     df_truth = safe_def(df_truth, "mu1_slope_xz", "(std::abs(mu1_pz) > 1e-9) ? mu1_px / mu1_pz : 0.0")

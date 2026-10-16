@@ -42,22 +42,32 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
     """
     Resolve input file pattern into an ordered list of existing files.
     Optimized for multi-directory wildcards (e.g. .../*/filename or .../%s/filename) over network mounts.
+    Supports XRootD URLs (e.g. root://eosuser.cern.ch//eos/...).
     """
     print(f"Resolving input files from pattern:\n  {pattern}")
     matched_files: List[str] = []
 
-    if os.path.isfile(pattern):
-        matched_files = [pattern]
-    elif os.path.isdir(pattern):
+    xrootd_prefix = ""
+    effective_pattern = pattern
+    xrd_match = re.match(r'^(root://[^/]+)(/.*)$', pattern)
+    if xrd_match:
+        xrootd_prefix = xrd_match.group(1)
+        effective_pattern = xrd_match.group(2)
+        if not any(ch in effective_pattern for ch in ["*", "%s", "["]):
+            return [pattern]
+
+    if os.path.isfile(effective_pattern):
+        matched_files = [effective_pattern]
+    elif os.path.isdir(effective_pattern):
         subdirs = sorted(
-            [d for d in os.listdir(pattern) if os.path.isdir(os.path.join(pattern, d))],
+            [d for d in os.listdir(effective_pattern) if os.path.isdir(os.path.join(effective_pattern, d))],
             key=lambda x: int(x) if x.isdigit() else x
         )
         if subdirs:
             for d in subdirs:
                 if max_files > 0 and len(matched_files) >= max_files:
                     break
-                d_path = os.path.join(pattern, d)
+                d_path = os.path.join(effective_pattern, d)
                 candidates = []
                 for f in os.listdir(d_path):
                     if not f.endswith(".root"):
@@ -73,12 +83,12 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
         else:
             all_valid = []
             signal_files = []
-            for f in sorted(os.listdir(pattern)):
+            for f in sorted(os.listdir(effective_pattern)):
                 if not f.endswith(".root"):
                     continue
                 if f.startswith("geofile") or f.startswith("ship.params") or f.endswith(".gst.root") or f.endswith(".ghep.root"):
                     continue
-                fpath = os.path.join(pattern, f)
+                fpath = os.path.join(effective_pattern, f)
                 all_valid.append(fpath)
                 if "signal" in f:
                     signal_files.append(fpath)
@@ -87,15 +97,15 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
             else:
                 matched_files.extend(all_valid)
     else:
-        path_parts = pattern.split("/")
+        path_parts = effective_pattern.split("/")
         dir_s_indices = [i for i in range(len(path_parts) - 1) if "%s" in path_parts[i]]
         # Support range patterns like [1-1000]
-        range_match = re.search(r'\[(\d+)-(\d+)\]', pattern)
+        range_match = re.search(r'\[(\d+)-(\d+)\]', effective_pattern)
         if range_match:
             start_num = int(range_match.group(1))
             end_num = int(range_match.group(2))
-            base_dir = pattern[:range_match.start()].rstrip("/")
-            rest = pattern[range_match.end():].lstrip("/")
+            base_dir = effective_pattern[:range_match.start()].rstrip("/")
+            rest = effective_pattern[range_match.end():].lstrip("/")
             if os.path.isdir(base_dir):
                 existing_entries = set(os.listdir(base_dir))
                 for num in range(start_num, end_num + 1):
@@ -105,7 +115,13 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
                     if s_num in existing_entries:
                         fpath = os.path.join(base_dir, s_num, rest)
                         matched_files.append(fpath)
-        elif dir_s_indices and "*" not in pattern:
+            else:
+                for num in range(start_num, end_num + 1):
+                    if max_files > 0 and len(matched_files) >= max_files:
+                        break
+                    fpath = os.path.join(base_dir, str(num), rest)
+                    matched_files.append(fpath)
+        elif dir_s_indices and "*" not in effective_pattern:
             idx = dir_s_indices[0]
             base_dir = "/".join(path_parts[:idx])
             subdir_fmt = path_parts[idx]
@@ -127,8 +143,8 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
                     fpath = os.path.join(base_dir, d, rest.replace("%s", captured_val))
                     if os.path.exists(fpath):
                         matched_files.append(fpath)
-        elif "/*/" in pattern and pattern.count("*") == 1 and "%s" not in pattern:
-            base_dir, filename = pattern.split("/*/", 1)
+        elif "/*/" in effective_pattern and effective_pattern.count("*") == 1 and "%s" not in effective_pattern:
+            base_dir, filename = effective_pattern.split("/*/", 1)
             if os.path.isdir(base_dir):
                 subdirs = sorted(
                     [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))],
@@ -141,7 +157,7 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
                     matched_files.append(fpath)
 
         if not matched_files:
-            glob_pattern = pattern.replace("%s", "*")
+            glob_pattern = effective_pattern.replace("%s", "*")
             matched_files = sorted(
                 glob.glob(glob_pattern),
                 key=lambda p: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', p)]
@@ -152,6 +168,9 @@ def resolve_input_files(pattern: str, max_files: int = -1) -> List[str]:
             f"No files matched input pattern: {pattern}\n"
             "Please check the path and your EOS credentials."
         )
+
+    if xrootd_prefix:
+        matched_files = [f"{xrootd_prefix}/{f.lstrip('/')}" for f in matched_files]
 
     if max_files > 0:
         matched_files = matched_files[:max_files]

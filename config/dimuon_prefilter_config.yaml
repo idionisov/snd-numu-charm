@@ -1,0 +1,50 @@
+# ==============================================================================
+# SND@LHC Prefilter: Dimuon Cutflow Configuration
+# ==============================================================================
+
+cuts:
+  - id: "step0_raw"
+    name: "All Events"
+    filter: ""
+    enabled: true
+    description: "Initial uncut event sample"
+
+  - id: "step1_scifi_ds_timing"
+    name: "SciFi-DS Timing"
+    filter: "pass_scifi_ds_timing_cut"
+    enabled: true
+    min_delta_t: 0.0
+    require_valid: true
+    reversed: false
+    description: "Require latest DS hit time > earliest SciFi hit time"
+
+  - id: "step2_veto_hits"
+    name: "No Veto Hits"
+    filter: "pass_veto_cut"
+    enabled: true
+    min_hits: 0
+    max_hits: 0
+    require_valid: false
+    description: "Require 0 hits in Veto system"
+
+  - id: "step3_ds_dimuon"
+    name: "DS Dimuon"
+    filter: "pass_ds_dimuon_cut"
+    enabled: true
+    min_planes_dimuon: 3
+    min_hits_dimuon: 2
+    min_planes_other: 3
+    min_hits_other: 1
+    require_valid: false
+    reversed: false
+    description: "Require >=2 hits per plane in 3 planes in one projection, and >=1 hit per plane in 3 planes in the other"
+
+  - id: "step4_two_ds_tracks"
+    name: "Two DS Tracks"
+    filter: "pass_two_ds_tracks_cut"
+    enabled: true
+    min_tracks: 2
+    max_tracks: 2
+    track_type: 13
+    reversed: false
+    description: "Require exactly two reconstructed DS Hough transform tracks (track_type=13)"

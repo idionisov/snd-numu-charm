@@ -49,6 +49,44 @@ DEFAULT_GEOFILE = (
 )
 
 
+def resolve_geofile(input_path: str, user_geofile: Optional[str] = None) -> str:
+    """
+    Resolve detector geometry file:
+      1. If user provided --geofile explicitly, use it.
+      2. Check directory of input_path for 'geofile_full.Genie-TGeant4.root'.
+      3. Check directory of input_path for any file matching 'geofile*.root'.
+      4. Try resolving via snd.get_geofile_for_run mapping / year hint.
+      5. Fallback to DEFAULT_GEOFILE.
+    """
+    if user_geofile:
+        return user_geofile
+
+    input_dir = os.path.dirname(os.path.abspath(input_path))
+    local_default = os.path.join(input_dir, "geofile_full.Genie-TGeant4.root")
+    if os.path.exists(local_default):
+        return local_default
+
+    # Check for any geofile in the same directory
+    if os.path.isdir(input_dir):
+        for fname in os.listdir(input_dir):
+            if fname.startswith("geofile") and fname.endswith(".root"):
+                full_geo = os.path.join(input_dir, fname)
+                if os.path.exists(full_geo):
+                    return full_geo
+
+    # Try resolving via SNDSW mapping / year hint
+    try:
+        from snd.io_utils import get_geofile_for_run
+        resolved = get_geofile_for_run(input_path=input_path, default_geofile=DEFAULT_GEOFILE)
+        if os.path.exists(resolved):
+            return resolved
+    except Exception:
+        pass
+
+    return DEFAULT_GEOFILE
+
+
+
 def parse_partitions(part_arg: Optional[str]) -> Optional[List[int]]:
     """Parse partition specification string (e.g. '1-100', '1,2,5')."""
     if not part_arg or part_arg.strip().lower() == "all":
@@ -635,8 +673,8 @@ def main() -> int:
     parser.add_argument(
         "-g", "--geofile",
         type=str,
-        default=DEFAULT_GEOFILE,
-        help="Detector geometry ROOT file",
+        default=None,
+        help="Detector geometry ROOT file (default: partition-local geofile in the same directory as input, or auto-detected)",
     )
     parser.add_argument(
         "-p", "--partitions",
@@ -676,14 +714,15 @@ def main() -> int:
                 out_path = args.output % p if ("%s" in args.output or "%d" in args.output) else args.output
             else:
                 out_path = in_path
-            tasks.append((in_path, out_path, p, args.geofile, args.max_events))
+            geo_to_use = resolve_geofile(in_path, args.geofile)
+            tasks.append((in_path, out_path, p, geo_to_use, args.max_events))
 
     print("=" * 80)
     print(" SND@LHC Integer Linear Programming (ILP) Track Reconstruction")
     print("=" * 80)
     print(f" Input Pattern:        {args.input}")
     print(f" Output Target:        {args.output if args.output else '[In-Place Update]'}")
-    print(f" Geometry File:        {args.geofile}")
+    print(f" Geometry Source:      {args.geofile if args.geofile else 'Partition-Local (Directory of Input File)'}")
     print(f" Files Matched:        {len(tasks)}")
     print(f" Worker Processes:     {args.workers}")
     print(f" Max Events/File:      {args.max_events if args.max_events > 0 else 'All'}")

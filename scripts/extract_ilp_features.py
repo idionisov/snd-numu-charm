@@ -435,13 +435,16 @@ def process_partition_file(
 
         total_entries = tree.GetEntries()
         if total_entries == 0:
+            fin.cd()
+            tree_ilp = ROOT.TTree("ilp", "Integer Linear Programming Track Reconstruction Features")
+            create_ilp_tree_buffers(tree_ilp)
+            tree_ilp.Write("ilp", ROOT.TObject.kOverwrite)
             fin.Close()
-            res["status"] = "EMPTY"
-            # Still copy empty file to output destination
             out_dir = os.path.dirname(os.path.abspath(output_path))
             if out_dir:
                 os.makedirs(out_dir, exist_ok=True)
             shutil.copyfile(temp_file, output_path)
+            res["status"] = "EMPTY"
             return res
 
         # Initialize detector geometry

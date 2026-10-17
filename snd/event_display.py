@@ -451,6 +451,69 @@ class Snd2DEventDisplay:
             truth["is_cc"] = True
             truth["is_nc"] = False
 
+        # Fallback to direct MCTrack inspection when flat truth branches are not present on tree
+        if truth["nu_e"] == 0.0 and hasattr(tree, "MCTrack") and len(tree.MCTrack) > 0:
+            nu_trk = tree.MCTrack[0]
+            truth["nu_e"] = float(nu_trk.GetEnergy())
+            truth["vtx"] = (float(nu_trk.GetStartX()), float(nu_trk.GetStartY()), float(nu_trk.GetStartZ()))
+            nu_pdg = nu_trk.GetPdgCode()
+
+            mu1_trk = None
+            max_p = -1.0
+            is_cc = False
+            charm_trk = None
+            charm_id = -1
+            for i, trk in enumerate(tree.MCTrack):
+                if trk.GetMotherId() == 0:
+                    abs_pdg = abs(trk.GetPdgCode())
+                    if abs_pdg in [11, 13, 15]:
+                        is_cc = True
+                        if abs_pdg == 13 and trk.GetP() > max_p:
+                            max_p = trk.GetP()
+                            mu1_trk = trk
+                    if abs_pdg in [411, 421, 431, 4122, 4232, 4132, 4332]:
+                        if charm_trk is None:
+                            charm_trk = trk
+                            charm_id = i
+
+            truth["is_cc"] = is_cc
+            truth["is_nc"] = not is_cc
+            if mu1_trk is not None:
+                truth["mu1_p"] = float(mu1_trk.GetP())
+                if nu_pdg == 14:
+                    truth["is_numu_cc"] = True
+                elif nu_pdg == -14:
+                    truth["is_anti_numu_cc"] = True
+
+            if charm_trk is not None and charm_id >= 0:
+                truth["charm_pdg"] = int(charm_trk.GetPdgCode())
+                c_start = (charm_trk.GetStartX(), charm_trk.GetStartY(), charm_trk.GetStartZ())
+                c_end = None
+                for d_trk in tree.MCTrack:
+                    if d_trk.GetMotherId() == charm_id:
+                        c_end = (d_trk.GetStartX(), d_trk.GetStartY(), d_trk.GetStartZ())
+                        break
+                if c_end is not None:
+                    dx = c_end[0] - c_start[0]
+                    dy = c_end[1] - c_start[1]
+                    dz = c_end[2] - c_start[2]
+                    truth["decay_length_3d"] = float((dx * dx + dy * dy + dz * dz) ** 0.5)
+
+            from .filter import find_truth_mu2_track_id
+            mu2_id = find_truth_mu2_track_id(tree)
+            if 0 <= mu2_id < len(tree.MCTrack):
+                mu2_trk = tree.MCTrack[mu2_id]
+                truth["mu2_p"] = float(mu2_trk.GetP())
+                truth["has_candidate"] = True
+                if mu1_trk is not None:
+                    p1 = ROOT.TVector3(mu1_trk.GetPx(), mu1_trk.GetPy(), mu1_trk.GetPz())
+                    p2 = ROOT.TVector3(mu2_trk.GetPx(), mu2_trk.GetPy(), mu2_trk.GetPz())
+                    if p1.Mag() > 0 and p2.Mag() > 0:
+                        truth["dimuon_opening_angle_mrad"] = float(p1.Angle(p2) * 1000.0)
+                    lv1 = ROOT.TLorentzVector(mu1_trk.GetPx(), mu1_trk.GetPy(), mu1_trk.GetPz(), mu1_trk.GetEnergy())
+                    lv2 = ROOT.TLorentzVector(mu2_trk.GetPx(), mu2_trk.GetPy(), mu2_trk.GetPz(), mu2_trk.GetEnergy())
+                    truth["dimuon_mass"] = float((lv1 + lv2).M())
+
         return truth
 
     def _extrapolate_track(self, p0, trk, max_len: float = 60.0):
@@ -1125,13 +1188,15 @@ class Snd2DEventDisplay:
             has_cand = truth.get("has_candidate", False) or (truth["charm_pdg"] != 0 and truth["mu2_p"] > 0)
             has_charm = truth.get("has_charm", False) or truth["charm_pdg"] != 0
             is_numu = truth.get("is_numu_cc", False) or (truth.get("is_cc", False) and truth["mu1_p"] > 0)
+            is_anti_numu = truth.get("is_anti_numu_cc", False)
+            nu_prefix = "#bar{#nu}_{#mu}" if is_anti_numu else "#nu_{#mu}"
 
             if has_cand:
-                topo_tag = "#nu_{#mu} CC Dimuon + Charm"
+                topo_tag = f"{nu_prefix} CC Dimuon + Charm"
             elif has_charm:
-                topo_tag = "#nu_{#mu} CC + Charm Hadron"
-            elif is_numu:
-                topo_tag = "#nu_{#mu} CC Interaction"
+                topo_tag = f"{nu_prefix} CC + Charm Hadron"
+            elif is_numu or is_anti_numu:
+                topo_tag = f"{nu_prefix} CC Interaction"
             elif truth.get("is_cc", False):
                 topo_tag = "#nu CC Interaction"
             else:

@@ -2950,20 +2950,12 @@ def write_histograms_and_canvases(
     g_lhapdf_inc_inner.Draw("3 same")
     g_lhapdf_inc.Draw("L same")
     g_charm_rate_mc.Draw("P E1 same")
-    if g_chorus:
-        g_chorus.Draw("P E1 same")
-    if g_e531:
-        g_e531.Draw("P E1 same")
 
-    leg_inc = ROOT.TLegend(0.44, 0.58, 0.92, 0.89)
+    leg_inc = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
     leg_inc.SetBorderSize(1)
     leg_inc.SetFillColorAlpha(ROOT.kWhite, 0.92)
     leg_inc.SetTextSize(0.022)
     leg_inc.AddEntry(g_charm_rate_mc, "MC Inclusive (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
-    if g_chorus:
-        leg_inc.AddEntry(g_chorus, "CHORUS (2011, Emulsion, inclusive)", "lep")
-    if g_e531:
-        leg_inc.AddEntry(g_e531, "E531 (1988, Emulsion, inclusive)", "lep")
     leg_inc.AddEntry(g_lhapdf_inc, "QCD Prediction (Emulsion, <Z/A> ~ 0.467, #nu_{#mu}+#bar{#nu}_{#mu})", "l")
     leg_inc.AddEntry(g_lhapdf_inc_inner, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 #pm 0.10 GeV & CKM |V_{cd}|)", "f")
     leg_inc.AddEntry(g_lhapdf_inc_outer, "LHAPDF nCTEQ15 1#sigma (+ Nuclear PDF & QCD Evol.)", "f")
@@ -2988,12 +2980,20 @@ def write_histograms_and_canvases(
     g_lhapdf_nu_inner.Draw("3 same")
     g_lhapdf_nu.Draw("L same")
     g_charm_rate_mc_nu.Draw("P E1 same")
+    if g_chorus:
+        g_chorus.Draw("P E1 same")
+    if g_e531:
+        g_e531.Draw("P E1 same")
 
-    leg_nu = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
+    leg_nu = ROOT.TLegend(0.44, 0.54, 0.92, 0.89)
     leg_nu.SetBorderSize(1)
     leg_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_nu.SetTextSize(0.022)
+    leg_nu.SetTextSize(0.020)
     leg_nu.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
+    if g_chorus:
+        leg_nu.AddEntry(g_chorus, "CHORUS (2011, Emulsion, inclusive)", "lep")
+    if g_e531:
+        leg_nu.AddEntry(g_e531, "E531 (1988, Emulsion, inclusive)", "lep")
     leg_nu.AddEntry(g_lhapdf_nu, "QCD Prediction (Emulsion, <Z/A> ~ 0.467, #nu_{#mu})", "l")
     leg_nu.AddEntry(g_lhapdf_nu_inner, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 #pm 0.10 GeV & CKM |V_{cd}|)", "f")
     leg_nu.AddEntry(g_lhapdf_nu_outer, "LHAPDF nCTEQ15 1#sigma (+ Nuclear PDF & QCD Evol.)", "f")
@@ -3412,17 +3412,13 @@ def write_histograms_and_canvases(
     g_lhapdf_dimuon_inc_total.Draw("3 same")
     g_lhapdf_dimuon_inc_base.Draw("3 same")
     g_lhapdf_dimuon_inc.Draw("L same")
-    for g_dim in dimuon_graphs.values():
-        g_dim.Draw("P E1 same")
     g_dimuon_rate_mc.Draw("P E1 same")
 
-    leg_dimuon_inc = ROOT.TLegend(0.44, 0.50, 0.92, 0.89)
+    leg_dimuon_inc = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
     leg_dimuon_inc.SetBorderSize(1)
     leg_dimuon_inc.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_dimuon_inc.SetTextSize(0.020)
+    leg_dimuon_inc.SetTextSize(0.022)
     leg_dimuon_inc.AddEntry(g_dimuon_rate_mc, "MC Inclusive Dimuon (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
-    for g_dim in dimuon_graphs.values():
-        leg_dimuon_inc.AddEntry(g_dim, g_dim.GetTitle(), "lep")
     leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc, "QCD Prediction (Tungsten, #nu_{#mu}+#bar{#nu}_{#mu})", "l")
     leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_base, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 GeV & |V_{cd}|)", "f")
     leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_total, "LHAPDF nCTEQ15 1#sigma (+ nPDF, Lund Var. & B_{#mu})", "f")
@@ -3444,13 +3440,17 @@ def write_histograms_and_canvases(
     g_lhapdf_dimuon_nu_total.Draw("3 same")
     g_lhapdf_dimuon_nu_base.Draw("3 same")
     g_lhapdf_dimuon_nu.Draw("L same")
+    for g_dim in dimuon_graphs.values():
+        g_dim.Draw("P E1 same")
     g_dimuon_rate_mc_nu.Draw("P E1 same")
 
-    leg_dimuon_nu = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
+    leg_dimuon_nu = ROOT.TLegend(0.44, 0.48, 0.92, 0.89)
     leg_dimuon_nu.SetBorderSize(1)
     leg_dimuon_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_dimuon_nu.SetTextSize(0.022)
+    leg_dimuon_nu.SetTextSize(0.020)
     leg_dimuon_nu.AddEntry(g_dimuon_rate_mc_nu, "MC #nu_{#mu} Dimuon CC", "lep")
+    for g_dim in dimuon_graphs.values():
+        leg_dimuon_nu.AddEntry(g_dim, g_dim.GetTitle(), "lep")
     leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu, "QCD Prediction (Tungsten, #nu_{#mu})", "l")
     leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_base, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 GeV & |V_{cd}|)", "f")
     leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_total, "LHAPDF nCTEQ15 1#sigma (+ nPDF, Lund Var. & B_{#mu})", "f")

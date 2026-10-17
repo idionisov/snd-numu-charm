@@ -598,6 +598,7 @@ def process_single_partition_pipeline(
             main_res["total"] = n_main
 
             main_passed = []
+            main_cut_counts = [n_main, 0, 0, 0, 0]
             if t_main and n_main > 0:
                 t_main.SetBranchStatus("*", 0)
                 t_main.SetBranchStatus("Digi_ScifiHits*", 1)
@@ -608,15 +609,20 @@ def process_single_partition_pipeline(
                     t_main.GetEntry(iev)
                     if not cut_timing(t_main.Digi_ScifiHits, t_main.Digi_MuFilterHits):
                         continue
+                    main_cut_counts[1] += 1
                     if not cut_veto(t_main.Digi_MuFilterHits):
                         continue
+                    main_cut_counts[2] += 1
                     if not cut_dimuon(t_main.Digi_MuFilterHits):
                         continue
+                    main_cut_counts[3] += 1
                     if not cut_tracks(t_main.Reco_MuonTracks):
                         continue
+                    main_cut_counts[4] += 1
                     main_passed.append(iev)
 
             main_res["passed"] = len(main_passed)
+            main_res["cut_counts"] = main_cut_counts
 
             if main_output:
                 if len(main_passed) == 0 and skip_empty:
@@ -653,6 +659,7 @@ def process_single_partition_pipeline(
             sig_res["total"] = n_sig
 
             sig_passed = []
+            sig_cut_counts = [n_sig, 0, 0, 0, 0]
             if t_sig and n_sig > 0:
                 for iev in range(n_sig):
                     t_sig.GetEntry(iev)
@@ -664,9 +671,17 @@ def process_single_partition_pipeline(
                     p_d = bool(cut_dimuon(t_sig.Digi_MuFilterHits))
                     p_tr = bool(cut_tracks(t_sig.Reco_MuonTracks))
 
-                    if p_t and p_v and p_d and p_tr:
-                        sig_passed.append(iev)
-                    else:
+                    if p_t:
+                        sig_cut_counts[1] += 1
+                        if p_v:
+                            sig_cut_counts[2] += 1
+                            if p_d:
+                                sig_cut_counts[3] += 1
+                                if p_tr:
+                                    sig_cut_counts[4] += 1
+                                    sig_passed.append(iev)
+
+                    if not (p_t and p_v and p_d and p_tr):
                         if not p_t:
                             failed_stage = "SciFi_DS_Timing"
                         elif not p_v:
@@ -691,6 +706,7 @@ def process_single_partition_pipeline(
                         })
 
             sig_res["passed"] = len(sig_passed)
+            sig_res["cut_counts"] = sig_cut_counts
 
             if sig_output:
                 if len(sig_passed) == 0 and skip_empty:
@@ -1073,6 +1089,8 @@ def main():
         tot_sig_in = 0
         tot_sig_out = 0
         tot_sig_failed = 0
+        tot_main_cutflow = [0, 0, 0, 0, 0]
+        tot_sig_cutflow = [0, 0, 0, 0, 0]
         completed_count = 0
         p_start_time = time.time()
 
@@ -1104,6 +1122,15 @@ def main():
                     tot_sig_out += s_pass
                     tot_sig_failed += len(failed_records)
 
+                    m_cuts = p_res["main"].get("cut_counts")
+                    if m_cuts:
+                        for idx, c in enumerate(m_cuts):
+                            tot_main_cutflow[idx] += c
+                    s_cuts = p_res["sig"].get("cut_counts")
+                    if s_cuts:
+                        for idx, c in enumerate(s_cuts):
+                            tot_sig_cutflow[idx] += c
+
                     if failed_records and args.failed_cuts_csv:
                         with open(args.failed_cuts_csv, "a") as f_csv:
                             for r in failed_records:
@@ -1132,6 +1159,15 @@ def main():
                 tot_sig_out += s_pass
                 tot_sig_failed += len(failed_records)
 
+                m_cuts = p_res["main"].get("cut_counts")
+                if m_cuts:
+                    for idx, c in enumerate(m_cuts):
+                        tot_main_cutflow[idx] += c
+                s_cuts = p_res["sig"].get("cut_counts")
+                if s_cuts:
+                    for idx, c in enumerate(s_cuts):
+                        tot_sig_cutflow[idx] += c
+
                 if failed_records and args.failed_cuts_csv:
                     with open(args.failed_cuts_csv, "a") as f_csv:
                         for r in failed_records:
@@ -1149,6 +1185,21 @@ def main():
         overall_main_yield = (tot_main_out / tot_main_in * 100.0) if tot_main_in > 0 else 0.0
         overall_sig_yield = (tot_sig_out / tot_sig_in * 100.0) if tot_sig_in > 0 else 0.0
 
+        cut_defs = [
+            {"id": "step0_raw", "name": "All Events"},
+            {"id": "step1_scifi_ds_timing", "name": "SciFi-DS Timing"},
+            {"id": "step2_veto_hits", "name": "No Veto Hits"},
+            {"id": "step3_ds_dimuon", "name": "DS Dimuon"},
+            {"id": "step4_two_ds_tracks", "name": "Two DS Tracks"},
+        ]
+        all_stats = [{"id": c["id"], "name": c["name"], "count": tot_main_cutflow[i]} for i, c in enumerate(cut_defs)]
+        sig_stats = [{"id": c["id"], "name": c["name"], "count": tot_sig_cutflow[i]} for i, c in enumerate(cut_defs)]
+
+        print_cutflow_summary(all_stats, sig_stats, args.cutflow)
+        if args.cutflow:
+            save_cutflow_root_file(args.cutflow, all_stats, stage_histograms={}, signal_cutflow_stats=sig_stats)
+            print(f" Cutflow ROOT File:    {args.cutflow}")
+
         print("=" * 80)
         print(" PREFILTERING SUMMARY")
         print("=" * 80)
@@ -1158,6 +1209,8 @@ def main():
         print(f" Signal Failed Events: {tot_sig_failed}")
         if args.failed_cuts_csv:
             print(f" Failed Cuts CSV:      {args.failed_cuts_csv}")
+        if args.cutflow:
+            print(f" Combined Cutflow:     {args.cutflow}")
         print(f" Total Elapsed Time:   {total_elapsed:.1f} seconds")
         print("=" * 80)
         return

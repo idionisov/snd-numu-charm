@@ -108,6 +108,9 @@ def copy_tcanvases_recursive(src_dir, dest_dir) -> None:
                 copy_tcanvases_recursive(sub_src, sub_dest)
 
 
+_WORKER_DISPLAY_CACHE: Dict[str, Any] = {}
+
+
 def process_single_file_worker(args_tuple):
     """
     Worker function executed in a separate process.
@@ -289,13 +292,18 @@ def process_single_file_worker(args_tuple):
         os.close(temp_fd)
         ftemp = ROOT.TFile.Open(temp_path, "RECREATE")
 
-        # Initialize display engine
-        display = Snd2DEventDisplay(
-            geo_file=geofile_to_use,
-            color_by_qdc_and_density=color_by_qdc_and_density,
-            max_density=max_density,
-            max_qdc=max_qdc,
-        )
+        # Initialize or retrieve cached display engine
+        global _WORKER_DISPLAY_CACHE
+        cache_key = f"{geofile_to_use}_{color_by_qdc_and_density}_{max_density}_{max_qdc}"
+        display = _WORKER_DISPLAY_CACHE.get(cache_key)
+        if display is None:
+            display = Snd2DEventDisplay(
+                geo_file=geofile_to_use,
+                color_by_qdc_and_density=color_by_qdc_and_density,
+                max_density=max_density,
+                max_qdc=max_qdc,
+            )
+            _WORKER_DISPLAY_CACHE[cache_key] = display
 
         # Build fallback truth processor if running in MC truth mode without pre-extracted truth branches
         truth_processor = None
@@ -653,11 +661,14 @@ def main():
             run_num = m.group(1) if m else parent_name
 
         # Resolve detector geometry using SNDSW geo_paths.csv mapping or local simulation geofile
-        geofile_to_use = get_geofile_for_run(
-            run_number=run_num,
-            input_path=fpath,
-            default_geofile=args.geofile,
-        )
+        if args.geofile:
+            geofile_to_use = args.geofile
+        else:
+            geofile_to_use = get_geofile_for_run(
+                run_number=run_num,
+                input_path=fpath,
+                default_geofile=args.geofile,
+            )
 
         tasks.append((
             fpath,

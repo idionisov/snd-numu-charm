@@ -650,12 +650,16 @@ def get_event_header_number(tree: Any, default_idx: int = 0) -> int:
         h = tree.EventHeader
         if hasattr(h, "GetEventNumber"):
             try:
-                return int(h.GetEventNumber())
+                ev = int(h.GetEventNumber())
+                if ev >= 0:
+                    return ev
             except Exception:
                 pass
         if hasattr(h, "GetMCEntryNumber"):
             try:
-                return int(h.GetMCEntryNumber())
+                mc_ev = int(h.GetMCEntryNumber())
+                if mc_ev >= 0:
+                    return mc_ev
             except Exception:
                 pass
     return default_idx

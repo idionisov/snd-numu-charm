@@ -947,17 +947,21 @@ def create_slow_rescaling_function(
 def load_lhapdf_charm_prediction(
     csv_filename: str,
     name: str = "lhapdf_charm_prediction",
+    target: str = "tungsten",
     line_color: int = ROOT.kBlack,
     line_width: int = 2,
+    line_style: int = 1,
     band_color: Optional[int] = None,
     inner_alpha: float = 0.35,
     outer_alpha: float = 0.18,
+    fill_style_inner: Optional[int] = None,
+    fill_style_outer: Optional[int] = None,
 ) -> Tuple[ROOT.TGraph, ROOT.TGraphAsymmErrors, ROOT.TGraphAsymmErrors]:
     """
     Loads precalculated LHAPDF nCTEQ15 charm cross-section ratio predictions from CSV.
+    Supports target-specific columns ('tungsten_*' or 'emulsion_*') with automatic fallback.
     Returns:
       (g_central, g_inner_band, g_outer_band)
-    matching the base kinematics 1-sigma belt and LHAPDF nCTEQ15 1-sigma (+ Nuclear PDF & QCD Evol.) bands.
     """
     candidates = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "predictions", csv_filename),
@@ -978,23 +982,39 @@ def load_lhapdf_charm_prediction(
     y_cens: List[float] = []
     y_in_los: List[float] = []
     y_in_his: List[float] = []
+    y_out_los: List[float] = []
     y_out_his: List[float] = []
+
+    target_prefix = f"{target.strip().lower()}_" if target else ""
 
     with open(resolved_path, "r", encoding="utf-8-sig") as f:
         clean_lines = [line for line in f if not line.strip().startswith("#")]
         reader = csv.DictReader(clean_lines)
+        fieldnames = reader.fieldnames or []
+
+        col_central = target_prefix + "ratio_central" if target_prefix + "ratio_central" in fieldnames else "ratio_central"
+        col_in_lo = target_prefix + "base_band_low" if target_prefix + "base_band_low" in fieldnames else "base_band_low"
+        col_in_hi = target_prefix + "base_band_high" if target_prefix + "base_band_high" in fieldnames else "base_band_high"
+        col_out_lo = target_prefix + "total_band_low" if target_prefix + "total_band_low" in fieldnames else "total_band_low"
+        col_out_hi = target_prefix + "total_band_high" if target_prefix + "total_band_high" in fieldnames else "total_band_high"
+
         for row in reader:
             e_vals.append(float(row["E_nu_GeV"]))
-            y_cens.append(float(row["ratio_central"]))
-            y_in_los.append(float(row["base_band_low"]))
-            y_in_his.append(float(row["base_band_high"]))
-            y_out_his.append(float(row["total_band_high"]))
+            y_cens.append(float(row[col_central]))
+            y_in_los.append(float(row[col_in_lo]))
+            y_in_his.append(float(row[col_in_hi]))
+            if col_out_lo in row and row[col_out_lo] != "":
+                y_out_los.append(float(row[col_out_lo]))
+            else:
+                y_out_los.append(float(row[col_in_lo]))
+            y_out_his.append(float(row[col_out_hi]))
 
     n_pts = len(e_vals)
     g_central = ROOT.TGraph(n_pts)
     g_central.SetName(f"g_{name}_central")
     g_central.SetLineColor(line_color)
     g_central.SetLineWidth(line_width)
+    g_central.SetLineStyle(line_style)
 
     g_inner = ROOT.TGraphAsymmErrors(n_pts)
     g_inner.SetName(f"g_{name}_1sigma_inner_band")
@@ -1007,33 +1027,44 @@ def load_lhapdf_charm_prediction(
         y = y_cens[i]
         y_in_lo = y_in_los[i]
         y_in_hi = y_in_his[i]
+        y_out_lo = y_out_los[i]
         y_out_hi = y_out_his[i]
 
         g_central.SetPoint(i, x, y)
 
-        # Base kinematics 1sigma belt: [base_band_low, base_band_high]
         ey_in_lo = max(0.0, y - y_in_lo)
         ey_in_hi = max(0.0, y_in_hi - y)
         g_inner.SetPoint(i, x, y)
         g_inner.SetPointError(i, 0.0, 0.0, ey_in_lo, ey_in_hi)
 
-        # LHAPDF nCTEQ15 1sigma (+ Nuclear PDF & QCD Evol.): [base_band_low, total_band_high]
-        ey_out_lo = max(0.0, y - y_in_lo)
+        ey_out_lo = max(0.0, y - y_out_lo)
         ey_out_hi = max(0.0, y_out_hi - y)
         g_outer.SetPoint(i, x, y)
         g_outer.SetPointError(i, 0.0, 0.0, ey_out_lo, ey_out_hi)
 
     eff_band_col = band_color if band_color is not None else line_color
 
-    g_outer.SetFillColorAlpha(eff_band_col, outer_alpha)
-    g_outer.SetFillStyle(1001)
-    g_outer.SetLineColor(eff_band_col)
-    g_outer.SetLineWidth(0)
+    if fill_style_outer is not None and fill_style_outer != 1001:
+        g_outer.SetFillColor(eff_band_col)
+        g_outer.SetFillStyle(fill_style_outer)
+        g_outer.SetLineColor(eff_band_col)
+        g_outer.SetLineWidth(1)
+    else:
+        g_outer.SetFillColorAlpha(eff_band_col, outer_alpha)
+        g_outer.SetFillStyle(1001)
+        g_outer.SetLineColor(eff_band_col)
+        g_outer.SetLineWidth(0)
 
-    g_inner.SetFillColorAlpha(eff_band_col, inner_alpha)
-    g_inner.SetFillStyle(1001)
-    g_inner.SetLineColor(eff_band_col)
-    g_inner.SetLineWidth(0)
+    if fill_style_inner is not None and fill_style_inner != 1001:
+        g_inner.SetFillColor(eff_band_col)
+        g_inner.SetFillStyle(fill_style_inner)
+        g_inner.SetLineColor(eff_band_col)
+        g_inner.SetLineWidth(1)
+    else:
+        g_inner.SetFillColorAlpha(eff_band_col, inner_alpha)
+        g_inner.SetFillStyle(1001)
+        g_inner.SetLineColor(eff_band_col)
+        g_inner.SetLineWidth(0)
 
     return g_central, g_inner, g_outer
 
@@ -1041,23 +1072,23 @@ def load_lhapdf_charm_prediction(
 def load_lhapdf_dimuon_prediction(
     csv_filename: str,
     name: str = "lhapdf_dimuon_prediction",
+    target: str = "tungsten",
     line_color: int = ROOT.kBlack,
     line_width: int = 2,
+    line_style: int = 1,
     band_color: Optional[int] = None,
     scale_to_absolute: bool = True,
     inner_alpha: float = 0.35,
     outer_alpha: float = 0.18,
+    fill_style_inner: Optional[int] = None,
+    fill_style_outer: Optional[int] = None,
 ) -> Tuple[ROOT.TGraph, ROOT.TGraphAsymmErrors, ROOT.TGraphAsymmErrors]:
     """
     Loads precalculated LHAPDF nCTEQ15 dimuon cross-section ratio predictions from CSV.
+    Supports target-specific columns ('tungsten_*' or 'emulsion_*') with automatic fallback.
     The CSV stores ratio_nominal_10m3 and sigma_1..4 in units of 10^-3.
-    If scale_to_absolute is True, values are converted to absolute sigma(charm, 2mu)/sigma(CC).
     Returns:
       (g_central, g_base_band, g_total_band)
-    where:
-      - g_central is the nominal prediction
-      - g_base_band is the Tier 1 base kinematics (mc & CKM) belt
-      - g_total_band is the Tier 4 total uncertainty belt (incl. hadronization & B_mu)
     """
     candidates = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "predictions", csv_filename),
@@ -1083,22 +1114,33 @@ def load_lhapdf_dimuon_prediction(
     s4_los: List[float] = []
     s4_his: List[float] = []
 
+    target_prefix = f"{target.strip().lower()}_" if target else ""
+
     with open(resolved_path, "r", encoding="utf-8-sig") as f:
         clean_lines = [line for line in f if not line.strip().startswith("#")]
         reader = csv.DictReader(clean_lines)
+        fieldnames = reader.fieldnames or []
+
+        col_ratio = target_prefix + "ratio_nominal_10m3" if target_prefix + "ratio_nominal_10m3" in fieldnames else "ratio_nominal_10m3"
+        col_s1_lo = target_prefix + "sigma_1_lo" if target_prefix + "sigma_1_lo" in fieldnames else "sigma_1_lo"
+        col_s1_hi = target_prefix + "sigma_1_hi" if target_prefix + "sigma_1_hi" in fieldnames else "sigma_1_hi"
+        col_s4_lo = target_prefix + "sigma_4_lo" if target_prefix + "sigma_4_lo" in fieldnames else "sigma_4_lo"
+        col_s4_hi = target_prefix + "sigma_4_hi" if target_prefix + "sigma_4_hi" in fieldnames else "sigma_4_hi"
+
         for row in reader:
             e_vals.append(float(row["E_nu_GeV"]))
-            y_cens.append(float(row["ratio_nominal_10m3"]) * scale)
-            s1_los.append(float(row["sigma_1_lo"]) * scale)
-            s1_his.append(float(row["sigma_1_hi"]) * scale)
-            s4_los.append(float(row["sigma_4_lo"]) * scale)
-            s4_his.append(float(row["sigma_4_hi"]) * scale)
+            y_cens.append(float(row[col_ratio]) * scale)
+            s1_los.append(float(row[col_s1_lo]) * scale)
+            s1_his.append(float(row[col_s1_hi]) * scale)
+            s4_los.append(float(row[col_s4_lo]) * scale)
+            s4_his.append(float(row[col_s4_hi]) * scale)
 
     n_pts = len(e_vals)
     g_central = ROOT.TGraph(n_pts)
     g_central.SetName(f"g_{name}_central")
     g_central.SetLineColor(line_color)
     g_central.SetLineWidth(line_width)
+    g_central.SetLineStyle(line_style)
 
     g_base = ROOT.TGraphAsymmErrors(n_pts)
     g_base.SetName(f"g_{name}_1sigma_base_band")
@@ -1122,15 +1164,27 @@ def load_lhapdf_dimuon_prediction(
 
     eff_band_col = band_color if band_color is not None else line_color
 
-    g_total.SetFillColorAlpha(eff_band_col, outer_alpha)
-    g_total.SetFillStyle(1001)
-    g_total.SetLineColor(eff_band_col)
-    g_total.SetLineWidth(0)
+    if fill_style_outer is not None and fill_style_outer != 1001:
+        g_total.SetFillColor(eff_band_col)
+        g_total.SetFillStyle(fill_style_outer)
+        g_total.SetLineColor(eff_band_col)
+        g_total.SetLineWidth(1)
+    else:
+        g_total.SetFillColorAlpha(eff_band_col, outer_alpha)
+        g_total.SetFillStyle(1001)
+        g_total.SetLineColor(eff_band_col)
+        g_total.SetLineWidth(0)
 
-    g_base.SetFillColorAlpha(eff_band_col, inner_alpha)
-    g_base.SetFillStyle(1001)
-    g_base.SetLineColor(eff_band_col)
-    g_base.SetLineWidth(0)
+    if fill_style_inner is not None and fill_style_inner != 1001:
+        g_base.SetFillColor(eff_band_col)
+        g_base.SetFillStyle(fill_style_inner)
+        g_base.SetLineColor(eff_band_col)
+        g_base.SetLineWidth(1)
+    else:
+        g_base.SetFillColorAlpha(eff_band_col, inner_alpha)
+        g_base.SetFillStyle(1001)
+        g_base.SetLineColor(eff_band_col)
+        g_base.SetLineWidth(0)
 
     return g_central, g_base, g_total
 
@@ -2721,27 +2775,92 @@ def write_histograms_and_canvases(
     col_antinu = ROOT.TColor.GetColor("#8e24aa")   # Purple for anti-neutrinos
     col_inc = ROOT.TColor.GetColor("#d91e18")      # Red for inclusive (nu + anti-nu)
 
-    g_lhapdf_nu, g_lhapdf_nu_inner, g_lhapdf_nu_outer = load_lhapdf_charm_prediction(
+    # 5a. Tungsten target predictions (solid transparent bands, solid central line)
+    g_lhapdf_nu_w, g_lhapdf_nu_w_inner, g_lhapdf_nu_w_outer = load_lhapdf_charm_prediction(
         "numuCC_charm_cross_section_ratio_prediction_lhapdf.csv",
-        name="lhapdf_nu",
+        name="lhapdf_nu_tungsten",
+        target="tungsten",
         line_color=col_nu,
         line_width=2,
+        line_style=1,
         band_color=col_nu,
+        inner_alpha=0.35,
+        outer_alpha=0.18,
+        fill_style_inner=1001,
+        fill_style_outer=1001,
     )
-    g_lhapdf_antinu, g_lhapdf_antinu_inner, g_lhapdf_antinu_outer = load_lhapdf_charm_prediction(
+    g_lhapdf_antinu_w, g_lhapdf_antinu_w_inner, g_lhapdf_antinu_w_outer = load_lhapdf_charm_prediction(
         "antinumuCC_charm_cross_section_ratio_prediction_lhapdf.csv",
-        name="lhapdf_antinu",
+        name="lhapdf_antinu_tungsten",
+        target="tungsten",
         line_color=col_antinu,
         line_width=2,
+        line_style=1,
         band_color=col_antinu,
+        inner_alpha=0.35,
+        outer_alpha=0.18,
+        fill_style_inner=1001,
+        fill_style_outer=1001,
     )
-    g_lhapdf_inc, g_lhapdf_inc_inner, g_lhapdf_inc_outer = load_lhapdf_charm_prediction(
+    g_lhapdf_inc_w, g_lhapdf_inc_w_inner, g_lhapdf_inc_w_outer = load_lhapdf_charm_prediction(
         "inclusive_numu_antinumu_charm_cross_section_ratio_prediction_lhapdf.csv",
-        name="lhapdf_inclusive",
+        name="lhapdf_inclusive_tungsten",
+        target="tungsten",
         line_color=col_inc,
         line_width=2,
+        line_style=1,
         band_color=col_inc,
+        inner_alpha=0.35,
+        outer_alpha=0.18,
+        fill_style_inner=1001,
+        fill_style_outer=1001,
     )
+
+    # 5b. Emulsion target predictions (hatched diagonal error bands, dashed central line)
+    g_lhapdf_nu_em, g_lhapdf_nu_em_inner, g_lhapdf_nu_em_outer = load_lhapdf_charm_prediction(
+        "numuCC_charm_cross_section_ratio_prediction_lhapdf.csv",
+        name="lhapdf_nu_emulsion",
+        target="emulsion",
+        line_color=col_nu,
+        line_width=2,
+        line_style=7,
+        band_color=col_nu,
+        fill_style_inner=3004,
+        fill_style_outer=3005,
+    )
+    g_lhapdf_antinu_em, g_lhapdf_antinu_em_inner, g_lhapdf_antinu_em_outer = load_lhapdf_charm_prediction(
+        "antinumuCC_charm_cross_section_ratio_prediction_lhapdf.csv",
+        name="lhapdf_antinu_emulsion",
+        target="emulsion",
+        line_color=col_antinu,
+        line_width=2,
+        line_style=7,
+        band_color=col_antinu,
+        fill_style_inner=3004,
+        fill_style_outer=3005,
+    )
+    g_lhapdf_inc_em, g_lhapdf_inc_em_inner, g_lhapdf_inc_em_outer = load_lhapdf_charm_prediction(
+        "inclusive_numu_antinumu_charm_cross_section_ratio_prediction_lhapdf.csv",
+        name="lhapdf_inclusive_emulsion",
+        target="emulsion",
+        line_color=col_inc,
+        line_width=2,
+        line_style=7,
+        band_color=col_inc,
+        fill_style_inner=3004,
+        fill_style_outer=3005,
+    )
+
+    # Aliases
+    g_lhapdf_nu = g_lhapdf_nu_w
+    g_lhapdf_nu_inner = g_lhapdf_nu_w_inner
+    g_lhapdf_nu_outer = g_lhapdf_nu_w_outer
+    g_lhapdf_antinu = g_lhapdf_antinu_w
+    g_lhapdf_antinu_inner = g_lhapdf_antinu_w_inner
+    g_lhapdf_antinu_outer = g_lhapdf_antinu_w_outer
+    g_lhapdf_inc = g_lhapdf_inc_w
+    g_lhapdf_inc_inner = g_lhapdf_inc_w_inner
+    g_lhapdf_inc_outer = g_lhapdf_inc_w_outer
 
     # Load external experimental measurements:
     # 1. CHORUS (New J. Phys. 13 (2011) 093002, Emulsion target, nu_mu CC)
@@ -2946,19 +3065,32 @@ def write_histograms_and_canvases(
     h_frame_inc.SetTitle("Charm Production Rate: Inclusive (#nu_{#mu} + #bar{#nu}_{#mu});E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
     h_frame_inc.GetYaxis().SetTitleOffset(1.25)
 
-    g_lhapdf_inc_outer.Draw("3 same")
-    g_lhapdf_inc_inner.Draw("3 same")
-    g_lhapdf_inc.Draw("L same")
+    # 1. Tungsten target predictions (solid transparent bands)
+    g_lhapdf_inc_w_outer.Draw("3 same")
+    g_lhapdf_inc_w_inner.Draw("3 same")
+
+    # 2. Emulsion target predictions (diagonal hatched bands)
+    g_lhapdf_inc_em_outer.Draw("3 same")
+    g_lhapdf_inc_em_inner.Draw("3 same")
+
+    # 3. Central lines
+    g_lhapdf_inc_w.Draw("L same")
+    g_lhapdf_inc_em.Draw("L same")
+
+    # 4. SND@LHC MC data points
     g_charm_rate_mc.Draw("P E1 same")
 
-    leg_inc = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
+    leg_inc = ROOT.TLegend(0.44, 0.50, 0.92, 0.89)
     leg_inc.SetBorderSize(1)
     leg_inc.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_inc.SetTextSize(0.022)
+    leg_inc.SetTextSize(0.019)
     leg_inc.AddEntry(g_charm_rate_mc, "MC Inclusive (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
-    leg_inc.AddEntry(g_lhapdf_inc, "QCD Prediction (Emulsion, <Z/A> ~ 0.467, #nu_{#mu}+#bar{#nu}_{#mu})", "l")
-    leg_inc.AddEntry(g_lhapdf_inc_inner, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 #pm 0.10 GeV & CKM |V_{cd}|)", "f")
-    leg_inc.AddEntry(g_lhapdf_inc_outer, "LHAPDF nCTEQ15 1#sigma (+ Nuclear PDF & QCD Evol.)", "f")
+    leg_inc.AddEntry(g_lhapdf_inc_w, "QCD Prediction (^{184}W target, solid)", "l")
+    leg_inc.AddEntry(g_lhapdf_inc_w_inner, "Base Kinematics 1#sigma (^{184}W)", "f")
+    leg_inc.AddEntry(g_lhapdf_inc_w_outer, "LHAPDF nCTEQ15 1#sigma (^{184}W)", "f")
+    leg_inc.AddEntry(g_lhapdf_inc_em, "QCD Prediction (Emulsion target, dashed)", "l")
+    leg_inc.AddEntry(g_lhapdf_inc_em_inner, "Base Kinematics 1#sigma (Emulsion, //)", "f")
+    leg_inc.AddEntry(g_lhapdf_inc_em_outer, "LHAPDF nCTEQ15 1#sigma (Emulsion, \\\\)", "f")
     leg_inc.Draw("same")
     c_rate_inc.Write()
 
@@ -2976,27 +3108,40 @@ def write_histograms_and_canvases(
     h_frame_nu.SetTitle("Charm Production Rate: #nu_{#mu} CC;E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
     h_frame_nu.GetYaxis().SetTitleOffset(1.25)
 
-    g_lhapdf_nu_outer.Draw("3 same")
-    g_lhapdf_nu_inner.Draw("3 same")
-    g_lhapdf_nu.Draw("L same")
+    # 1. Tungsten target predictions (solid transparent bands)
+    g_lhapdf_nu_w_outer.Draw("3 same")
+    g_lhapdf_nu_w_inner.Draw("3 same")
+
+    # 2. Emulsion target predictions (diagonal hatched bands)
+    g_lhapdf_nu_em_outer.Draw("3 same")
+    g_lhapdf_nu_em_inner.Draw("3 same")
+
+    # 3. Central lines
+    g_lhapdf_nu_w.Draw("L same")
+    g_lhapdf_nu_em.Draw("L same")
+
+    # 4. Experimental measurements & SND@LHC MC data points
     g_charm_rate_mc_nu.Draw("P E1 same")
     if g_chorus:
         g_chorus.Draw("P E1 same")
     if g_e531:
         g_e531.Draw("P E1 same")
 
-    leg_nu = ROOT.TLegend(0.44, 0.54, 0.92, 0.89)
+    leg_nu = ROOT.TLegend(0.44, 0.44, 0.92, 0.89)
     leg_nu.SetBorderSize(1)
     leg_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_nu.SetTextSize(0.020)
-    leg_nu.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
+    leg_nu.SetTextSize(0.018)
+    leg_nu.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC (Tungsten)", "lep")
     if g_chorus:
         leg_nu.AddEntry(g_chorus, "CHORUS (2011, Emulsion, inclusive)", "lep")
     if g_e531:
         leg_nu.AddEntry(g_e531, "E531 (1988, Emulsion, inclusive)", "lep")
-    leg_nu.AddEntry(g_lhapdf_nu, "QCD Prediction (Emulsion, <Z/A> ~ 0.467, #nu_{#mu})", "l")
-    leg_nu.AddEntry(g_lhapdf_nu_inner, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 #pm 0.10 GeV & CKM |V_{cd}|)", "f")
-    leg_nu.AddEntry(g_lhapdf_nu_outer, "LHAPDF nCTEQ15 1#sigma (+ Nuclear PDF & QCD Evol.)", "f")
+    leg_nu.AddEntry(g_lhapdf_nu_w, "QCD Prediction (^{184}W target, solid)", "l")
+    leg_nu.AddEntry(g_lhapdf_nu_w_inner, "Base Kinematics 1#sigma (^{184}W)", "f")
+    leg_nu.AddEntry(g_lhapdf_nu_w_outer, "LHAPDF nCTEQ15 1#sigma (^{184}W)", "f")
+    leg_nu.AddEntry(g_lhapdf_nu_em, "QCD Prediction (Emulsion target, dashed)", "l")
+    leg_nu.AddEntry(g_lhapdf_nu_em_inner, "Base Kinematics 1#sigma (Emulsion, //)", "f")
+    leg_nu.AddEntry(g_lhapdf_nu_em_outer, "LHAPDF nCTEQ15 1#sigma (Emulsion, \\\\)", "f")
     leg_nu.Draw("same")
     c_rate_nu.Write()
 
@@ -3015,19 +3160,32 @@ def write_histograms_and_canvases(
     h_frame_antinu.SetTitle("Charm Production Rate: #bar{#nu}_{#mu} CC;E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
     h_frame_antinu.GetYaxis().SetTitleOffset(1.25)
 
-    g_lhapdf_antinu_outer.Draw("3 same")
-    g_lhapdf_antinu_inner.Draw("3 same")
-    g_lhapdf_antinu.Draw("L same")
+    # 1. Tungsten target predictions (solid transparent bands)
+    g_lhapdf_antinu_w_outer.Draw("3 same")
+    g_lhapdf_antinu_w_inner.Draw("3 same")
+
+    # 2. Emulsion target predictions (diagonal hatched bands)
+    g_lhapdf_antinu_em_outer.Draw("3 same")
+    g_lhapdf_antinu_em_inner.Draw("3 same")
+
+    # 3. Central lines
+    g_lhapdf_antinu_w.Draw("L same")
+    g_lhapdf_antinu_em.Draw("L same")
+
+    # 4. SND@LHC MC data points
     g_charm_rate_mc_antinu.Draw("P E1 same")
 
-    leg_antinu = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
+    leg_antinu = ROOT.TLegend(0.44, 0.50, 0.92, 0.89)
     leg_antinu.SetBorderSize(1)
     leg_antinu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_antinu.SetTextSize(0.022)
-    leg_antinu.AddEntry(g_charm_rate_mc_antinu, "MC #bar{#nu}_{#mu} CC", "lep")
-    leg_antinu.AddEntry(g_lhapdf_antinu, "QCD Prediction (Emulsion, <Z/A> ~ 0.467, #bar{#nu}_{#mu})", "l")
-    leg_antinu.AddEntry(g_lhapdf_antinu_inner, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 #pm 0.10 GeV & CKM |V_{cd}|)", "f")
-    leg_antinu.AddEntry(g_lhapdf_antinu_outer, "LHAPDF nCTEQ15 1#sigma (+ Nuclear PDF & QCD Evol.)", "f")
+    leg_antinu.SetTextSize(0.019)
+    leg_antinu.AddEntry(g_charm_rate_mc_antinu, "MC #bar{#nu}_{#mu} CC (Tungsten)", "lep")
+    leg_antinu.AddEntry(g_lhapdf_antinu_w, "QCD Prediction (^{184}W target, solid)", "l")
+    leg_antinu.AddEntry(g_lhapdf_antinu_w_inner, "Base Kinematics 1#sigma (^{184}W)", "f")
+    leg_antinu.AddEntry(g_lhapdf_antinu_w_outer, "LHAPDF nCTEQ15 1#sigma (^{184}W)", "f")
+    leg_antinu.AddEntry(g_lhapdf_antinu_em, "QCD Prediction (Emulsion target, dashed)", "l")
+    leg_antinu.AddEntry(g_lhapdf_antinu_em_inner, "Base Kinematics 1#sigma (Emulsion, //)", "f")
+    leg_antinu.AddEntry(g_lhapdf_antinu_em_outer, "LHAPDF nCTEQ15 1#sigma (Emulsion, \\\\)", "f")
     leg_antinu.Draw("same")
     c_rate_antinu.Write()
 
@@ -3046,31 +3204,38 @@ def write_histograms_and_canvases(
     h_frame_all.SetTitle("Charm Production Rate Comparison: Inclusive vs #nu_{#mu} vs #bar{#nu}_{#mu};E_{#nu} [GeV];#sigma_{charm} / #sigma_{CC}")
     h_frame_all.GetYaxis().SetTitleOffset(1.25)
 
-    g_lhapdf_inc_outer.Draw("3 same")
-    g_lhapdf_inc_inner.Draw("3 same")
-    g_lhapdf_nu_outer.Draw("3 same")
-    g_lhapdf_nu_inner.Draw("3 same")
-    g_lhapdf_antinu_outer.Draw("3 same")
-    g_lhapdf_antinu_inner.Draw("3 same")
+    g_lhapdf_inc_w_outer.Draw("3 same")
+    g_lhapdf_inc_w_inner.Draw("3 same")
+    g_lhapdf_nu_w_outer.Draw("3 same")
+    g_lhapdf_nu_w_inner.Draw("3 same")
+    g_lhapdf_antinu_w_outer.Draw("3 same")
+    g_lhapdf_antinu_w_inner.Draw("3 same")
 
-    g_lhapdf_inc.Draw("L same")
-    g_lhapdf_nu.Draw("L same")
-    g_lhapdf_antinu.Draw("L same")
+    g_lhapdf_inc_em.Draw("L same")
+    g_lhapdf_nu_em.Draw("L same")
+    g_lhapdf_antinu_em.Draw("L same")
+
+    g_lhapdf_inc_w.Draw("L same")
+    g_lhapdf_nu_w.Draw("L same")
+    g_lhapdf_antinu_w.Draw("L same")
 
     g_charm_rate_mc.Draw("P E1 same")
     g_charm_rate_mc_nu.Draw("P E1 same")
     g_charm_rate_mc_antinu.Draw("P E1 same")
 
-    leg_rate_all = ROOT.TLegend(0.44, 0.58, 0.92, 0.89)
+    leg_rate_all = ROOT.TLegend(0.44, 0.52, 0.92, 0.89)
     leg_rate_all.SetBorderSize(1)
     leg_rate_all.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_rate_all.SetTextSize(0.021)
+    leg_rate_all.SetTextSize(0.019)
     leg_rate_all.AddEntry(g_charm_rate_mc, "MC Inclusive (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
-    leg_rate_all.AddEntry(g_lhapdf_inc, "QCD Inclusive (Red)", "lf")
+    leg_rate_all.AddEntry(g_lhapdf_inc_w, "QCD Inclusive (^{184}W, Red solid)", "l")
+    leg_rate_all.AddEntry(g_lhapdf_inc_em, "QCD Inclusive (Emulsion, Red dashed)", "l")
     leg_rate_all.AddEntry(g_charm_rate_mc_nu, "MC #nu_{#mu} CC", "lep")
-    leg_rate_all.AddEntry(g_lhapdf_nu, "QCD #nu_{#mu} (Blue)", "lf")
+    leg_rate_all.AddEntry(g_lhapdf_nu_w, "QCD #nu_{#mu} (^{184}W, Blue solid)", "l")
+    leg_rate_all.AddEntry(g_lhapdf_nu_em, "QCD #nu_{#mu} (Emulsion, Blue dashed)", "l")
     leg_rate_all.AddEntry(g_charm_rate_mc_antinu, "MC #bar{#nu}_{#mu} CC", "lep")
-    leg_rate_all.AddEntry(g_lhapdf_antinu, "QCD #bar{#nu}_{#mu} (Purple)", "lf")
+    leg_rate_all.AddEntry(g_lhapdf_antinu_w, "QCD #bar{#nu}_{#mu} (^{184}W, Purple solid)", "l")
+    leg_rate_all.AddEntry(g_lhapdf_antinu_em, "QCD #bar{#nu}_{#mu} (Emulsion, Purple dashed)", "l")
     leg_rate_all.Draw("same")
     c_rate_all.Write()
 
@@ -3158,32 +3323,102 @@ def write_histograms_and_canvases(
     f_sr_2mu_iso_antinu.SetLineWidth(2)
 
     # Theoretical LHAPDF nCTEQ15 dimuon models
-    g_lhapdf_dimuon_inc, g_lhapdf_dimuon_inc_base, g_lhapdf_dimuon_inc_total = load_lhapdf_dimuon_prediction(
+    # Tungsten target predictions (solid transparent bands, solid central line)
+    g_lhapdf_dimuon_inc_w, g_lhapdf_dimuon_inc_w_base, g_lhapdf_dimuon_inc_w_total = load_lhapdf_dimuon_prediction(
         "neutrino_charm_dimuon_ratio_inclusive_prediction_lhapdf.csv",
-        name="lhapdf_dimuon_inclusive",
+        name="lhapdf_dimuon_inclusive_tungsten",
+        target="tungsten",
         line_color=col_inc,
         line_width=2,
+        line_style=1,
         band_color=col_inc,
+        inner_alpha=0.35,
+        outer_alpha=0.18,
+        fill_style_inner=1001,
+        fill_style_outer=1001,
         scale_to_absolute=True,
     )
 
-    g_lhapdf_dimuon_nu, g_lhapdf_dimuon_nu_base, g_lhapdf_dimuon_nu_total = load_lhapdf_dimuon_prediction(
+    g_lhapdf_dimuon_nu_w, g_lhapdf_dimuon_nu_w_base, g_lhapdf_dimuon_nu_w_total = load_lhapdf_dimuon_prediction(
         "neutrino_charm_dimuon_ratio_nu_prediction_lhapdf.csv",
-        name="lhapdf_dimuon_nu",
+        name="lhapdf_dimuon_nu_tungsten",
+        target="tungsten",
         line_color=col_nu,
         line_width=2,
+        line_style=1,
         band_color=col_nu,
+        inner_alpha=0.35,
+        outer_alpha=0.18,
+        fill_style_inner=1001,
+        fill_style_outer=1001,
         scale_to_absolute=True,
     )
 
-    g_lhapdf_dimuon_antinu, g_lhapdf_dimuon_antinu_base, g_lhapdf_dimuon_antinu_total = load_lhapdf_dimuon_prediction(
+    g_lhapdf_dimuon_antinu_w, g_lhapdf_dimuon_antinu_w_base, g_lhapdf_dimuon_antinu_w_total = load_lhapdf_dimuon_prediction(
         "neutrino_charm_dimuon_ratio_antinu_prediction_lhapdf.csv",
-        name="lhapdf_dimuon_antinu",
+        name="lhapdf_dimuon_antinu_tungsten",
+        target="tungsten",
         line_color=col_antinu,
         line_width=2,
+        line_style=1,
         band_color=col_antinu,
+        inner_alpha=0.35,
+        outer_alpha=0.18,
+        fill_style_inner=1001,
+        fill_style_outer=1001,
         scale_to_absolute=True,
     )
+
+    # Emulsion target predictions (diagonal hatched bands, dashed central line)
+    g_lhapdf_dimuon_inc_em, g_lhapdf_dimuon_inc_em_base, g_lhapdf_dimuon_inc_em_total = load_lhapdf_dimuon_prediction(
+        "neutrino_charm_dimuon_ratio_inclusive_prediction_lhapdf.csv",
+        name="lhapdf_dimuon_inclusive_emulsion",
+        target="emulsion",
+        line_color=col_inc,
+        line_width=2,
+        line_style=7,
+        band_color=col_inc,
+        fill_style_inner=3004,
+        fill_style_outer=3005,
+        scale_to_absolute=True,
+    )
+
+    g_lhapdf_dimuon_nu_em, g_lhapdf_dimuon_nu_em_base, g_lhapdf_dimuon_nu_em_total = load_lhapdf_dimuon_prediction(
+        "neutrino_charm_dimuon_ratio_nu_prediction_lhapdf.csv",
+        name="lhapdf_dimuon_nu_emulsion",
+        target="emulsion",
+        line_color=col_nu,
+        line_width=2,
+        line_style=7,
+        band_color=col_nu,
+        fill_style_inner=3004,
+        fill_style_outer=3005,
+        scale_to_absolute=True,
+    )
+
+    g_lhapdf_dimuon_antinu_em, g_lhapdf_dimuon_antinu_em_base, g_lhapdf_dimuon_antinu_em_total = load_lhapdf_dimuon_prediction(
+        "neutrino_charm_dimuon_ratio_antinu_prediction_lhapdf.csv",
+        name="lhapdf_dimuon_antinu_emulsion",
+        target="emulsion",
+        line_color=col_antinu,
+        line_width=2,
+        line_style=7,
+        band_color=col_antinu,
+        fill_style_inner=3004,
+        fill_style_outer=3005,
+        scale_to_absolute=True,
+    )
+
+    # Aliases
+    g_lhapdf_dimuon_inc = g_lhapdf_dimuon_inc_w
+    g_lhapdf_dimuon_inc_base = g_lhapdf_dimuon_inc_w_base
+    g_lhapdf_dimuon_inc_total = g_lhapdf_dimuon_inc_w_total
+    g_lhapdf_dimuon_nu = g_lhapdf_dimuon_nu_w
+    g_lhapdf_dimuon_nu_base = g_lhapdf_dimuon_nu_w_base
+    g_lhapdf_dimuon_nu_total = g_lhapdf_dimuon_nu_w_total
+    g_lhapdf_dimuon_antinu = g_lhapdf_dimuon_antinu_w
+    g_lhapdf_dimuon_antinu_base = g_lhapdf_dimuon_antinu_w_base
+    g_lhapdf_dimuon_antinu_total = g_lhapdf_dimuon_antinu_w_total
 
     # MC Dimuon data points
     g_dimuon_rate_mc = ROOT.TGraphAsymmErrors(n_nu_ebins)
@@ -3409,19 +3644,32 @@ def write_histograms_and_canvases(
     h_frame_dimuon_inc.SetTitle("Charm Dimuon Production Rate: Inclusive (#nu_{#mu} + #bar{#nu}_{#mu});E_{#nu} [GeV];#sigma_{charm, 2#mu} / #sigma_{CC}")
     h_frame_dimuon_inc.GetYaxis().SetTitleOffset(1.25)
 
-    g_lhapdf_dimuon_inc_total.Draw("3 same")
-    g_lhapdf_dimuon_inc_base.Draw("3 same")
-    g_lhapdf_dimuon_inc.Draw("L same")
+    # 1. Tungsten target predictions (solid transparent bands)
+    g_lhapdf_dimuon_inc_w_total.Draw("3 same")
+    g_lhapdf_dimuon_inc_w_base.Draw("3 same")
+
+    # 2. Emulsion target predictions (diagonal hatched bands)
+    g_lhapdf_dimuon_inc_em_total.Draw("3 same")
+    g_lhapdf_dimuon_inc_em_base.Draw("3 same")
+
+    # 3. Central lines
+    g_lhapdf_dimuon_inc_w.Draw("L same")
+    g_lhapdf_dimuon_inc_em.Draw("L same")
+
+    # 4. SND@LHC MC data points
     g_dimuon_rate_mc.Draw("P E1 same")
 
-    leg_dimuon_inc = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
+    leg_dimuon_inc = ROOT.TLegend(0.44, 0.50, 0.92, 0.89)
     leg_dimuon_inc.SetBorderSize(1)
     leg_dimuon_inc.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_dimuon_inc.SetTextSize(0.022)
+    leg_dimuon_inc.SetTextSize(0.019)
     leg_dimuon_inc.AddEntry(g_dimuon_rate_mc, "MC Inclusive Dimuon (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
-    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc, "QCD Prediction (Tungsten, #nu_{#mu}+#bar{#nu}_{#mu})", "l")
-    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_base, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 GeV & |V_{cd}|)", "f")
-    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_total, "LHAPDF nCTEQ15 1#sigma (+ nPDF, Lund Var. & B_{#mu})", "f")
+    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_w, "QCD Prediction (^{184}W target, solid)", "l")
+    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_w_base, "Base Kinematics 1#sigma (^{184}W)", "f")
+    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_w_total, "LHAPDF nCTEQ15 1#sigma (^{184}W)", "f")
+    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_em, "QCD Prediction (Emulsion target, dashed)", "l")
+    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_em_base, "Base Kinematics 1#sigma (Emulsion, //)", "f")
+    leg_dimuon_inc.AddEntry(g_lhapdf_dimuon_inc_em_total, "LHAPDF nCTEQ15 1#sigma (Emulsion, \\\\)", "f")
     leg_dimuon_inc.Draw("same")
     c_dimuon_inc.Write()
 
@@ -3437,23 +3685,36 @@ def write_histograms_and_canvases(
     h_frame_dimuon_nu.SetTitle("Charm Dimuon Production Rate: #nu_{#mu} CC;E_{#nu} [GeV];#sigma_{charm, 2#mu} / #sigma_{CC}")
     h_frame_dimuon_nu.GetYaxis().SetTitleOffset(1.25)
 
-    g_lhapdf_dimuon_nu_total.Draw("3 same")
-    g_lhapdf_dimuon_nu_base.Draw("3 same")
-    g_lhapdf_dimuon_nu.Draw("L same")
+    # 1. Tungsten target predictions (solid transparent bands)
+    g_lhapdf_dimuon_nu_w_total.Draw("3 same")
+    g_lhapdf_dimuon_nu_w_base.Draw("3 same")
+
+    # 2. Emulsion target predictions (diagonal hatched bands)
+    g_lhapdf_dimuon_nu_em_total.Draw("3 same")
+    g_lhapdf_dimuon_nu_em_base.Draw("3 same")
+
+    # 3. Central lines
+    g_lhapdf_dimuon_nu_w.Draw("L same")
+    g_lhapdf_dimuon_nu_em.Draw("L same")
+
+    # 4. Experimental measurements & SND@LHC MC data points
     for g_dim in dimuon_graphs.values():
         g_dim.Draw("P E1 same")
     g_dimuon_rate_mc_nu.Draw("P E1 same")
 
-    leg_dimuon_nu = ROOT.TLegend(0.44, 0.48, 0.92, 0.89)
+    leg_dimuon_nu = ROOT.TLegend(0.44, 0.44, 0.92, 0.89)
     leg_dimuon_nu.SetBorderSize(1)
     leg_dimuon_nu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_dimuon_nu.SetTextSize(0.020)
-    leg_dimuon_nu.AddEntry(g_dimuon_rate_mc_nu, "MC #nu_{#mu} Dimuon CC", "lep")
+    leg_dimuon_nu.SetTextSize(0.018)
+    leg_dimuon_nu.AddEntry(g_dimuon_rate_mc_nu, "MC #nu_{#mu} Dimuon CC (Tungsten)", "lep")
     for g_dim in dimuon_graphs.values():
         leg_dimuon_nu.AddEntry(g_dim, g_dim.GetTitle(), "lep")
-    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu, "QCD Prediction (Tungsten, #nu_{#mu})", "l")
-    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_base, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 GeV & |V_{cd}|)", "f")
-    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_total, "LHAPDF nCTEQ15 1#sigma (+ nPDF, Lund Var. & B_{#mu})", "f")
+    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_w, "QCD Prediction (^{184}W target, solid)", "l")
+    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_w_base, "Base Kinematics 1#sigma (^{184}W)", "f")
+    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_w_total, "LHAPDF nCTEQ15 1#sigma (^{184}W)", "f")
+    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_em, "QCD Prediction (Emulsion target, dashed)", "l")
+    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_em_base, "Base Kinematics 1#sigma (Emulsion, //)", "f")
+    leg_dimuon_nu.AddEntry(g_lhapdf_dimuon_nu_em_total, "LHAPDF nCTEQ15 1#sigma (Emulsion, \\\\)", "f")
     leg_dimuon_nu.Draw("same")
     c_dimuon_nu.Write()
 
@@ -3469,19 +3730,32 @@ def write_histograms_and_canvases(
     h_frame_dimuon_antinu.SetTitle("Charm Dimuon Production Rate: #bar{#nu}_{#mu} CC;E_{#nu} [GeV];#sigma_{charm, 2#mu} / #sigma_{CC}")
     h_frame_dimuon_antinu.GetYaxis().SetTitleOffset(1.25)
 
-    g_lhapdf_dimuon_antinu_total.Draw("3 same")
-    g_lhapdf_dimuon_antinu_base.Draw("3 same")
-    g_lhapdf_dimuon_antinu.Draw("L same")
+    # 1. Tungsten target predictions (solid transparent bands)
+    g_lhapdf_dimuon_antinu_w_total.Draw("3 same")
+    g_lhapdf_dimuon_antinu_w_base.Draw("3 same")
+
+    # 2. Emulsion target predictions (diagonal hatched bands)
+    g_lhapdf_dimuon_antinu_em_total.Draw("3 same")
+    g_lhapdf_dimuon_antinu_em_base.Draw("3 same")
+
+    # 3. Central lines
+    g_lhapdf_dimuon_antinu_w.Draw("L same")
+    g_lhapdf_dimuon_antinu_em.Draw("L same")
+
+    # 4. SND@LHC MC data points
     g_dimuon_rate_mc_antinu.Draw("P E1 same")
 
-    leg_dimuon_antinu = ROOT.TLegend(0.44, 0.62, 0.92, 0.89)
+    leg_dimuon_antinu = ROOT.TLegend(0.44, 0.50, 0.92, 0.89)
     leg_dimuon_antinu.SetBorderSize(1)
     leg_dimuon_antinu.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_dimuon_antinu.SetTextSize(0.022)
-    leg_dimuon_antinu.AddEntry(g_dimuon_rate_mc_antinu, "MC #bar{#nu}_{#mu} Dimuon CC", "lep")
-    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu, "QCD Prediction (Tungsten, #bar{#nu}_{#mu})", "l")
-    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu_base, "Base Kinematics 1#sigma Belt (Pole m_{c} = 1.43 GeV & |V_{cd}|)", "f")
-    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu_total, "LHAPDF nCTEQ15 1#sigma (+ nPDF, Lund Var. & B_{#mu})", "f")
+    leg_dimuon_antinu.SetTextSize(0.019)
+    leg_dimuon_antinu.AddEntry(g_dimuon_rate_mc_antinu, "MC #bar{#nu}_{#mu} Dimuon CC (Tungsten)", "lep")
+    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu_w, "QCD Prediction (^{184}W target, solid)", "l")
+    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu_w_base, "Base Kinematics 1#sigma (^{184}W)", "f")
+    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu_w_total, "LHAPDF nCTEQ15 1#sigma (^{184}W)", "f")
+    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu_em, "QCD Prediction (Emulsion target, dashed)", "l")
+    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu_em_base, "Base Kinematics 1#sigma (Emulsion, //)", "f")
+    leg_dimuon_antinu.AddEntry(g_lhapdf_dimuon_antinu_em_total, "LHAPDF nCTEQ15 1#sigma (Emulsion, \\\\)", "f")
     leg_dimuon_antinu.Draw("same")
     c_dimuon_antinu.Write()
 
@@ -3498,31 +3772,38 @@ def write_histograms_and_canvases(
     h_frame_dim_all.SetTitle("Charm Dimuon Production Rate Comparison: Inclusive vs #nu_{#mu} vs #bar{#nu}_{#mu};E_{#nu} [GeV];#sigma_{charm, 2#mu} / #sigma_{CC}")
     h_frame_dim_all.GetYaxis().SetTitleOffset(1.25)
 
-    g_lhapdf_dimuon_inc_total.Draw("3 same")
-    g_lhapdf_dimuon_inc_base.Draw("3 same")
-    g_lhapdf_dimuon_nu_total.Draw("3 same")
-    g_lhapdf_dimuon_nu_base.Draw("3 same")
-    g_lhapdf_dimuon_antinu_total.Draw("3 same")
-    g_lhapdf_dimuon_antinu_base.Draw("3 same")
+    g_lhapdf_dimuon_inc_w_total.Draw("3 same")
+    g_lhapdf_dimuon_inc_w_base.Draw("3 same")
+    g_lhapdf_dimuon_nu_w_total.Draw("3 same")
+    g_lhapdf_dimuon_nu_w_base.Draw("3 same")
+    g_lhapdf_dimuon_antinu_w_total.Draw("3 same")
+    g_lhapdf_dimuon_antinu_w_base.Draw("3 same")
 
-    g_lhapdf_dimuon_inc.Draw("L same")
-    g_lhapdf_dimuon_nu.Draw("L same")
-    g_lhapdf_dimuon_antinu.Draw("L same")
+    g_lhapdf_dimuon_inc_em.Draw("L same")
+    g_lhapdf_dimuon_nu_em.Draw("L same")
+    g_lhapdf_dimuon_antinu_em.Draw("L same")
+
+    g_lhapdf_dimuon_inc_w.Draw("L same")
+    g_lhapdf_dimuon_nu_w.Draw("L same")
+    g_lhapdf_dimuon_antinu_w.Draw("L same")
 
     g_dimuon_rate_mc.Draw("P E1 same")
     g_dimuon_rate_mc_nu.Draw("P E1 same")
     g_dimuon_rate_mc_antinu.Draw("P E1 same")
 
-    leg_dimuon_all = ROOT.TLegend(0.44, 0.58, 0.92, 0.89)
+    leg_dimuon_all = ROOT.TLegend(0.44, 0.50, 0.92, 0.89)
     leg_dimuon_all.SetBorderSize(1)
     leg_dimuon_all.SetFillColorAlpha(ROOT.kWhite, 0.92)
-    leg_dimuon_all.SetTextSize(0.021)
-    leg_dimuon_all.AddEntry(g_dimuon_rate_mc, "MC Inclusive Dimuon (#nu_{#mu}+#bar{#nu}_{#mu})", "lep")
-    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_inc, "QCD Inclusive (Red)", "lf")
-    leg_dimuon_all.AddEntry(g_dimuon_rate_mc_nu, "MC #nu_{#mu} Dimuon CC", "lep")
-    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_nu, "QCD #nu_{#mu} (Blue)", "lf")
-    leg_dimuon_all.AddEntry(g_dimuon_rate_mc_antinu, "MC #bar{#nu}_{#mu} Dimuon CC", "lep")
-    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_antinu, "QCD #bar{#nu}_{#mu} (Purple)", "lf")
+    leg_dimuon_all.SetTextSize(0.019)
+    leg_dimuon_all.AddEntry(g_dimuon_rate_mc, "MC Inclusive Dimuon (Red points)", "lep")
+    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_inc_w, "QCD Inclusive (^{184}W, Red solid)", "lf")
+    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_inc_em, "QCD Inclusive (Emulsion, Red dashed)", "l")
+    leg_dimuon_all.AddEntry(g_dimuon_rate_mc_nu, "MC #nu_{#mu} Dimuon CC (Blue points)", "lep")
+    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_nu_w, "QCD #nu_{#mu} (^{184}W, Blue solid)", "lf")
+    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_nu_em, "QCD #nu_{#mu} (Emulsion, Blue dashed)", "l")
+    leg_dimuon_all.AddEntry(g_dimuon_rate_mc_antinu, "MC #bar{#nu}_{#mu} Dimuon CC (Purple points)", "lep")
+    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_antinu_w, "QCD #bar{#nu}_{#mu} (^{184}W, Purple solid)", "lf")
+    leg_dimuon_all.AddEntry(g_lhapdf_dimuon_antinu_em, "QCD #bar{#nu}_{#mu} (Emulsion, Purple dashed)", "l")
     leg_dimuon_all.Draw("same")
     c_dimuon_all.Write()
 
@@ -3553,6 +3834,28 @@ def write_histograms_and_canvases(
     g_charm_rate_mc_nu.Write("g_charm_rate_mc_nu")
     g_charm_rate_mc_antinu.Write("g_charm_rate_mc_antinu")
 
+    # LHAPDF charm cross-section ratio predictions (Tungsten and Emulsion)
+    g_lhapdf_inc_w.Write("g_lhapdf_prediction_inclusive_tungsten")
+    g_lhapdf_inc_w_inner.Write("g_lhapdf_inclusive_1sigma_inner_band_tungsten")
+    g_lhapdf_inc_w_outer.Write("g_lhapdf_inclusive_1sigma_outer_band_tungsten")
+    g_lhapdf_nu_w.Write("g_lhapdf_prediction_nu_tungsten")
+    g_lhapdf_nu_w_inner.Write("g_lhapdf_nu_1sigma_inner_band_tungsten")
+    g_lhapdf_nu_w_outer.Write("g_lhapdf_nu_1sigma_outer_band_tungsten")
+    g_lhapdf_antinu_w.Write("g_lhapdf_prediction_antinu_tungsten")
+    g_lhapdf_antinu_w_inner.Write("g_lhapdf_antinu_1sigma_inner_band_tungsten")
+    g_lhapdf_antinu_w_outer.Write("g_lhapdf_antinu_1sigma_outer_band_tungsten")
+
+    g_lhapdf_inc_em.Write("g_lhapdf_prediction_inclusive_emulsion")
+    g_lhapdf_inc_em_inner.Write("g_lhapdf_inclusive_1sigma_inner_band_emulsion")
+    g_lhapdf_inc_em_outer.Write("g_lhapdf_inclusive_1sigma_outer_band_emulsion")
+    g_lhapdf_nu_em.Write("g_lhapdf_prediction_nu_emulsion")
+    g_lhapdf_nu_em_inner.Write("g_lhapdf_nu_1sigma_inner_band_emulsion")
+    g_lhapdf_nu_em_outer.Write("g_lhapdf_nu_1sigma_outer_band_emulsion")
+    g_lhapdf_antinu_em.Write("g_lhapdf_prediction_antinu_emulsion")
+    g_lhapdf_antinu_em_inner.Write("g_lhapdf_antinu_1sigma_inner_band_emulsion")
+    g_lhapdf_antinu_em_outer.Write("g_lhapdf_antinu_1sigma_outer_band_emulsion")
+
+    # Backward compatibility default aliases
     g_lhapdf_inc.Write("g_lhapdf_prediction_inclusive")
     g_lhapdf_inc_inner.Write("g_lhapdf_inclusive_1sigma_inner_band")
     g_lhapdf_inc_outer.Write("g_lhapdf_inclusive_1sigma_outer_band")
@@ -3579,6 +3882,28 @@ def write_histograms_and_canvases(
     g_dimuon_rate_mc_nu.Write("g_dimuon_rate_mc_nu")
     g_dimuon_rate_mc_antinu.Write("g_dimuon_rate_mc_antinu")
 
+    # LHAPDF dimuon cross-section ratio predictions (Tungsten and Emulsion)
+    g_lhapdf_dimuon_inc_w.Write("g_lhapdf_dimuon_prediction_inclusive_tungsten")
+    g_lhapdf_dimuon_inc_w_base.Write("g_lhapdf_dimuon_inclusive_1sigma_base_band_tungsten")
+    g_lhapdf_dimuon_inc_w_total.Write("g_lhapdf_dimuon_inclusive_1sigma_total_band_tungsten")
+    g_lhapdf_dimuon_nu_w.Write("g_lhapdf_dimuon_prediction_nu_tungsten")
+    g_lhapdf_dimuon_nu_w_base.Write("g_lhapdf_dimuon_nu_1sigma_base_band_tungsten")
+    g_lhapdf_dimuon_nu_w_total.Write("g_lhapdf_dimuon_nu_1sigma_total_band_tungsten")
+    g_lhapdf_dimuon_antinu_w.Write("g_lhapdf_dimuon_prediction_antinu_tungsten")
+    g_lhapdf_dimuon_antinu_w_base.Write("g_lhapdf_dimuon_antinu_1sigma_base_band_tungsten")
+    g_lhapdf_dimuon_antinu_w_total.Write("g_lhapdf_dimuon_antinu_1sigma_total_band_tungsten")
+
+    g_lhapdf_dimuon_inc_em.Write("g_lhapdf_dimuon_prediction_inclusive_emulsion")
+    g_lhapdf_dimuon_inc_em_base.Write("g_lhapdf_dimuon_inclusive_1sigma_base_band_emulsion")
+    g_lhapdf_dimuon_inc_em_total.Write("g_lhapdf_dimuon_inclusive_1sigma_total_band_emulsion")
+    g_lhapdf_dimuon_nu_em.Write("g_lhapdf_dimuon_prediction_nu_emulsion")
+    g_lhapdf_dimuon_nu_em_base.Write("g_lhapdf_dimuon_nu_1sigma_base_band_emulsion")
+    g_lhapdf_dimuon_nu_em_total.Write("g_lhapdf_dimuon_nu_1sigma_total_band_emulsion")
+    g_lhapdf_dimuon_antinu_em.Write("g_lhapdf_dimuon_prediction_antinu_emulsion")
+    g_lhapdf_dimuon_antinu_em_base.Write("g_lhapdf_dimuon_antinu_1sigma_base_band_emulsion")
+    g_lhapdf_dimuon_antinu_em_total.Write("g_lhapdf_dimuon_antinu_1sigma_total_band_emulsion")
+
+    # Backward compatibility default aliases
     g_lhapdf_dimuon_inc.Write("g_lhapdf_dimuon_prediction_inclusive")
     g_lhapdf_dimuon_inc_base.Write("g_lhapdf_dimuon_inclusive_1sigma_base_band")
     g_lhapdf_dimuon_inc_total.Write("g_lhapdf_dimuon_inclusive_1sigma_total_band")

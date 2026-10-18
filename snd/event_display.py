@@ -478,6 +478,26 @@ class Snd2DEventDisplay:
 
             truth["is_cc"] = is_cc
             truth["is_nc"] = not is_cc
+
+            # Particle gun fallback: primary muons with motherId < 0
+            if mu1_trk is None:
+                pg_muons = [t for t in tree.MCTrack if abs(t.GetPdgCode()) == 13 and t.GetMotherId() < 0]
+                if len(pg_muons) >= 2:
+                    truth["is_particle_gun"] = True
+                    mu1_trk = pg_muons[0]
+                    mu2_trk = pg_muons[1]
+                    truth["mu1_p"] = float(mu1_trk.GetP())
+                    truth["mu2_p"] = float(mu2_trk.GetP())
+                    truth["has_candidate"] = True
+                    truth["vtx"] = (float(mu1_trk.GetStartX()), float(mu1_trk.GetStartY()), float(mu1_trk.GetStartZ()))
+                    p1 = ROOT.TVector3(mu1_trk.GetPx(), mu1_trk.GetPy(), mu1_trk.GetPz())
+                    p2 = ROOT.TVector3(mu2_trk.GetPx(), mu2_trk.GetPy(), mu2_trk.GetPz())
+                    if p1.Mag() > 0 and p2.Mag() > 0:
+                        truth["dimuon_opening_angle_mrad"] = float(p1.Angle(p2) * 1000.0)
+                    lv1 = ROOT.TLorentzVector(mu1_trk.GetPx(), mu1_trk.GetPy(), mu1_trk.GetPz(), mu1_trk.GetEnergy())
+                    lv2 = ROOT.TLorentzVector(mu2_trk.GetPx(), mu2_trk.GetPy(), mu2_trk.GetPz(), mu2_trk.GetEnergy())
+                    truth["dimuon_mass"] = float((lv1 + lv2).M())
+
             if mu1_trk is not None:
                 truth["mu1_p"] = float(mu1_trk.GetP())
                 if nu_pdg == 14:
@@ -595,6 +615,18 @@ class Snd2DEventDisplay:
             mu2_id = find_truth_mu2_track_id(tree)
             if 0 <= mu2_id < n_tracks:
                 mu2_trk = (mu2_id, tree.MCTrack[mu2_id])
+
+            # Particle gun fallback: primary muons with motherId < 0
+            if mu1_trk is None or mu2_trk is None:
+                pg_mu_ids = [
+                    i for i, trk in enumerate(tree.MCTrack)
+                    if abs(trk.GetPdgCode()) == 13 and trk.GetMotherId() < 0
+                ]
+                if len(pg_mu_ids) >= 2:
+                    mu1_id, mu2_id = pg_mu_ids[0], pg_mu_ids[1]
+                    mu1_trk = (mu1_id, tree.MCTrack[mu1_id])
+                    mu2_trk = (mu2_id, tree.MCTrack[mu2_id])
+
 
             # 4. Extract chain of in-between particles that produced the second muon
             if charm_trk is not None and mu2_trk is not None:
@@ -1191,7 +1223,9 @@ class Snd2DEventDisplay:
             is_anti_numu = truth.get("is_anti_numu_cc", False)
             nu_prefix = "#bar{#nu}_{#mu}" if is_anti_numu else "#nu_{#mu}"
 
-            if has_cand:
+            if truth.get("is_particle_gun"):
+                topo_tag = "Particle Gun (#mu^{+}#mu^{-})"
+            elif has_cand:
                 topo_tag = f"{nu_prefix} CC Dimuon + Charm"
             elif has_charm:
                 topo_tag = f"{nu_prefix} CC + Charm Hadron"
@@ -1204,25 +1238,32 @@ class Snd2DEventDisplay:
 
             vtx = tracks.get("vtx", (0.0, 0.0, -9999.0))
             pave_info.AddText(f"#bf{{SND@LHC Simulation}}  {topo_tag}")
-            pave_info.AddText(f"E_{{#nu}} = {truth['nu_e']:.1f} GeV  |  Vertex: ({vtx[0]:.1f}, {vtx[1]:.1f}, {vtx[2]:.1f}) cm")
 
-            if truth["mu1_p"] > 0:
-                pave_info.AddText(f"#mu_{{1}} (Primary Lepton): p = {truth['mu1_p']:.1f} GeV/c")
+            if truth.get("is_particle_gun"):
+                pave_info.AddText(f"Origin Vertex: ({vtx[0]:.1f}, {vtx[1]:.1f}, {vtx[2]:.1f}) cm  |  #theta_{{12}} = {truth.get('dimuon_opening_angle_mrad', 0.0):.1f} mrad")
+                pave_info.AddText(f"#mu_{{1}} (Track 0, Blue): p = {truth['mu1_p']:.1f} GeV/c")
+                pave_info.AddText(f"#mu_{{2}} (Track 1, Red): p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
             else:
-                pave_info.AddText("Outgoing Lepton: None (NC / Hadron Shower)")
+                pave_info.AddText(f"E_{{#nu}} = {truth['nu_e']:.1f} GeV  |  Vertex: ({vtx[0]:.1f}, {vtx[1]:.1f}, {vtx[2]:.1f}) cm")
 
-            if truth["charm_pdg"] != 0:
-                charm_name = PDG_NAMES.get(truth["charm_pdg"], f"PDG {truth['charm_pdg']}")
-                pave_info.AddText(f"Charm Hadron: #bf{{{charm_name}}}  |  Flight L_{{3D}} = {truth['decay_length_3d']:.2f} cm")
-
-            if truth["mu2_p"] > 0:
-                inter_chain = tracks.get("intermediate_chain", [])
-                if inter_chain:
-                    parent_pdg = inter_chain[-1]["pdg"]
-                    _, parent_name, _, _ = get_particle_style(parent_pdg)
-                    pave_info.AddText(f"#mu_{{2}} (via {parent_name}): p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
+                if truth["mu1_p"] > 0:
+                    pave_info.AddText(f"#mu_{{1}} (Primary Lepton): p = {truth['mu1_p']:.1f} GeV/c")
                 else:
-                    pave_info.AddText(f"#mu_{{2}} (Charm Decay): p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
+                    pave_info.AddText("Outgoing Lepton: None (NC / Hadron Shower)")
+
+                if truth["charm_pdg"] != 0:
+                    charm_name = PDG_NAMES.get(truth["charm_pdg"], f"PDG {truth['charm_pdg']}")
+                    pave_info.AddText(f"Charm Hadron: #bf{{{charm_name}}}  |  Flight L_{{3D}} = {truth['decay_length_3d']:.2f} cm")
+
+                if truth["mu2_p"] > 0:
+                    inter_chain = tracks.get("intermediate_chain", [])
+                    if inter_chain:
+                        parent_pdg = inter_chain[-1]["pdg"]
+                        _, parent_name, _, _ = get_particle_style(parent_pdg)
+                        pave_info.AddText(f"#mu_{{2}} (via {parent_name}): p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
+                    else:
+                        pave_info.AddText(f"#mu_{{2}} (Charm Decay): p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
+
 
             pave_info.Draw("same")
 

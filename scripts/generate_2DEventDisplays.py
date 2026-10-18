@@ -540,7 +540,8 @@ def main():
         help="Maximum number of input files to process",
     )
     parser.add_argument(
-        "--max-events-per-file",
+        "-n", "--max-events-per-file",
+        dest="max_events_per_file",
         type=int,
         default=None,
         help="Maximum events to display per file",

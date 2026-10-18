@@ -208,33 +208,31 @@ class Snd2DEventDisplay:
         self._init_geometry()
 
     def _setup_detector_node_defs(self):
-        """Original color mappings matching sndsw EventDisplay_Task."""
-        self.nodes = {"volMuFilter_1/volFeBlockEnd_1": ROOT.kGreen - 6}
-        for i in range(2):
-            self.nodes[f"volVeto_1/volVetoPlane_{i}_{i}"] = ROOT.kRed
-            for j in range(7):
-                self.nodes[f"volVeto_1/volVetoPlane_{i}_{i}/volVetoBar_1{i}{j:0>3d}"] = ROOT.kRed
-            self.nodes[f"volVeto_1/subVetoBox_{i}"] = ROOT.kGray + 1
+        """Dynamically populate detector nodes and color mappings from loaded TGeoManager."""
+        self.nodes = {}
+        top = ROOT.gGeoManager.GetTopVolume()
+        det = top.FindNode("Detector_0")
+        if not det:
+            return
 
-        for i in range(4):
-            self.nodes[f"volMuFilter_1/volMuDownstreamDet_{i}_{i+7}"] = ROOT.kBlue + 1
-            for j in range(60):
-                self.nodes[f"volMuFilter_1/volMuDownstreamDet_{i}_{i+7}/volMuDownstreamBar_ver_3{i}{j+60:0>3d}"] = ROOT.kBlue + 1
-                if i < 3:
-                    self.nodes[f"volMuFilter_1/volMuDownstreamDet_{i}_{i+7}/volMuDownstreamBar_hor_3{i}{j:0>3d}"] = ROOT.kBlue + 1
-            self.nodes[f"volMuFilter_1/subDSBox_{i+7}"] = ROOT.kGray + 1
+        def _scan(vol, prefix):
+            for i in range(vol.GetNdaughters()):
+                node = vol.GetNode(i)
+                name = node.GetName()
+                path = f"{prefix}/{name}" if prefix else name
+                if "volFeBlockEnd" in name or "volFeBlock" in name or "volBlockBot" in name:
+                    self.nodes[path] = ROOT.kGreen - 6
+                elif any(b in name for b in ["subVetoBox", "subUSBox", "subDSBox", "volWallborder"]):
+                    self.nodes[path] = ROOT.kGray + 1
+                elif "volVetoPlane" in name or "volVetoBar" in name:
+                    self.nodes[path] = ROOT.kRed
+                elif any(d in name for d in ["volMuUpstreamDet", "volMuDownstreamDet", "ScifiVolume", "volMuUpstreamBar", "volMuDownstreamBar"]):
+                    self.nodes[path] = ROOT.kBlue + 1
+                subvol = node.GetVolume()
+                if subvol.GetNdaughters() > 0:
+                    _scan(subvol, path)
 
-        for i in range(5):
-            self.nodes[f"volTarget_1/ScifiVolume{i+1}_{i+1}000000"] = ROOT.kBlue + 1
-            self.nodes[f"volTarget_1/volWallborder_{i}"] = ROOT.kGray
-            self.nodes[f"volMuFilter_1/subUSBox_{i+2}"] = ROOT.kGray + 1
-            self.nodes[f"volMuFilter_1/volMuUpstreamDet_{i}_{i+2}"] = ROOT.kBlue + 1
-            for j in range(10):
-                self.nodes[f"volMuFilter_1/volMuUpstreamDet_{i}_{i+2}/volMuUpstreamBar_2{i}00{j}"] = ROOT.kBlue + 1
-            self.nodes[f"volMuFilter_1/volFeBlock_{i}"] = ROOT.kGreen - 6
-
-        for i in range(7, 10):
-            self.nodes[f"volMuFilter_1/volFeBlock_{i}"] = ROOT.kGreen - 6
+        _scan(det.GetVolume(), "")
 
         self.pass_nodes = {"Block", "Wall", "FeTarget"}
         self.x_nodes = {"UpstreamBar", "VetoBar", "hor"}
@@ -250,6 +248,8 @@ class Snd2DEventDisplay:
         self.geo = SndlhcGeo.GeoInterface(self.geo_file)
         self.scifi_mod = self.geo.modules.get("Scifi")
         self.mufilter_mod = self.geo.modules.get("MuFilter")
+
+        self._setup_detector_node_defs()
 
         nav = ROOT.gGeoManager.GetCurrentNavigator()
         self.detector_polylines = {"X": {}, "Y": {}}

@@ -111,6 +111,7 @@ TRUTH_SCRIPT="${REPO_DIR}/scripts/mctruth_neutrinos.py"
 SKIM_SCRIPT="${REPO_DIR}/scripts/filter_charm_dimuon_categories.py"
 DISP_SCRIPT="${REPO_DIR}/scripts/generate_2DEventDisplays.py"
 CONFIG_FILE="${REPO_DIR}/config/mctruth_neutrinos_config.yaml"
+PAR_FILE="${PAR_FILE:-${REPO_DIR}/config/TrackingParams.xml}"
 
 echo "======================================================================"
 echo "SND@LHC Chained Pipeline: Tracking -> MCTruth -> Charm Skims -> Displays"
@@ -121,6 +122,7 @@ echo "  Raw Input    : ${INPUT_PATTERN}"
 echo "  Track Target : ${TRACK_FILE}"
 echo "  Truth Target : ${TRUTH_FILE}"
 echo "  Disp Target  : ${DISP_FILE}"
+echo "  Par File     : ${PAR_FILE}"
 echo "  Storage Mode : ${STORE_EVENTS_FLAG}"
 echo "  Force Mode   : ${FORCE:-0}"
 echo "  Python       : ${PYTHON_BIN}"
@@ -138,6 +140,7 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
         -p "${PARTITION}" \
         -j 1 \
         -t "dimuon_DS" \
+        -par "${PAR_FILE}" \
         ${STORE_EVENTS_FLAG} \
         ${SKIP_TRACK_FLAG}
     TRACK_EXIT=$?

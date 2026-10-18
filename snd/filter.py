@@ -1097,6 +1097,16 @@ def is_dimuon_in_ds_acceptance(
         mu2_id = find_truth_mu2_track_id(tree)
 
     if mu1_id < 0 or mu2_id < 0:
+        # Particle gun fallback: primary muons with motherId < 0
+        if hasattr(tree, "MCTrack"):
+            pg_mu_ids = [
+                i for i, t in enumerate(tree.MCTrack)
+                if abs(t.GetPdgCode()) == 13 and t.GetMotherId() < 0
+            ]
+            if len(pg_mu_ids) >= 2:
+                mu1_id, mu2_id = pg_mu_ids[0], pg_mu_ids[1]
+
+    if mu1_id < 0 or mu2_id < 0:
         return False
 
     mu1_hor, mu1_ver, _ = count_ds_mcpoints(tree, mu1_id)

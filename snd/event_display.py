@@ -204,7 +204,6 @@ class Snd2DEventDisplay:
                 break
 
         # Setup geometry and baseline outlines
-        self._setup_detector_node_defs()
         self._init_geometry()
 
     def _setup_detector_node_defs(self):

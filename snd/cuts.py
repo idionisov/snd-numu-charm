@@ -663,15 +663,29 @@ def draw_rotated_labels_on_canvas(
     return latex_objs
 
 
+def make_normalized_histogram(h_orig: ROOT.TH1D, norm_name: str, norm_title: Optional[str] = None) -> ROOT.TH1D:
+    """Return a clone of h_orig normalized such that the first bin content is scaled to 1.0."""
+    h_norm = h_orig.Clone(norm_name)
+    h_norm.SetDirectory(0)
+    if norm_title:
+        h_norm.SetTitle(norm_title)
+    val1 = h_orig.GetBinContent(1)
+    if val1 > 0:
+        h_norm.Scale(1.0 / val1)
+    return h_norm
+
+
 def save_cutflow_root_file(
     output_filepath: str,
     cutflow_stats: List[Dict[str, Any]],
     stage_histograms: Dict[str, Dict[str, Any]],
     signal_cutflow_stats: Optional[List[Dict[str, Any]]] = None,
+    scale_factor: float = 1.0,
 ) -> None:
     """
     Save cutflow summary counters and stage-by-stage diagnostic histograms into a ROOT file.
     Organizes histograms into subdirectories named after each cut stage.
+    Supports both unweighted, raw_weight, and mc_weight cutflows, plus normalized copies (first bin = 1.0).
     Uses shortened cut stage labels and renders canvases with 45-degree angled labels.
     """
     import os
@@ -686,33 +700,66 @@ def save_cutflow_root_file(
 
     n_cuts = len(cutflow_stats)
     h_cutflow = ROOT.TH1D("h_cutflow", "Event Cutflow Summary;;Events Passed", n_cuts, 0.5, n_cuts + 0.5)
+    h_cutflow_unweighted = ROOT.TH1D("h_cutflow_unweighted", "Event Cutflow (Unweighted);;Events", n_cuts, 0.5, n_cuts + 0.5)
+    h_cutflow_raw_weight = ROOT.TH1D("h_cutflow_raw_weight", "Event Cutflow (raw_weight);;Weighted Events", n_cuts, 0.5, n_cuts + 0.5)
+    h_cutflow_mc_weight = ROOT.TH1D("h_cutflow_mc_weight", "Event Cutflow (mc_weight);;Weighted Events", n_cuts, 0.5, n_cuts + 0.5)
     h_cum_eff = ROOT.TH1D("h_cutflow_cumulative_efficiency", "Cumulative Selection Efficiency;;Cumulative Efficiency", n_cuts, 0.5, n_cuts + 0.5)
     h_rel_eff = ROOT.TH1D("h_cutflow_relative_efficiency", "Relative Selection Efficiency;;Relative Efficiency", n_cuts, 0.5, n_cuts + 0.5)
 
+    has_weights = any("raw_weight" in s or "mc_weight" in s for s in cutflow_stats)
     raw_count = float(cutflow_stats[0]["count"]) if cutflow_stats and cutflow_stats[0]["count"] > 0 else 1.0
-    prev_count = raw_count
+    first_mc_weight = float(cutflow_stats[0].get("mc_weight", raw_count)) * scale_factor if cutflow_stats else 1.0
+    ref_initial = first_mc_weight if has_weights and first_mc_weight > 0 else raw_count
+    prev_val = ref_initial
 
     for i, step in enumerate(cutflow_stats, start=1):
-        c_val = float(step["count"])
+        cnt_val = float(step["count"])
+        raw_w_val = float(step.get("raw_weight", cnt_val)) * scale_factor
+        mc_w_val = float(step.get("mc_weight", cnt_val)) * scale_factor
+        c_val = mc_w_val if has_weights else cnt_val
+
         raw_label = step.get("name", step["id"])
         label = shorten_cut_label(raw_label)
+
         h_cutflow.GetXaxis().SetBinLabel(i, label)
         h_cutflow.SetBinContent(i, c_val)
 
-        cum_eff = (c_val / raw_count) if raw_count > 0 else 0.0
+        h_cutflow_unweighted.GetXaxis().SetBinLabel(i, label)
+        h_cutflow_unweighted.SetBinContent(i, cnt_val)
+
+        h_cutflow_raw_weight.GetXaxis().SetBinLabel(i, label)
+        h_cutflow_raw_weight.SetBinContent(i, raw_w_val)
+
+        h_cutflow_mc_weight.GetXaxis().SetBinLabel(i, label)
+        h_cutflow_mc_weight.SetBinContent(i, mc_w_val)
+
+        cum_eff = (c_val / ref_initial) if ref_initial > 0 else 0.0
         h_cum_eff.GetXaxis().SetBinLabel(i, label)
         h_cum_eff.SetBinContent(i, cum_eff)
 
-        rel_eff = (c_val / prev_count) if prev_count > 0 else 0.0
+        rel_eff = (c_val / prev_val) if prev_val > 0 else 0.0
         h_rel_eff.GetXaxis().SetBinLabel(i, label)
         h_rel_eff.SetBinContent(i, rel_eff)
 
-        prev_count = c_val
+        prev_val = c_val
+
+    # Normalized histograms (first bin scaled to height 1.0)
+    h_cutflow_norm = make_normalized_histogram(h_cutflow, "h_cutflow_norm", "Event Cutflow (Normalized);;Fraction Passed")
+    h_cutflow_unweighted_norm = make_normalized_histogram(h_cutflow_unweighted, "h_cutflow_unweighted_norm", "Event Cutflow Unweighted (Normalized);;Fraction Passed")
+    h_cutflow_raw_weight_norm = make_normalized_histogram(h_cutflow_raw_weight, "h_cutflow_raw_weight_norm", "Event Cutflow raw_weight (Normalized);;Fraction Passed")
+    h_cutflow_mc_weight_norm = make_normalized_histogram(h_cutflow_mc_weight, "h_cutflow_mc_weight_norm", "Event Cutflow mc_weight (Normalized);;Fraction Passed")
 
     fout.cd()
     h_cutflow.Write()
+    h_cutflow_unweighted.Write()
+    h_cutflow_raw_weight.Write()
+    h_cutflow_mc_weight.Write()
     h_cum_eff.Write()
     h_rel_eff.Write()
+    h_cutflow_norm.Write()
+    h_cutflow_unweighted_norm.Write()
+    h_cutflow_raw_weight_norm.Write()
+    h_cutflow_mc_weight_norm.Write()
 
     # Create primary cutflow TCanvas with 45-degree rotated labels
     c_cutflow = ROOT.TCanvas("c_cutflow", "Event Cutflow Summary", 1100, 750)
@@ -745,7 +792,7 @@ def save_cutflow_root_file(
     leg_single.SetFillStyle(1001)
     leg_single.SetFillColor(ROOT.kWhite)
     leg_single.SetTextSize(0.03)
-    leg_single.AddEntry(h_draw_single, f"Cutflow (Initial: {int(raw_count)})", "lp")
+    leg_single.AddEntry(h_draw_single, f"Cutflow (Initial: {ref_initial:.2f})", "lp")
     leg_single.Draw()
 
     draw_rotated_labels_on_canvas(c_cutflow, h_draw_single, angle=45.0, text_size=0.028)
@@ -755,22 +802,56 @@ def save_cutflow_root_file(
     # If signal cutflow is present, book signal histograms and create overlay comparison TCanvas
     if signal_cutflow_stats:
         h_sig = ROOT.TH1D("h_cutflow_signal", "Signal Cutflow Summary;;Signal Events Passed", n_cuts, 0.5, n_cuts + 0.5)
+        h_sig_unw = ROOT.TH1D("h_cutflow_signal_unweighted", "Signal Cutflow (Unweighted);;Signal Events", n_cuts, 0.5, n_cuts + 0.5)
+        h_sig_raw = ROOT.TH1D("h_cutflow_signal_raw_weight", "Signal Cutflow (raw_weight);;Weighted Signal Events", n_cuts, 0.5, n_cuts + 0.5)
+        h_sig_mc = ROOT.TH1D("h_cutflow_signal_mc_weight", "Signal Cutflow (mc_weight);;Weighted Signal Events", n_cuts, 0.5, n_cuts + 0.5)
         h_sig_eff = ROOT.TH1D("h_cutflow_signal_efficiency", "Signal Selection Efficiency;;Signal Efficiency", n_cuts, 0.5, n_cuts + 0.5)
-        sig_raw = float(signal_cutflow_stats[0]["count"]) if signal_cutflow_stats and signal_cutflow_stats[0]["count"] > 0 else 1.0
+
+        has_sig_w = any("raw_weight" in s or "mc_weight" in s for s in signal_cutflow_stats)
+        sig_raw_cnt = float(signal_cutflow_stats[0]["count"]) if signal_cutflow_stats and signal_cutflow_stats[0]["count"] > 0 else 1.0
+        sig_init_mc = float(signal_cutflow_stats[0].get("mc_weight", sig_raw_cnt)) * scale_factor if signal_cutflow_stats else 1.0
+        sig_ref = sig_init_mc if has_sig_w and sig_init_mc > 0 else sig_raw_cnt
 
         for i, step in enumerate(signal_cutflow_stats, start=1):
-            s_val = float(step["count"])
+            s_cnt = float(step["count"])
+            s_raw_w = float(step.get("raw_weight", s_cnt)) * scale_factor
+            s_mc_w = float(step.get("mc_weight", s_cnt)) * scale_factor
+            s_val = s_mc_w if has_sig_w else s_cnt
+
             raw_label = step.get("name", step["id"])
             label = shorten_cut_label(raw_label)
+
             h_sig.GetXaxis().SetBinLabel(i, label)
             h_sig.SetBinContent(i, s_val)
-            s_eff = (s_val / sig_raw) if sig_raw > 0 else 0.0
+
+            h_sig_unw.GetXaxis().SetBinLabel(i, label)
+            h_sig_unw.SetBinContent(i, s_cnt)
+
+            h_sig_raw.GetXaxis().SetBinLabel(i, label)
+            h_sig_raw.SetBinContent(i, s_raw_w)
+
+            h_sig_mc.GetXaxis().SetBinLabel(i, label)
+            h_sig_mc.SetBinContent(i, s_mc_w)
+
+            s_eff = (s_val / sig_ref) if sig_ref > 0 else 0.0
             h_sig_eff.GetXaxis().SetBinLabel(i, label)
             h_sig_eff.SetBinContent(i, s_eff)
 
+        h_sig_norm = make_normalized_histogram(h_sig, "h_cutflow_signal_norm", "Signal Cutflow (Normalized);;Fraction Passed")
+        h_sig_unw_norm = make_normalized_histogram(h_sig_unw, "h_cutflow_signal_unweighted_norm")
+        h_sig_raw_norm = make_normalized_histogram(h_sig_raw, "h_cutflow_signal_raw_weight_norm")
+        h_sig_mc_norm = make_normalized_histogram(h_sig_mc, "h_cutflow_signal_mc_weight_norm")
+
         fout.cd()
         h_sig.Write()
+        h_sig_unw.Write()
+        h_sig_raw.Write()
+        h_sig_mc.Write()
         h_sig_eff.Write()
+        h_sig_norm.Write()
+        h_sig_unw_norm.Write()
+        h_sig_raw_norm.Write()
+        h_sig_mc_norm.Write()
 
         # Build combined TCanvas showing both on a single canvas
         c_comp = ROOT.TCanvas("c_cutflow_comparison", "Event Cutflow Comparison (All Events vs Signal)", 1100, 750)
@@ -818,8 +899,8 @@ def save_cutflow_root_file(
         leg.SetFillStyle(1001)
         leg.SetFillColor(ROOT.kWhite)
         leg.SetTextSize(0.03)
-        leg.AddEntry(h_all_draw, f"All Events (Initial: {int(raw_count)})", "lp")
-        leg.AddEntry(h_sig_draw, f"Signal in DS Acceptance (Initial: {int(sig_raw)})", "lp")
+        leg.AddEntry(h_all_draw, f"All Events (Initial: {ref_initial:.2f})", "lp")
+        leg.AddEntry(h_sig_draw, f"Signal in DS Acceptance (Initial: {sig_ref:.2f})", "lp")
         leg.Draw()
 
         draw_rotated_labels_on_canvas(c_comp, h_all_draw, angle=45.0, text_size=0.028)

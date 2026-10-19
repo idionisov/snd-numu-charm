@@ -152,45 +152,75 @@ def print_cutflow_summary(
     if not cutflow_stats:
         return
 
-    width = 96 if signal_cutflow_stats else 80
-    print("\n" + "=" * width)
+    has_weights = any("raw_weight" in s or "mc_weight" in s for s in cutflow_stats)
+
     if signal_cutflow_stats:
+        width = 112 if has_weights else 96
+        print("\n" + "=" * width)
         print(" CUTFLOW PROCESSING SUMMARY (ALL EVENTS vs SIGNAL)")
         print("=" * width)
-        print(f"{'Step':<4} | {'Cut ID / Name':<34} | {'All Evts':>9} | {'All Rel%':>8} | {'Signal':>7} | {'Sig Rel%':>8} | {'Sig Cum%':>8}")
+        if has_weights:
+            print(f"{'Step':<4} | {'Cut ID / Name':<28} | {'All Evts':>9} | {'All MC Wgt':>12} | {'All Rel%':>8} | {'Signal':>7} | {'Sig MC Wgt':>11} | {'Sig Rel%':>8}")
+        else:
+            print(f"{'Step':<4} | {'Cut ID / Name':<34} | {'All Evts':>9} | {'All Rel%':>8} | {'Signal':>7} | {'Sig Rel%':>8} | {'Sig Cum%':>8}")
         print("-" * width)
         raw_all = float(cutflow_stats[0]["count"]) if cutflow_stats and cutflow_stats[0]["count"] > 0 else 1.0
-        prev_all = raw_all
+        prev_all = float(cutflow_stats[0].get("mc_weight", raw_all)) if has_weights else raw_all
         raw_sig = float(signal_cutflow_stats[0]["count"]) if signal_cutflow_stats and signal_cutflow_stats[0]["count"] > 0 else 1.0
-        prev_sig = raw_sig
+        prev_sig = float(signal_cutflow_stats[0].get("mc_weight", raw_sig)) if has_weights else raw_sig
 
         for i, step in enumerate(cutflow_stats):
-            c_val = float(step["count"])
-            rel_all = (c_val / prev_all * 100.0) if prev_all > 0 else 0.0
-            prev_all = c_val
+            c_cnt = float(step["count"])
+            c_mc = float(step.get("mc_weight", c_cnt))
+            eval_all = c_mc if has_weights else c_cnt
+            rel_all = (eval_all / prev_all * 100.0) if prev_all > 0 else 0.0
+            prev_all = eval_all
 
-            s_val = float(signal_cutflow_stats[i]["count"]) if i < len(signal_cutflow_stats) else 0.0
-            rel_sig = (s_val / prev_sig * 100.0) if prev_sig > 0 else 0.0
-            cum_sig = (s_val / raw_sig * 100.0) if raw_sig > 0 else 0.0
-            prev_sig = s_val
+            s_step = signal_cutflow_stats[i] if i < len(signal_cutflow_stats) else {}
+            s_cnt = float(s_step.get("count", 0.0))
+            s_mc = float(s_step.get("mc_weight", s_cnt))
+            eval_sig = s_mc if has_weights else s_cnt
+            rel_sig = (eval_sig / prev_sig * 100.0) if prev_sig > 0 else 0.0
+            prev_sig = eval_sig
 
-            name = shorten_cut_label(step.get("name", step["id"]))[:34]
-            print(f"{i:<4} | {name:<34} | {int(c_val):>9} | {rel_all:>7.1f}% | {int(s_val):>7} | {rel_sig:>7.1f}% | {cum_sig:>7.1f}%")
+            if has_weights:
+                name = shorten_cut_label(step.get("name", step["id"]))[:28]
+                print(f"{i:<4} | {name:<28} | {int(c_cnt):>9} | {c_mc:>12.2f} | {rel_all:>7.1f}% | {int(s_cnt):>7} | {s_mc:>11.2f} | {rel_sig:>7.1f}%")
+            else:
+                cum_sig = (s_cnt / raw_sig * 100.0) if raw_sig > 0 else 0.0
+                name = shorten_cut_label(step.get("name", step["id"]))[:34]
+                print(f"{i:<4} | {name:<34} | {int(c_cnt):>9} | {rel_all:>7.1f}% | {int(s_cnt):>7} | {rel_sig:>7.1f}% | {cum_sig:>7.1f}%")
     else:
+        width = 98 if has_weights else 80
+        print("\n" + "=" * width)
         print(" CUTFLOW PROCESSING SUMMARY")
         print("=" * width)
-        print(f"{'Step':<5} | {'Cut ID / Name':<38} | {'Passed':>10} | {'Rel. Eff':>10} | {'Cum. Eff':>10}")
-        print("-" * width)
-        raw_count = float(cutflow_stats[0]["count"]) if cutflow_stats and cutflow_stats[0]["count"] > 0 else 1.0
-        prev_count = raw_count
-
-        for i, step in enumerate(cutflow_stats):
-            c_val = float(step["count"])
-            rel_pct = (c_val / prev_count * 100.0) if prev_count > 0 else 0.0
-            cum_pct = (c_val / raw_count * 100.0) if raw_count > 0 else 0.0
-            name = shorten_cut_label(step.get("name", step["id"]))[:38]
-            print(f"{i:<5} | {name:<38} | {int(c_val):>10} | {rel_pct:>9.2f}% | {cum_pct:>9.2f}%")
-            prev_count = c_val
+        if has_weights:
+            print(f"{'Step':<4} | {'Cut ID / Name':<32} | {'Unweighted':>10} | {'Raw Weight':>12} | {'MC Weight':>14} | {'Rel Eff%':>8} | {'Cum Eff%':>8}")
+            print("-" * width)
+            raw_w_init = float(cutflow_stats[0].get("mc_weight", cutflow_stats[0]["count"])) if cutflow_stats and cutflow_stats[0].get("mc_weight", cutflow_stats[0]["count"]) > 0 else 1.0
+            prev_w = raw_w_init
+            for i, step in enumerate(cutflow_stats):
+                cnt = float(step["count"])
+                raw_w = float(step.get("raw_weight", cnt))
+                mc_w = float(step.get("mc_weight", cnt))
+                rel_pct = (mc_w / prev_w * 100.0) if prev_w > 0 else 0.0
+                cum_pct = (mc_w / raw_w_init * 100.0) if raw_w_init > 0 else 0.0
+                name = shorten_cut_label(step.get("name", step["id"]))[:32]
+                print(f"{i:<4} | {name:<32} | {int(cnt):>10} | {raw_w:>12.3e} | {mc_w:>14.2f} | {rel_pct:>7.1f}% | {cum_pct:>7.1f}%")
+                prev_w = mc_w
+        else:
+            print(f"{'Step':<5} | {'Cut ID / Name':<38} | {'Passed':>10} | {'Rel. Eff':>10} | {'Cum. Eff':>10}")
+            print("-" * width)
+            raw_count = float(cutflow_stats[0]["count"]) if cutflow_stats and cutflow_stats[0]["count"] > 0 else 1.0
+            prev_count = raw_count
+            for i, step in enumerate(cutflow_stats):
+                c_val = float(step["count"])
+                rel_pct = (c_val / prev_count * 100.0) if prev_count > 0 else 0.0
+                cum_pct = (c_val / raw_count * 100.0) if raw_count > 0 else 0.0
+                name = shorten_cut_label(step.get("name", step["id"]))[:38]
+                print(f"{i:<5} | {name:<38} | {int(c_val):>10} | {rel_pct:>9.2f}% | {cum_pct:>9.2f}%")
+                prev_count = c_val
 
     print("=" * width)
     if cutflow_filepath:
@@ -254,6 +284,20 @@ def prefilter_file(
             result["error"] = f"Branch 'Digi_ScifiHits' not found in tree '{resolved_tree}'"
             return result
 
+        # Check if mctruth tree exists in input_file and add as friend
+        has_mctruth = False
+        try:
+            _ftest = ROOT.TFile.Open(input_file, "READ")
+            if _ftest and not _ftest.IsZombie():
+                has_mctruth = bool(_ftest.Get("mctruth"))
+                _ftest.Close()
+        except Exception:
+            pass
+
+        if has_mctruth:
+            chain = dm.get_chain()
+            chain.AddFriend("mctruth", input_file)
+
         # Detect data vs MC
         has_header = dm.has_branch("EventHeader")
         has_mc = dm.has_branch("MCTrack")
@@ -263,6 +307,20 @@ def prefilter_file(
         df = dm.rdf(range_limit=max_events)
         total_entries = int(df.Count().GetValue())
         result["total_entries"] = total_entries
+
+        # Determine weight columns
+        has_weights = has_mctruth or dm.has_branch("mc_weight") or dm.has_branch("raw_weight")
+        if not df.HasColumn("mc_weight"):
+            if df.HasColumn("mctruth.mc_weight"):
+                df = df.Define("mc_weight", "mctruth.mc_weight")
+            else:
+                df = df.Define("mc_weight", "1.0")
+
+        if not df.HasColumn("raw_weight"):
+            if df.HasColumn("mctruth.raw_weight"):
+                df = df.Define("raw_weight", "mctruth.raw_weight")
+            else:
+                df = df.Define("raw_weight", "1.0")
 
         # 4. Configure selection chain and metrics
         active_cuts = []
@@ -276,14 +334,10 @@ def prefilter_file(
                 {"id": "step1_ip1", "name": "LHC IP1", "filter": "pass_ip1_cut", "data_only": True},
                 {"id": "step2_stable_beams", "name": "Stable Beams", "filter": "pass_stable_beams_cut", "data_only": True},
                 {"id": "step3_event_deltat", "name": "Event #Delta t", "filter": "pass_event_deltat_cut", "data_only": True},
-                {"id": "step4_scifi_fiducial", "name": "SciFi Fiducial", "filter": "pass_scifi_fiducial"},
-                {"id": "step5_ds_fiducial", "name": "DS Fiducial", "filter": "pass_ds_fiducial"},
-                {"id": "step6_veto_hits", "name": "Veto Cut", "filter": "pass_veto_cut"},
-                {"id": "step7_scifi_station", "name": "SciFi Station #neq 1", "filter": "pass_scifi_station_cut"},
-                {"id": "step8_ds_dimuon", "name": "DS Dimuon", "filter": "pass_ds_dimuon_cut"},
-                {"id": "step9_ds_activity", "name": "DS+US Activity", "filter": "pass_ds_activity_cut"},
-                {"id": "step10_scifi_ds_timing", "name": "SciFi-DS Timing", "filter": "pass_scifi_ds_timing_cut"},
-                {"id": "step11_two_ds_tracks", "name": "Two DS Tracks", "filter": "pass_two_ds_tracks_cut"},
+                {"id": "step4_scifi_ds_timing", "name": "SciFi-DS Timing", "filter": "pass_scifi_ds_timing_cut"},
+                {"id": "step5_veto_hits", "name": "No Veto Hits", "filter": "pass_veto_cut"},
+                {"id": "step6_ds_dimuon", "name": "DS Dimuon", "filter": "pass_ds_dimuon_cut"},
+                {"id": "step7_two_ds_tracks", "name": "Two DS Tracks", "filter": "pass_two_ds_tracks_cut"},
             ]
 
         # On Monte Carlo, data-only cuts (IP1, Stable Beams, Delta-t) are preserved in the
@@ -397,6 +451,8 @@ def prefilter_file(
                 current_node = current_node.Filter(c_filter, c_name)
 
             c_count = current_node.Count()
+            c_raw = current_node.Sum("raw_weight")
+            c_mc = current_node.Sum("mc_weight")
             c_hists = {}
 
             if record_cutflow and hist_configs:
@@ -424,6 +480,8 @@ def prefilter_file(
                 "name": c_name,
                 "node": current_node,
                 "count": c_count,
+                "raw_weight": c_raw,
+                "mc_weight": c_mc,
                 "hists": c_hists,
             })
 
@@ -441,11 +499,16 @@ def prefilter_file(
         stage_hists = {}
         for stage in cut_nodes:
             cnt = int(stage["count"].GetValue())
-            cutflow_stats.append({
+            s_dict = {
                 "id": stage["id"],
                 "name": stage["name"],
                 "count": cnt,
-            })
+            }
+            if has_weights:
+                s_dict["raw_weight"] = float(stage["raw_weight"].GetValue())
+                s_dict["mc_weight"] = float(stage["mc_weight"].GetValue())
+            cutflow_stats.append(s_dict)
+
             if record_cutflow:
                 stage_hists[stage["id"]] = {}
                 for h_name, h_ptr in stage["hists"].items():
@@ -473,6 +536,19 @@ def prefilter_file(
             for iev in passed_entry_list:
                 chain.GetEntry(iev)
                 out_tree.Fill()
+
+            # If input file has mctruth tree, clone and fill it alongside cbmsim
+            if has_mctruth:
+                fin_truth = ROOT.TFile.Open(input_file, "READ")
+                tin_truth = fin_truth.Get("mctruth") if fin_truth else None
+                if tin_truth:
+                    fout.cd()
+                    out_truth = tin_truth.CloneTree(0)
+                    for iev in passed_entry_list:
+                        tin_truth.GetEntry(iev)
+                        out_truth.Fill()
+                if fin_truth:
+                    fin_truth.Close()
 
             fout.Write()
             fout.Close()
@@ -765,12 +841,20 @@ def load_cutflow_stats_from_root(filepath: str) -> List[Dict[str, Any]]:
     if not f or f.IsZombie():
         return []
     h = f.Get("h_cutflow")
+    h_unw = f.Get("h_cutflow_unweighted")
+    h_raw = f.Get("h_cutflow_raw_weight")
+    h_mc = f.Get("h_cutflow_mc_weight")
     stats = []
     if h:
         for i in range(1, h.GetNbinsX() + 1):
             lbl = h.GetXaxis().GetBinLabel(i)
-            cnt = h.GetBinContent(i)
-            stats.append({"id": lbl, "name": lbl, "count": cnt})
+            cnt = h_unw.GetBinContent(i) if h_unw else h.GetBinContent(i)
+            s_dict = {"id": lbl, "name": lbl, "count": cnt}
+            if h_raw:
+                s_dict["raw_weight"] = h_raw.GetBinContent(i)
+            if h_mc:
+                s_dict["mc_weight"] = h_mc.GetBinContent(i)
+            stats.append(s_dict)
     f.Close()
     return stats
 
@@ -893,8 +977,36 @@ def main():
         default=False,
         help="Skip partitions where output filtered files already exist",
     )
+    parser.add_argument(
+        "--sample-type",
+        type=str,
+        default="auto",
+        choices=["auto", "neutrino", "passing_muon"],
+        help="Type of sample being filtered (controls whether --nu-scaling or --pmu-scaling is applied to cutflow).",
+    )
+    parser.add_argument(
+        "--nu-scaling",
+        type=float,
+        default=1.0,
+        help="Scaling factor for neutrino cutflow histograms.",
+    )
+    parser.add_argument(
+        "--pmu-scaling",
+        type=float,
+        default=1.0,
+        help="Scaling factor for passing muon cutflow histograms.",
+    )
 
     args = parser.parse_args()
+
+    # Determine sample scaling factor
+    if args.sample_type == "passing_muon":
+        sample_scale = args.pmu_scaling
+    elif args.sample_type == "neutrino":
+        sample_scale = args.nu_scaling
+    else:
+        is_pmu = any("pmu" in str(p).lower() for p in (args.input or "", args.output or ""))
+        sample_scale = args.pmu_scaling if is_pmu else args.nu_scaling
 
     # Load C++ analysis libraries and dictionaries
     load_trident_libraries()
@@ -1197,7 +1309,7 @@ def main():
 
         print_cutflow_summary(all_stats, sig_stats, args.cutflow)
         if args.cutflow:
-            save_cutflow_root_file(args.cutflow, all_stats, stage_histograms={}, signal_cutflow_stats=sig_stats)
+            save_cutflow_root_file(args.cutflow, all_stats, stage_histograms={}, signal_cutflow_stats=sig_stats, scale_factor=sample_scale)
             print(f" Cutflow ROOT File:    {args.cutflow}")
 
         print("=" * 80)
@@ -1345,29 +1457,50 @@ def main():
                     res["cutflow_stats"],
                     res["stage_histograms"],
                     signal_cutflow_stats=file_sig_stats,
+                    scale_factor=sample_scale,
                 )
                 print(f"  Cutflow: Saved {file_cutflow_path}")
             else:
                 # Accumulate for single combined cutflow file
                 if not cumulative_cutflow_stats:
                     cumulative_cutflow_stats = [
-                        {"id": s["id"], "name": s["name"], "count": s["count"]}
+                        {
+                            "id": s["id"],
+                            "name": s["name"],
+                            "count": s["count"],
+                            "raw_weight": s.get("raw_weight", s["count"]),
+                            "mc_weight": s.get("mc_weight", s["count"]),
+                        }
                         for s in res["cutflow_stats"]
                     ]
                 else:
                     for i, s in enumerate(res["cutflow_stats"]):
                         cumulative_cutflow_stats[i]["count"] += s["count"]
+                        if "raw_weight" in s:
+                            cumulative_cutflow_stats[i]["raw_weight"] = cumulative_cutflow_stats[i].get("raw_weight", 0.0) + s["raw_weight"]
+                        if "mc_weight" in s:
+                            cumulative_cutflow_stats[i]["mc_weight"] = cumulative_cutflow_stats[i].get("mc_weight", 0.0) + s["mc_weight"]
 
                 if file_sig_stats:
                     if not cumulative_sig_stats:
                         cumulative_sig_stats = [
-                            {"id": s["id"], "name": s["name"], "count": s["count"]}
+                            {
+                                "id": s["id"],
+                                "name": s["name"],
+                                "count": s["count"],
+                                "raw_weight": s.get("raw_weight", s["count"]),
+                                "mc_weight": s.get("mc_weight", s["count"]),
+                            }
                             for s in file_sig_stats
                         ]
                     else:
                         for i, s in enumerate(file_sig_stats):
                             if i < len(cumulative_sig_stats):
                                 cumulative_sig_stats[i]["count"] += s["count"]
+                                if "raw_weight" in s:
+                                    cumulative_sig_stats[i]["raw_weight"] = cumulative_sig_stats[i].get("raw_weight", 0.0) + s["raw_weight"]
+                                if "mc_weight" in s:
+                                    cumulative_sig_stats[i]["mc_weight"] = cumulative_sig_stats[i].get("mc_weight", 0.0) + s["mc_weight"]
 
                 merge_stage_histograms(cumulative_stage_histograms, res["stage_histograms"])
 
@@ -1387,6 +1520,7 @@ def main():
             cumulative_cutflow_stats,
             cumulative_stage_histograms,
             signal_cutflow_stats=sig_summary,
+            scale_factor=sample_scale,
         )
         print_cutflow_summary(cumulative_cutflow_stats, sig_summary, args.cutflow)
     elif results and results[0].get("cutflow_stats"):

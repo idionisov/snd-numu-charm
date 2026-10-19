@@ -36,31 +36,18 @@ cuts:
     min_delta_t: 100
     description: "Reject events within 100 clock cycles of previous event to eliminate trigger burst noise"
 
-  # Physics & Detector Cuts (applied to both data and MC)
-  - id: "step4_scifi_fiducial"
-    name: "SciFi Fiducial"
-    filter: "pass_scifi_fiducial"
-    enabled: false
-    description: "Average SciFi channel within horizontal and vertical fiducial boundaries"
-    vertical_min: 200.0
-    vertical_max: 1200.0
-    horizontal_min: 300.0
-    horizontal_max: 1336.0
+  # Physics & Detector Cuts (Minimalistic Cutset)
+  - id: "step4_scifi_ds_timing"
+    name: "SciFi-DS Timing"
+    filter: "pass_scifi_ds_timing_cut"
+    enabled: true
+    description: "Require latest DS hit time > earliest SciFi hit time"
+    min_delta_t: 0.0
+    require_valid: true
     reversed: false
 
-  - id: "step5_ds_fiducial"
-    name: "DS Fiducial"
-    filter: "pass_ds_fiducial"
-    enabled: false
-    description: "Average DS bar number within vertical [70, 105] and horizontal [10, 50] fiducial boundaries"
-    vertical_min: 70.0
-    vertical_max: 105.0
-    horizontal_min: 10.0
-    horizontal_max: 50.0
-    reversed: false
-
-  - id: "step6_veto_hits"
-    name: "Veto Cut"
+  - id: "step5_veto_hits"
+    name: "No Veto Hits"
     filter: "pass_veto_cut"
     enabled: true
     description: "Veto system (System 1) hit count selection"
@@ -68,16 +55,7 @@ cuts:
     max_hits: 0
     require_valid: false
 
-  - id: "step7_scifi_station"
-    name: "SciFi Station #neq 1"
-    filter: "pass_scifi_station_cut"
-    enabled: true
-    description: "Exclude events starting in specified SciFi stations"
-    threshold: 0.0
-    excluded_stations: [1]
-    reversed: false
-
-  - id: "step8_ds_dimuon"
+  - id: "step6_ds_dimuon"
     name: "DS Dimuon"
     filter: "pass_ds_dimuon_cut"
     enabled: true
@@ -89,26 +67,7 @@ cuts:
     require_valid: false
     reversed: false
 
-  - id: "step9_ds_activity"
-    name: "DS+US Activity"
-    filter: "pass_ds_activity_cut"
-    enabled: false
-    description: "If there are DS hits, all 5 US planes must have valid hits"
-    min_us_planes: 5
-    require_ds_hits: true
-    require_valid: true
-    reversed: false
-
-  - id: "step10_scifi_ds_timing"
-    name: "SciFi-DS Timing"
-    filter: "pass_scifi_ds_timing_cut"
-    enabled: true
-    description: "Require latest DS hit time > earliest SciFi hit time"
-    min_delta_t: 0.0
-    require_valid: true
-    reversed: false
-
-  - id: "step11_two_ds_tracks"
+  - id: "step7_two_ds_tracks"
     name: "Two DS Tracks"
     filter: "pass_two_ds_tracks_cut"
     enabled: true
@@ -116,6 +75,48 @@ cuts:
     min_tracks: 2
     max_tracks: 2
     track_type: 13
+    reversed: false
+
+  # Optional / Disabled Cuts
+  - id: "step_scifi_fiducial"
+    name: "SciFi Fiducial"
+    filter: "pass_scifi_fiducial"
+    enabled: false
+    description: "Average SciFi channel within horizontal and vertical fiducial boundaries"
+    vertical_min: 200.0
+    vertical_max: 1200.0
+    horizontal_min: 300.0
+    horizontal_max: 1336.0
+    reversed: false
+
+  - id: "step_ds_fiducial"
+    name: "DS Fiducial"
+    filter: "pass_ds_fiducial"
+    enabled: false
+    description: "Average DS bar number within vertical [70, 105] and horizontal [10, 50] fiducial boundaries"
+    vertical_min: 70.0
+    vertical_max: 105.0
+    horizontal_min: 10.0
+    horizontal_max: 50.0
+    reversed: false
+
+  - id: "step_scifi_station"
+    name: "SciFi Station #neq 1"
+    filter: "pass_scifi_station_cut"
+    enabled: false
+    description: "Exclude events starting in specified SciFi stations"
+    threshold: 0.0
+    excluded_stations: [1]
+    reversed: false
+
+  - id: "step_ds_activity"
+    name: "DS+US Activity"
+    filter: "pass_ds_activity_cut"
+    enabled: false
+    description: "If there are DS hits, all 5 US planes must have valid hits"
+    min_us_planes: 5
+    require_ds_hits: true
+    require_valid: true
     reversed: false
 
 # Diagnostic Histograms booked at each incremental cut stage

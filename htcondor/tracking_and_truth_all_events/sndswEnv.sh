@@ -8,7 +8,7 @@ CVMFS_SW="/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/sw/rhel9_x86-64"
 if [ ! -d "${CVMFS_SW}" ]; then
     CVMFS_SW="/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/sw/slc9_x86-64"
 fi
-USER_SNDSW_BUILD="/afs/cern.ch/user/i/idioniso/snd_master/sw/rhel9_x86-64/sndsw/latest-master-newpars-release"
+USER_SNDSW_BUILD="/afs/cern.ch/user/i/idioniso/snd_master/sw/rhel9_x86-64/sndsw/latest-master-release"
 USER_SNDSW_SRC="/afs/cern.ch/user/i/idioniso/snd_master/sndsw"
 
 # 1. Base SNDSW & FairRoot Core Paths

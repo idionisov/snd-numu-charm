@@ -1,0 +1,39 @@
+# ==============================================================================
+# SND@LHC: Passing Muon (pmu2022) MCTruth Pipeline Configuration
+# ==============================================================================
+
+sample_type: "passing_muon"
+pmu_pot_scale: 8.0e13   # 80 * 1e12
+pmu_sim_pp: 1.0e8       # 100e6
+
+input:
+  file_pattern: "/eos/user/i/idioniso/snd-numu-charm/data/pmu2022/sndLHC.Ntuple-TGeant4-160urad_100e6pp_FlukaEcut10_MCEB_digCPP_2MuTrks.root"
+  tree_name: "cbmsim"
+  max_files: -1
+
+output:
+  output_pattern: "/eos/user/i/idioniso/snd-numu-charm/data/pmu2022/sndLHC.Ntuple-TGeant4-160urad_100e6pp_FlukaEcut10_MCEB_digCPP_2MuTrks_truth.root"
+  truth_tree_name: "mctruth"
+  store_in_cbmsim: false
+  symlink_input_root_files: false
+
+channels:
+  lookup_table_file: "config/interaction_channels.json"
+  auto_register: true
+
+performance:
+  threads: 1
+
+processor:
+  target_z_min: 260.0
+  target_z_max: 360.0
+  fid_x_min: -60.0
+  fid_x_max: -0.0
+  fid_y_min: 3.0
+  fid_y_max: 63.0
+  fiducial_margin: 0.0
+  min_lepton_momentum: 0.0
+  max_charm_flight_distance: 100.0
+  weight_scale: 1.0
+  min_ds_points: 3
+  require_direct_charm_decay: true

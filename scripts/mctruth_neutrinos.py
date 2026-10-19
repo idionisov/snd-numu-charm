@@ -123,23 +123,70 @@ def _init_worker(config_path: Optional[str]):
 def get_mctruth_weight(event: Any = None, info: Any = None) -> float:
     """
     Returns the Monte Carlo truth event weight.
-    For current productions, returns 1.0 for all events.
-    Can be extended in the future for production-specific weight extraction.
+    For neutrino productions, returns 1.0 for all events (leaving raw_weight and mc_weight
+    as computed by the C++ truth processor).
     """
     return 1.0
 
 
+def get_passing_muon_weight(
+    event: Any,
+    info: Any = None,
+    pot_scale: float = 80.0 * 1e12,
+    sim_pp: float = 100e6,
+) -> dict:
+    """
+    Returns the weights for passing muon (FLUKA pmu) simulation:
+      - raw_weight = event.MCTrack[0].GetWeight() (or 0.0 if MCTrack is empty)
+      - mc_weight  = (raw_weight * pot_scale) / sim_pp
+      - mctruth_weight = mc_weight
+    """
+    tracks = getattr(event, "MCTrack", None)
+    if tracks is not None and tracks.GetEntries() > 0:
+        raw_w = float(tracks[0].GetWeight())
+    else:
+        raw_w = 0.0
+
+    mc_w = (raw_w * pot_scale) / sim_pp
+    return {
+        "raw_weight": raw_w,
+        "mc_weight": mc_w,
+        "mctruth_weight": mc_w,
+    }
+
+
+def resolve_weight_function(
+    sample_type: str,
+    pot_scale: Optional[float] = None,
+    sim_pp: Optional[float] = None,
+    cfg: Optional[dict] = None,
+):
+    """Resolve event weighting function based on sample type."""
+    if sample_type in ("passing_muon", "pmu", "pmu2022"):
+        eff_pot = pot_scale if pot_scale is not None else float(cfg.get("pmu_pot_scale", 80.0 * 1e12) if cfg else 80.0 * 1e12)
+        eff_sim = sim_pp if sim_pp is not None else float(cfg.get("pmu_sim_pp", 100e6) if cfg else 100e6)
+        return lambda ev, inf: get_passing_muon_weight(ev, inf, pot_scale=eff_pot, sim_pp=eff_sim)
+    return get_mctruth_weight
+
+
 def _run_worker_task(task_args: tuple) -> dict:
     """Worker task execution function for parallel partition processing."""
-    if len(task_args) >= 8:
+    if len(task_args) >= 9:
+        part_str, in_file, out_file, max_entries, create_symlinks, config_path, truth_tree_name, store_in_cbmsim, sample_type = task_args[:9]
+    elif len(task_args) == 8:
         part_str, in_file, out_file, max_entries, create_symlinks, config_path, truth_tree_name, store_in_cbmsim = task_args[:8]
+        sample_type = None
     else:
         part_str, in_file, out_file, max_entries, create_symlinks, config_path = task_args[:6]
         truth_tree_name = "mctruth"
         store_in_cbmsim = False
+        sample_type = None
     global _worker_processor, _worker_cfg
     if _worker_processor is None:
         _init_worker(config_path)
+
+    eff_sample_type = sample_type if sample_type is not None else _worker_cfg.get("sample_type", "neutrino")
+    weight_fn = resolve_weight_function(eff_sample_type, cfg=_worker_cfg)
 
     t0 = time.time()
     try:
@@ -253,6 +300,25 @@ def parse_arguments():
         default=False,
         help="Only create symlinks to input ROOT files without processing events",
     )
+    parser.add_argument(
+        "--sample-type",
+        type=str,
+        default=None,
+        choices=["neutrino", "passing_muon", "pmu", "pmu2022"],
+        help="Sample simulation type: 'neutrino' (default) or 'passing_muon' / 'pmu'",
+    )
+    parser.add_argument(
+        "--pmu-pot-scale",
+        type=float,
+        default=None,
+        help="Proton / luminosity scale for passing muons (default: 80 * 1e12)",
+    )
+    parser.add_argument(
+        "--pmu-sim-pp",
+        type=float,
+        default=None,
+        help="Number of simulated pp interactions for passing muons (default: 100e6)",
+    )
     return parser.parse_args()
 
 
@@ -350,10 +416,19 @@ def main():
     # Initialize Channel Manager
     ch_mgr = ChannelLookupManager.get_instance()
 
+    sample_type = args.sample_type or cfg.get("sample_type", "neutrino")
+    weight_fn = resolve_weight_function(
+        sample_type=sample_type,
+        pot_scale=args.pmu_pot_scale,
+        sim_pp=args.pmu_sim_pp,
+        cfg=cfg,
+    )
+
     print("=" * 80)
     print(" SND@LHC: Comprehensive Neutrino Event Categorization Pipeline")
     print("=" * 80)
     print(f"Configuration file           : {config_path}")
+    print(f"Sample simulation type       : {sample_type}")
     print(f"Input file pattern           : {file_pattern}")
     print(f"Output file pattern          : {out_pattern}")
     print(f"Channel lookup table         : {ch_mgr.table_path}")
@@ -412,7 +487,7 @@ def main():
                 cfg=cfg,
                 max_entries=args.entries,
                 create_symlinks=do_symlink,
-                weight_fn=get_mctruth_weight,
+                weight_fn=weight_fn,
                 truth_tree_name=truth_tree_name,
                 store_in_cbmsim=store_in_cbmsim,
             )

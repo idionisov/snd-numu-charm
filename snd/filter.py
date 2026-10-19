@@ -370,6 +370,8 @@ def fill_truth_buffers(
     mctruth_weight: float = 1.0,
     mc_tracks: Any = None,
     mu_filter_points: Any = None,
+    raw_weight: Optional[float] = None,
+    mc_weight: Optional[float] = None,
 ):
     """Populate truth buffers according to active tiers."""
     # 1. Universal Tier
@@ -428,8 +430,8 @@ def fill_truth_buffers(
         buffers["n_primary_tracks"][0] = int(info.nPrimaryTracks)
         buffers["n_primary_hadrons"][0] = int(info.nPrimaryHadrons)
 
-        buffers["mc_weight"][0] = float(info.mcWeight)
-        buffers["raw_weight"][0] = float(info.rawWeight)
+        buffers["mc_weight"][0] = float(mc_weight if mc_weight is not None else info.mcWeight)
+        buffers["raw_weight"][0] = float(raw_weight if raw_weight is not None else info.rawWeight)
         buffers["mctruth_weight"][0] = float(mctruth_weight)
         buffers["nu_e"][0] = float(info.nuE)
         buffers["nu_p"][0] = float(info.nuP)
@@ -1417,9 +1419,21 @@ def process_categorized_neutrino_file(
             info = processor.process(mc_tracks)
 
         ev_weight = 1.0
+        raw_w = None
+        mc_w = None
         if weight_fn is not None:
             try:
-                ev_weight = float(weight_fn(t_in, info))
+                res_w = weight_fn(t_in, info)
+                if isinstance(res_w, dict):
+                    raw_w = float(res_w["raw_weight"]) if "raw_weight" in res_w else None
+                    mc_w = float(res_w["mc_weight"]) if "mc_weight" in res_w else None
+                    ev_weight = float(res_w.get("mctruth_weight", mc_w if mc_w is not None else 1.0))
+                elif isinstance(res_w, (tuple, list)) and len(res_w) >= 2:
+                    raw_w = float(res_w[0])
+                    mc_w = float(res_w[1])
+                    ev_weight = float(res_w[2]) if len(res_w) >= 3 else (mc_w if mc_w is not None else 1.0)
+                elif res_w is not None:
+                    ev_weight = float(res_w)
             except Exception:
                 ev_weight = 1.0
 
@@ -1431,6 +1445,8 @@ def process_categorized_neutrino_file(
             mctruth_weight=ev_weight,
             mc_tracks=mc_tracks,
             mu_filter_points=mufilter_pts,
+            raw_weight=raw_w,
+            mc_weight=mc_w,
         )
         out_tree.Fill()
         truth_tree.Fill()

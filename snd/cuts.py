@@ -681,6 +681,7 @@ def save_cutflow_root_file(
     stage_histograms: Dict[str, Dict[str, Any]],
     signal_cutflow_stats: Optional[List[Dict[str, Any]]] = None,
     scale_factor: float = 1.0,
+    indirect_cutflow_stats: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """
     Save cutflow summary counters and stage-by-stage diagnostic histograms into a ROOT file.
@@ -853,7 +854,73 @@ def save_cutflow_root_file(
         h_sig_raw_norm.Write()
         h_sig_mc_norm.Write()
 
-        # Build combined TCanvas showing both on a single canvas
+        h_ind_draw = None
+        ind_ref = 1.0
+        if indirect_cutflow_stats:
+            h_ind = ROOT.TH1D("h_cutflow_indirect", "Indirect Signal Cutflow Summary;;Indirect Signal Events Passed", n_cuts, 0.5, n_cuts + 0.5)
+            h_ind_unw = ROOT.TH1D("h_cutflow_indirect_unweighted", "Indirect Signal Cutflow (Unweighted);;Indirect Events", n_cuts, 0.5, n_cuts + 0.5)
+            h_ind_raw = ROOT.TH1D("h_cutflow_indirect_raw_weight", "Indirect Signal Cutflow (raw_weight);;Weighted Indirect Events", n_cuts, 0.5, n_cuts + 0.5)
+            h_ind_mc = ROOT.TH1D("h_cutflow_indirect_mc_weight", "Indirect Signal Cutflow (mc_weight);;Weighted Indirect Events", n_cuts, 0.5, n_cuts + 0.5)
+            h_ind_eff = ROOT.TH1D("h_cutflow_indirect_efficiency", "Indirect Selection Efficiency;;Indirect Efficiency", n_cuts, 0.5, n_cuts + 0.5)
+
+            has_ind_w = any("raw_weight" in s or "mc_weight" in s for s in indirect_cutflow_stats)
+            ind_raw_cnt = float(indirect_cutflow_stats[0]["count"]) if indirect_cutflow_stats and indirect_cutflow_stats[0]["count"] > 0 else 1.0
+            ind_init_mc = float(indirect_cutflow_stats[0].get("mc_weight", ind_raw_cnt)) * scale_factor if indirect_cutflow_stats else 1.0
+            ind_ref = ind_init_mc if has_ind_w and ind_init_mc > 0 else ind_raw_cnt
+
+            for i, step in enumerate(indirect_cutflow_stats, start=1):
+                i_cnt = float(step["count"])
+                i_raw_w = float(step.get("raw_weight", i_cnt)) * scale_factor
+                i_mc_w = float(step.get("mc_weight", i_cnt)) * scale_factor
+                i_val = i_mc_w if has_ind_w else i_cnt
+
+                raw_label = step.get("name", step["id"])
+                label = shorten_cut_label(raw_label)
+
+                h_ind.GetXaxis().SetBinLabel(i, label)
+                h_ind.SetBinContent(i, i_val)
+
+                h_ind_unw.GetXaxis().SetBinLabel(i, label)
+                h_ind_unw.SetBinContent(i, i_cnt)
+
+                h_ind_raw.GetXaxis().SetBinLabel(i, label)
+                h_ind_raw.SetBinContent(i, i_raw_w)
+
+                h_ind_mc.GetXaxis().SetBinLabel(i, label)
+                h_ind_mc.SetBinContent(i, i_mc_w)
+
+                i_eff = (i_val / ind_ref) if ind_ref > 0 else 0.0
+                h_ind_eff.GetXaxis().SetBinLabel(i, label)
+                h_ind_eff.SetBinContent(i, i_eff)
+
+            h_ind_norm = make_normalized_histogram(h_ind, "h_cutflow_indirect_norm", "Indirect Signal Cutflow (Normalized);;Fraction Passed")
+            h_ind_unw_norm = make_normalized_histogram(h_ind_unw, "h_cutflow_indirect_unweighted_norm")
+            h_ind_raw_norm = make_normalized_histogram(h_ind_raw, "h_cutflow_indirect_raw_weight_norm")
+            h_ind_mc_norm = make_normalized_histogram(h_ind_mc, "h_cutflow_indirect_mc_weight_norm")
+
+            fout.cd()
+            h_ind.Write()
+            h_ind_unw.Write()
+            h_ind_raw.Write()
+            h_ind_mc.Write()
+            h_ind_eff.Write()
+            h_ind_norm.Write()
+            h_ind_unw_norm.Write()
+            h_ind_raw_norm.Write()
+            h_ind_mc_norm.Write()
+
+            h_ind_draw = h_ind.Clone("h_cutflow_ind_draw")
+            h_ind_draw.SetDirectory(0)
+            h_ind_draw.SetStats(0)
+            h_ind_draw.GetXaxis().SetTitle("")
+            h_ind_draw.GetXaxis().SetLabelSize(0.0)
+            h_ind_draw.SetLineColor(ROOT.kGreen + 2)
+            h_ind_draw.SetLineWidth(3)
+            h_ind_draw.SetMarkerColor(ROOT.kGreen + 2)
+            h_ind_draw.SetMarkerStyle(22)
+            h_ind_draw.SetMarkerSize(1.2)
+
+        # Build combined TCanvas showing all on a single canvas
         c_comp = ROOT.TCanvas("c_cutflow_comparison", "Event Cutflow Comparison (All Events vs Signal)", 1100, 750)
         c_comp.SetGridx(1)
         c_comp.SetGridy(1)
@@ -885,7 +952,10 @@ def save_cutflow_root_file(
         h_sig_draw.SetMarkerStyle(21)
         h_sig_draw.SetMarkerSize(1.2)
 
-        max_val = max(h_all_draw.GetMaximum(), h_sig_draw.GetMaximum(), 1.0)
+        max_candidates = [h_all_draw.GetMaximum(), h_sig_draw.GetMaximum(), 1.0]
+        if h_ind_draw:
+            max_candidates.append(h_ind_draw.GetMaximum())
+        max_val = max(max_candidates)
         h_all_draw.SetMinimum(0.1)
         h_all_draw.SetMaximum(max_val * 8.0)
 
@@ -893,14 +963,19 @@ def save_cutflow_root_file(
         h_all_draw.Draw("E SAME")
         h_sig_draw.Draw("HIST SAME")
         h_sig_draw.Draw("E SAME")
+        if h_ind_draw:
+            h_ind_draw.Draw("HIST SAME")
+            h_ind_draw.Draw("E SAME")
 
-        leg = ROOT.TLegend(0.52, 0.76, 0.89, 0.88)
+        leg = ROOT.TLegend(0.48, 0.73, 0.89, 0.89)
         leg.SetBorderSize(1)
         leg.SetFillStyle(1001)
         leg.SetFillColor(ROOT.kWhite)
-        leg.SetTextSize(0.03)
+        leg.SetTextSize(0.026)
         leg.AddEntry(h_all_draw, f"All Events (Initial: {ref_initial:.2f})", "lp")
-        leg.AddEntry(h_sig_draw, f"Signal in DS Acceptance (Initial: {sig_ref:.2f})", "lp")
+        leg.AddEntry(h_sig_draw, f"Direct Signal (Initial: {sig_ref:.2f})", "lp")
+        if h_ind_draw:
+            leg.AddEntry(h_ind_draw, f"Indirect Fake Signal (Initial: {ind_ref:.2f})", "lp")
         leg.Draw()
 
         draw_rotated_labels_on_canvas(c_comp, h_all_draw, angle=45.0, text_size=0.028)

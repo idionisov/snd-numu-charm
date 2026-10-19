@@ -575,41 +575,204 @@ def prefilter_file(
     return result
 
 
+def _filter_partition_stream(
+    input_path: Optional[str],
+    output_path: Optional[str],
+    cut_timing,
+    cut_veto,
+    cut_dimuon,
+    cut_tracks,
+    skip_empty: bool = False,
+    record_failures: bool = False,
+    partition_id: int = 0,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    import ROOT
+    res = {
+        "status": "OK",
+        "total": 0,
+        "passed": 0,
+        "cut_counts": [0] * 8,
+        "raw_weights": [0.0] * 8,
+        "mc_weights": [0.0] * 8,
+    }
+    failed_records: List[Dict[str, Any]] = []
+
+    if not input_path or not os.path.isfile(input_path):
+        res["status"] = "MISSING_INPUT"
+        return res, failed_records
+
+    f_in = ROOT.TFile.Open(input_path, "READ")
+    if not f_in or f_in.IsZombie():
+        res["status"] = "ERROR_OPENING"
+        return res, failed_records
+
+    t_cbm = f_in.Get("cbmsim") or f_in.Get("rawConv")
+    t_truth = f_in.Get("mctruth")
+    n_entries = t_cbm.GetEntries() if t_cbm else 0
+    res["total"] = n_entries
+
+    passed_entries: List[int] = []
+
+    if t_cbm and n_entries > 0:
+        has_truth = bool(t_truth and t_truth.GetEntries() == n_entries)
+
+        t_cbm.SetBranchStatus("*", 0)
+        t_cbm.SetBranchStatus("Digi_ScifiHits*", 1)
+        t_cbm.SetBranchStatus("Digi_MuFilterHits*", 1)
+        t_cbm.SetBranchStatus("Reco_MuonTracks*", 1)
+        if record_failures:
+            t_cbm.SetBranchStatus("EventHeader*", 1)
+
+        for iev in range(n_entries):
+            rw = 1.0
+            mw = 1.0
+            if has_truth:
+                t_truth.GetEntry(iev)
+                rw = float(getattr(t_truth, "raw_weight", 1.0))
+                mw = float(getattr(t_truth, "mc_weight", 1.0))
+
+            # Step 0: All Events
+            res["cut_counts"][0] += 1
+            res["raw_weights"][0] += rw
+            res["mc_weights"][0] += mw
+
+            # Step 1: LHC IP1 (100% pass on MC)
+            res["cut_counts"][1] += 1
+            res["raw_weights"][1] += rw
+            res["mc_weights"][1] += mw
+
+            # Step 2: Stable Beams (100% pass on MC)
+            res["cut_counts"][2] += 1
+            res["raw_weights"][2] += rw
+            res["mc_weights"][2] += mw
+
+            # Step 3: Event Delta T (100% pass on MC)
+            res["cut_counts"][3] += 1
+            res["raw_weights"][3] += rw
+            res["mc_weights"][3] += mw
+
+            t_cbm.GetEntry(iev)
+            p_t = bool(cut_timing(t_cbm.Digi_ScifiHits, t_cbm.Digi_MuFilterHits))
+            p_v = bool(cut_veto(t_cbm.Digi_MuFilterHits))
+            p_d = bool(cut_dimuon(t_cbm.Digi_MuFilterHits))
+            p_tr = bool(cut_tracks(t_cbm.Reco_MuonTracks))
+
+            if p_t:
+                res["cut_counts"][4] += 1
+                res["raw_weights"][4] += rw
+                res["mc_weights"][4] += mw
+                if p_v:
+                    res["cut_counts"][5] += 1
+                    res["raw_weights"][5] += rw
+                    res["mc_weights"][5] += mw
+                    if p_d:
+                        res["cut_counts"][6] += 1
+                        res["raw_weights"][6] += rw
+                        res["mc_weights"][6] += mw
+                        if p_tr:
+                            res["cut_counts"][7] += 1
+                            res["raw_weights"][7] += rw
+                            res["mc_weights"][7] += mw
+                            passed_entries.append(iev)
+
+            if record_failures and not (p_t and p_v and p_d and p_tr):
+                h = getattr(t_cbm, "EventHeader.", None) or getattr(t_cbm, "EventHeader", None)
+                ev_num = h.GetEventNumber() if h else iev
+                if not p_t:
+                    failed_stage = "SciFi_DS_Timing"
+                elif not p_v:
+                    failed_stage = "No_Veto_Hits"
+                elif not p_d:
+                    failed_stage = "DS_Dimuon_Activity"
+                else:
+                    failed_stage = "Two_DS_Tracks"
+
+                all_f = []
+                if not p_t: all_f.append("SciFi_DS_Timing")
+                if not p_v: all_f.append("No_Veto_Hits")
+                if not p_d: all_f.append("DS_Dimuon_Activity")
+                if not p_tr: all_f.append("Two_DS_Tracks")
+
+                failed_records.append({
+                    "partition": partition_id,
+                    "event_number": ev_num,
+                    "failed_cut_stage": failed_stage,
+                    "entry": iev,
+                    "failed_cuts": ";".join(all_f),
+                })
+
+    res["passed"] = len(passed_entries)
+
+    if output_path:
+        if len(passed_entries) == 0 and skip_empty:
+            res["status"] = "SKIPPED_EMPTY"
+        else:
+            if os.path.islink(output_path):
+                try:
+                    os.unlink(output_path)
+                except OSError:
+                    pass
+            os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+            f_out = ROOT.TFile.Open(output_path, "RECREATE")
+            if f_out and not f_out.IsZombie():
+                f_out.cd()
+                if t_cbm:
+                    t_cbm.SetBranchStatus("*", 1)
+                    out_cbm = t_cbm.CloneTree(0)
+                    for iev in passed_entries:
+                        t_cbm.GetEntry(iev)
+                        out_cbm.Fill()
+                    out_cbm.Write()
+                if t_truth:
+                    t_truth.SetBranchStatus("*", 1)
+                    out_truth = t_truth.CloneTree(0)
+                    for iev in passed_entries:
+                        t_truth.GetEntry(iev)
+                        out_truth.Fill()
+                    out_truth.Write()
+                for k in ["BranchList", "TimeBasedBranchList", "FileHeader", "FileHeaderHeader"]:
+                    obj = f_in.Get(k)
+                    if obj:
+                        obj.Write(k, ROOT.TObject.kSingleKey)
+                f_out.Close()
+
+    f_in.Close()
+    return res, failed_records
+
+
 def process_single_partition_pipeline(
     partition: int,
     main_input: str,
     main_output: Optional[str],
     sig_input: Optional[str],
     sig_output: Optional[str],
+    ind_input: Optional[str],
+    ind_output: Optional[str],
     config_path: str,
     create_symlinks: bool = True,
     skip_empty: bool = False,
     skip_existing: bool = False,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """
-    Process a single partition for both main and signal datasets:
-    1. Evaluates sequential selection cuts on main file and clones passed events.
-    2. Evaluates sequential selection cuts on signal file, clones passed events,
-       and records failure metadata for failed signal events.
+    Process a single partition for main, direct signal, and indirect signal datasets:
+    1. Evaluates sequential selection cuts on all 3 streams and clones passed events (both cbmsim and mctruth).
+    2. Records failure metadata for failed signal events.
     3. Symlinks auxiliary input files to output directory.
     """
     t0 = time.time()
-    main_res = {"partition": partition, "status": "OK", "total": 0, "passed": 0}
-    sig_res = {"partition": partition, "status": "OK", "total": 0, "passed": 0}
-    sig_failed_records: List[Dict[str, Any]] = []
 
     if skip_existing:
-        main_done = bool(not main_output or (os.path.isfile(main_output) and os.path.getsize(main_output) > 200))
-        sig_done = bool(not sig_output or not sig_input or not os.path.isfile(sig_input) or (os.path.isfile(sig_output) and os.path.getsize(sig_output) > 200))
-        if main_done and sig_done:
-            main_res["status"] = "SKIPPED_EXISTING"
-            sig_res["status"] = "SKIPPED_EXISTING"
+        main_done = bool(not main_output or (os.path.isfile(main_output) and not os.path.islink(main_output) and os.path.getsize(main_output) > 200))
+        sig_done = bool(not sig_output or not sig_input or not os.path.isfile(sig_input) or (os.path.isfile(sig_output) and not os.path.islink(sig_output) and os.path.getsize(sig_output) > 200))
+        ind_done = bool(not ind_output or not ind_input or not os.path.isfile(ind_input) or (os.path.isfile(ind_output) and not os.path.islink(ind_output) and os.path.getsize(ind_output) > 200))
+        if main_done and sig_done and ind_done:
             return {
                 "partition": partition,
                 "status": "SKIPPED_EXISTING",
                 "time": 0.0,
-                "main": main_res,
-                "sig": sig_res,
+                "main": {"partition": partition, "status": "SKIPPED_EXISTING", "total": 0, "passed": 0, "cut_counts": [0]*8, "raw_weights": [0.0]*8, "mc_weights": [0.0]*8},
+                "sig": {"partition": partition, "status": "SKIPPED_EXISTING", "total": 0, "passed": 0, "cut_counts": [0]*8, "raw_weights": [0.0]*8, "mc_weights": [0.0]*8},
+                "ind": {"partition": partition, "status": "SKIPPED_EXISTING", "total": 0, "passed": 0, "cut_counts": [0]*8, "raw_weights": [0.0]*8, "mc_weights": [0.0]*8},
             }, []
 
     import ROOT
@@ -621,10 +784,6 @@ def process_single_partition_pipeline(
         SciFiDSTimeCut,
         DSDimuonActivityCut,
         DSHoughTrackCut,
-        AvgScifiFiducialCut,
-        AvgDSFiducialCut,
-        SciFiStationCut,
-        DSActivityCut,
         symlink_input_root_files,
     )
     load_trident_libraries()
@@ -632,7 +791,6 @@ def process_single_partition_pipeline(
     cutflow_cfg = load_cutflow_config(config_path) if os.path.exists(config_path) else {}
     cuts_list = cutflow_cfg.get("cuts", [])
 
-    # Instantiate cut objects based on YAML configuration
     timing_cfg = next((c for c in cuts_list if c.get("filter") == "pass_scifi_ds_timing_cut" or "timing" in c.get("id", "")), {})
     cut_timing = SciFiDSTimeCut(
         min_delta_t=timing_cfg.get("min_delta_t", 0.0),
@@ -666,155 +824,54 @@ def process_single_partition_pipeline(
     )
 
     # 1. Process Main File
-    if main_input and os.path.isfile(main_input):
-        f_main = ROOT.TFile.Open(main_input, "READ")
-        if f_main and not f_main.IsZombie():
-            t_main = f_main.Get("cbmsim") or f_main.Get("rawConv")
-            n_main = t_main.GetEntries() if t_main else 0
-            main_res["total"] = n_main
+    main_res, _ = _filter_partition_stream(
+        input_path=main_input,
+        output_path=main_output,
+        cut_timing=cut_timing,
+        cut_veto=cut_veto,
+        cut_dimuon=cut_dimuon,
+        cut_tracks=cut_tracks,
+        skip_empty=skip_empty,
+        record_failures=False,
+        partition_id=partition,
+    )
+    main_res["partition"] = partition
 
-            main_passed = []
-            main_cut_counts = [n_main, 0, 0, 0, 0]
-            if t_main and n_main > 0:
-                t_main.SetBranchStatus("*", 0)
-                t_main.SetBranchStatus("Digi_ScifiHits*", 1)
-                t_main.SetBranchStatus("Digi_MuFilterHits*", 1)
-                t_main.SetBranchStatus("Reco_MuonTracks*", 1)
+    # 2. Process Direct Signal File
+    sig_res, sig_failed_records = _filter_partition_stream(
+        input_path=sig_input,
+        output_path=sig_output,
+        cut_timing=cut_timing,
+        cut_veto=cut_veto,
+        cut_dimuon=cut_dimuon,
+        cut_tracks=cut_tracks,
+        skip_empty=skip_empty,
+        record_failures=True,
+        partition_id=partition,
+    )
+    sig_res["partition"] = partition
 
-                for iev in range(n_main):
-                    t_main.GetEntry(iev)
-                    if not cut_timing(t_main.Digi_ScifiHits, t_main.Digi_MuFilterHits):
-                        continue
-                    main_cut_counts[1] += 1
-                    if not cut_veto(t_main.Digi_MuFilterHits):
-                        continue
-                    main_cut_counts[2] += 1
-                    if not cut_dimuon(t_main.Digi_MuFilterHits):
-                        continue
-                    main_cut_counts[3] += 1
-                    if not cut_tracks(t_main.Reco_MuonTracks):
-                        continue
-                    main_cut_counts[4] += 1
-                    main_passed.append(iev)
+    # 3. Process Indirect Signal File
+    ind_res, _ = _filter_partition_stream(
+        input_path=ind_input,
+        output_path=ind_output,
+        cut_timing=cut_timing,
+        cut_veto=cut_veto,
+        cut_dimuon=cut_dimuon,
+        cut_tracks=cut_tracks,
+        skip_empty=skip_empty,
+        record_failures=False,
+        partition_id=partition,
+    )
+    ind_res["partition"] = partition
 
-            main_res["passed"] = len(main_passed)
-            main_res["cut_counts"] = main_cut_counts
-
-            if main_output:
-                if len(main_passed) == 0 and skip_empty:
-                    main_res["status"] = "SKIPPED_EMPTY"
-                else:
-                    if t_main:
-                        t_main.SetBranchStatus("*", 1)
-                    os.makedirs(os.path.dirname(os.path.abspath(main_output)), exist_ok=True)
-                    f_out_main = ROOT.TFile.Open(main_output, "RECREATE")
-                    f_out_main.cd()
-                    out_t_main = t_main.CloneTree(0) if t_main else None
-                    if out_t_main:
-                        for iev in main_passed:
-                            t_main.GetEntry(iev)
-                            out_t_main.Fill()
-                        out_t_main.Write()
-                    for k in ["BranchList", "TimeBasedBranchList", "FileHeader", "FileHeaderHeader"]:
-                        obj = f_main.Get(k)
-                        if obj:
-                            obj.Write(k, ROOT.TObject.kSingleKey)
-                    f_out_main.Close()
-            f_main.Close()
-        else:
-            main_res["status"] = "ERROR_OPENING"
-    else:
-        main_res["status"] = "MISSING_INPUT"
-
-    # 2. Process Signal File
-    if sig_input and os.path.isfile(sig_input):
-        f_sig = ROOT.TFile.Open(sig_input, "READ")
-        if f_sig and not f_sig.IsZombie():
-            t_sig = f_sig.Get("cbmsim") or f_sig.Get("rawConv")
-            n_sig = t_sig.GetEntries() if t_sig else 0
-            sig_res["total"] = n_sig
-
-            sig_passed = []
-            sig_cut_counts = [n_sig, 0, 0, 0, 0]
-            if t_sig and n_sig > 0:
-                for iev in range(n_sig):
-                    t_sig.GetEntry(iev)
-                    h = getattr(t_sig, "EventHeader.", None) or getattr(t_sig, "EventHeader", None)
-                    ev_num = h.GetEventNumber() if h else iev
-
-                    p_t = bool(cut_timing(t_sig.Digi_ScifiHits, t_sig.Digi_MuFilterHits))
-                    p_v = bool(cut_veto(t_sig.Digi_MuFilterHits))
-                    p_d = bool(cut_dimuon(t_sig.Digi_MuFilterHits))
-                    p_tr = bool(cut_tracks(t_sig.Reco_MuonTracks))
-
-                    if p_t:
-                        sig_cut_counts[1] += 1
-                        if p_v:
-                            sig_cut_counts[2] += 1
-                            if p_d:
-                                sig_cut_counts[3] += 1
-                                if p_tr:
-                                    sig_cut_counts[4] += 1
-                                    sig_passed.append(iev)
-
-                    if not (p_t and p_v and p_d and p_tr):
-                        if not p_t:
-                            failed_stage = "SciFi_DS_Timing"
-                        elif not p_v:
-                            failed_stage = "No_Veto_Hits"
-                        elif not p_d:
-                            failed_stage = "DS_Dimuon_Activity"
-                        else:
-                            failed_stage = "Two_DS_Tracks"
-
-                        all_f = []
-                        if not p_t: all_f.append("SciFi_DS_Timing")
-                        if not p_v: all_f.append("No_Veto_Hits")
-                        if not p_d: all_f.append("DS_Dimuon_Activity")
-                        if not p_tr: all_f.append("Two_DS_Tracks")
-
-                        sig_failed_records.append({
-                            "partition": partition,
-                            "event_number": ev_num,
-                            "failed_cut_stage": failed_stage,
-                            "entry": iev,
-                            "failed_cuts": ";".join(all_f),
-                        })
-
-            sig_res["passed"] = len(sig_passed)
-            sig_res["cut_counts"] = sig_cut_counts
-
-            if sig_output:
-                if len(sig_passed) == 0 and skip_empty:
-                    sig_res["status"] = "SKIPPED_EMPTY"
-                else:
-                    os.makedirs(os.path.dirname(os.path.abspath(sig_output)), exist_ok=True)
-                    f_out_sig = ROOT.TFile.Open(sig_output, "RECREATE")
-                    f_out_sig.cd()
-                    out_t_sig = t_sig.CloneTree(0) if t_sig else None
-                    if out_t_sig:
-                        for iev in sig_passed:
-                            t_sig.GetEntry(iev)
-                            out_t_sig.Fill()
-                        out_t_sig.Write()
-                    for k in ["BranchList", "TimeBasedBranchList", "FileHeader", "FileHeaderHeader"]:
-                        obj = f_sig.Get(k)
-                        if obj:
-                            obj.Write(k, ROOT.TObject.kSingleKey)
-                    f_out_sig.Close()
-            f_sig.Close()
-        else:
-            sig_res["status"] = "ERROR_OPENING"
-    else:
-        sig_res["status"] = "MISSING_INPUT"
-
-    # 3. Create Symlinks
+    # 4. Create Symlinks for auxiliary files
     if create_symlinks and main_output and os.path.isfile(main_input):
-        ex_files = {os.path.basename(main_output), os.path.basename(main_input)}
-        if sig_output:
-            ex_files.add(os.path.basename(sig_output))
-        if sig_input:
-            ex_files.add(os.path.basename(sig_input))
+        ex_files = {
+            os.path.basename(p)
+            for p in [main_output, main_input, sig_output, sig_input, ind_output, ind_input]
+            if p
+        }
         symlink_input_root_files(
             input_dir=os.path.dirname(os.path.abspath(main_input)),
             output_dir=os.path.dirname(os.path.abspath(main_output)),
@@ -828,6 +885,7 @@ def process_single_partition_pipeline(
         "time": elapsed,
         "main": main_res,
         "sig": sig_res,
+        "ind": ind_res,
     }, sig_failed_records
 
 
@@ -958,6 +1016,18 @@ def main():
         type=str,
         default=None,
         help="Output file pattern for filtered signal MC ROOT files (supports '%%s')",
+    )
+    parser.add_argument(
+        "--indirect-input",
+        type=str,
+        default=None,
+        help="Input file path or pattern for indirect charm dimuon MC ROOT files (supports '%%s')",
+    )
+    parser.add_argument(
+        "--indirect-output",
+        type=str,
+        default=None,
+        help="Output file pattern for filtered indirect charm dimuon ROOT files (supports '%%s')",
     )
     parser.add_argument(
         "--failed-cuts-csv",
@@ -1148,11 +1218,13 @@ def main():
             print(f"   * {c['id']}: {c.get('name', c['id'])}")
     print(f" Worker Processes:     {args.workers}")
     if args.signal_input:
-        print(f" Signal Input Pattern: {args.signal_input}")
+        print(f" Signal Input Pattern:   {args.signal_input}")
+    if args.indirect_input:
+        print(f" Indirect Input Pattern: {args.indirect_input}")
     if args.failed_cuts_csv:
-        print(f" Failed Cuts CSV:      {args.failed_cuts_csv}")
-    print(f" Symlink Auxiliary:    {not args.no_symlinks}")
-    print(f" Skip Empty Files:     {args.skip_empty}")
+        print(f" Failed Cuts CSV:        {args.failed_cuts_csv}")
+    print(f" Symlink Auxiliary:      {not args.no_symlinks}")
+    print(f" Skip Empty Files:       {args.skip_empty}")
     print("=" * 80)
 
     if args.partitions:
@@ -1192,7 +1264,19 @@ def main():
             elif m_out and s_in:
                 s_out = os.path.join(os.path.dirname(m_out), os.path.basename(s_in))
 
-            tasks.append((p, m_in, m_out, s_in, s_out, args.config, not args.no_symlinks, args.skip_empty, args.skip_existing))
+            ind_in = None
+            if args.indirect_input:
+                c_p_ind = args.indirect_input.count("%s")
+                ind_in = args.indirect_input % tuple(p_str for _ in range(c_p_ind)) if c_p_ind > 0 else args.indirect_input
+
+            ind_out = None
+            if args.indirect_output:
+                c_p_iout = args.indirect_output.count("%s")
+                ind_out = args.indirect_output % tuple(p_str for _ in range(c_p_iout)) if c_p_iout > 0 else args.indirect_output
+            elif m_out and ind_in:
+                ind_out = os.path.join(os.path.dirname(m_out), os.path.basename(ind_in))
+
+            tasks.append((p, m_in, m_out, s_in, s_out, ind_in, ind_out, args.config, not args.no_symlinks, args.skip_empty, args.skip_existing))
 
         print(f"\n[Parallel] Dispatching {len(tasks)} partition tasks across {args.workers} worker processes...\n")
 
@@ -1200,11 +1284,57 @@ def main():
         tot_main_out = 0
         tot_sig_in = 0
         tot_sig_out = 0
+        tot_ind_in = 0
+        tot_ind_out = 0
         tot_sig_failed = 0
-        tot_main_cutflow = [0, 0, 0, 0, 0]
-        tot_sig_cutflow = [0, 0, 0, 0, 0]
+
+        tot_main_cutflow = [0] * 8
+        tot_main_raw = [0.0] * 8
+        tot_main_mc = [0.0] * 8
+
+        tot_sig_cutflow = [0] * 8
+        tot_sig_raw = [0.0] * 8
+        tot_sig_mc = [0.0] * 8
+
+        tot_ind_cutflow = [0] * 8
+        tot_ind_raw = [0.0] * 8
+        tot_ind_mc = [0.0] * 8
+
         completed_count = 0
         p_start_time = time.time()
+
+        def _accumulate_result(p_res, failed_records):
+            nonlocal tot_main_in, tot_main_out, tot_sig_in, tot_sig_out, tot_ind_in, tot_ind_out, tot_sig_failed
+            m_res = p_res.get("main", {})
+            s_res = p_res.get("sig", {})
+            i_res = p_res.get("ind", {})
+
+            tot_main_in += m_res.get("total", 0)
+            tot_main_out += m_res.get("passed", 0)
+            tot_sig_in += s_res.get("total", 0)
+            tot_sig_out += s_res.get("passed", 0)
+            tot_ind_in += i_res.get("total", 0)
+            tot_ind_out += i_res.get("passed", 0)
+            tot_sig_failed += len(failed_records)
+
+            for idx in range(8):
+                if "cut_counts" in m_res: tot_main_cutflow[idx] += m_res["cut_counts"][idx]
+                if "raw_weights" in m_res: tot_main_raw[idx] += m_res["raw_weights"][idx]
+                if "mc_weights" in m_res: tot_main_mc[idx] += m_res["mc_weights"][idx]
+
+                if "cut_counts" in s_res: tot_sig_cutflow[idx] += s_res["cut_counts"][idx]
+                if "raw_weights" in s_res: tot_sig_raw[idx] += s_res["raw_weights"][idx]
+                if "mc_weights" in s_res: tot_sig_mc[idx] += s_res["mc_weights"][idx]
+
+                if "cut_counts" in i_res: tot_ind_cutflow[idx] += i_res["cut_counts"][idx]
+                if "raw_weights" in i_res: tot_ind_raw[idx] += i_res["raw_weights"][idx]
+                if "mc_weights" in i_res: tot_ind_mc[idx] += i_res["mc_weights"][idx]
+
+            if failed_records and args.failed_cuts_csv:
+                with open(args.failed_cuts_csv, "a") as f_csv:
+                    for r in failed_records:
+                        f_csv.write(f"{r['partition']},{r['event_number']},{r['failed_cut_stage']},{r['entry']},{r['failed_cuts']}\n")
+                    f_csv.flush()
 
         if args.workers > 1:
             from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -1222,94 +1352,99 @@ def main():
                         print(f"[{completed_count:4d}/{len(tasks)}] Partition {part_id}: ERROR: {err}")
                         continue
 
+                    _accumulate_result(p_res, failed_records)
+
                     part = p_res["partition"]
                     m_tot = p_res["main"]["total"]
                     m_pass = p_res["main"]["passed"]
                     s_tot = p_res["sig"]["total"]
                     s_pass = p_res["sig"]["passed"]
-
-                    tot_main_in += m_tot
-                    tot_main_out += m_pass
-                    tot_sig_in += s_tot
-                    tot_sig_out += s_pass
-                    tot_sig_failed += len(failed_records)
-
-                    m_cuts = p_res["main"].get("cut_counts")
-                    if m_cuts:
-                        for idx, c in enumerate(m_cuts):
-                            tot_main_cutflow[idx] += c
-                    s_cuts = p_res["sig"].get("cut_counts")
-                    if s_cuts:
-                        for idx, c in enumerate(s_cuts):
-                            tot_sig_cutflow[idx] += c
-
-                    if failed_records and args.failed_cuts_csv:
-                        with open(args.failed_cuts_csv, "a") as f_csv:
-                            for r in failed_records:
-                                f_csv.write(f"{r['partition']},{r['event_number']},{r['failed_cut_stage']},{r['entry']},{r['failed_cuts']}\n")
-                            f_csv.flush()
+                    i_tot = p_res["ind"]["total"]
+                    i_pass = p_res["ind"]["passed"]
 
                     elapsed_so_far = time.time() - p_start_time
                     rate = completed_count / max(elapsed_so_far, 0.1)
                     eta_sec = (len(tasks) - completed_count) / max(rate, 0.001)
                     eta_str = str(timedelta(seconds=int(eta_sec)))
 
-                    print(f"[{completed_count:4d}/{len(tasks)}] Part {part:4d}: Main {m_pass:2d}/{m_tot:2d} | Sig {s_pass:1d}/{s_tot:1d} | SigFailed: {len(failed_records):1d} ({p_res['time']:.1f}s, ETA: {eta_str})")
+                    print(f"[{completed_count:4d}/{len(tasks)}] Part {part:4d}: Main {m_pass:2d}/{m_tot:2d} | Sig {s_pass:1d}/{s_tot:1d} | Ind {i_pass:1d}/{i_tot:1d} ({p_res['time']:.1f}s, ETA: {eta_str})")
         else:
             for t in tasks:
                 completed_count += 1
                 p_res, failed_records = process_single_partition_pipeline(*t)
+                _accumulate_result(p_res, failed_records)
+
                 part = p_res["partition"]
                 m_tot = p_res["main"]["total"]
                 m_pass = p_res["main"]["passed"]
                 s_tot = p_res["sig"]["total"]
                 s_pass = p_res["sig"]["passed"]
-
-                tot_main_in += m_tot
-                tot_main_out += m_pass
-                tot_sig_in += s_tot
-                tot_sig_out += s_pass
-                tot_sig_failed += len(failed_records)
-
-                m_cuts = p_res["main"].get("cut_counts")
-                if m_cuts:
-                    for idx, c in enumerate(m_cuts):
-                        tot_main_cutflow[idx] += c
-                s_cuts = p_res["sig"].get("cut_counts")
-                if s_cuts:
-                    for idx, c in enumerate(s_cuts):
-                        tot_sig_cutflow[idx] += c
-
-                if failed_records and args.failed_cuts_csv:
-                    with open(args.failed_cuts_csv, "a") as f_csv:
-                        for r in failed_records:
-                            f_csv.write(f"{r['partition']},{r['event_number']},{r['failed_cut_stage']},{r['entry']},{r['failed_cuts']}\n")
-                        f_csv.flush()
+                i_tot = p_res["ind"]["total"]
+                i_pass = p_res["ind"]["passed"]
 
                 elapsed_so_far = time.time() - p_start_time
                 rate = completed_count / max(elapsed_so_far, 0.1)
                 eta_sec = (len(tasks) - completed_count) / max(rate, 0.001)
                 eta_str = str(timedelta(seconds=int(eta_sec)))
 
-                print(f"[{completed_count:4d}/{len(tasks)}] Part {part:4d}: Main {m_pass:2d}/{m_tot:2d} | Sig {s_pass:1d}/{s_tot:1d} | SigFailed: {len(failed_records):1d} ({p_res['time']:.1f}s, ETA: {eta_str})")
+                print(f"[{completed_count:4d}/{len(tasks)}] Part {part:4d}: Main {m_pass:2d}/{m_tot:2d} | Sig {s_pass:1d}/{s_tot:1d} | Ind {i_pass:1d}/{i_tot:1d} ({p_res['time']:.1f}s, ETA: {eta_str})")
 
         total_elapsed = time.time() - p_start_time
         overall_main_yield = (tot_main_out / tot_main_in * 100.0) if tot_main_in > 0 else 0.0
         overall_sig_yield = (tot_sig_out / tot_sig_in * 100.0) if tot_sig_in > 0 else 0.0
+        overall_ind_yield = (tot_ind_out / tot_ind_in * 100.0) if tot_ind_in > 0 else 0.0
 
         cut_defs = [
             {"id": "step0_raw", "name": "All Events"},
-            {"id": "step1_scifi_ds_timing", "name": "SciFi-DS Timing"},
-            {"id": "step2_veto_hits", "name": "No Veto Hits"},
-            {"id": "step3_ds_dimuon", "name": "DS Dimuon"},
-            {"id": "step4_two_ds_tracks", "name": "Two DS Tracks"},
+            {"id": "step1_ip1", "name": "LHC IP1"},
+            {"id": "step2_stable_beams", "name": "Stable Beams"},
+            {"id": "step3_event_deltat", "name": "Event #Delta t"},
+            {"id": "step4_scifi_ds_timing", "name": "SciFi-DS Timing"},
+            {"id": "step5_veto_hits", "name": "No Veto Hits"},
+            {"id": "step6_ds_dimuon", "name": "DS Dimuon"},
+            {"id": "step7_two_ds_tracks", "name": "Two DS Tracks"},
         ]
-        all_stats = [{"id": c["id"], "name": c["name"], "count": tot_main_cutflow[i]} for i, c in enumerate(cut_defs)]
-        sig_stats = [{"id": c["id"], "name": c["name"], "count": tot_sig_cutflow[i]} for i, c in enumerate(cut_defs)]
+        all_stats = [
+            {
+                "id": c["id"],
+                "name": c["name"],
+                "count": tot_main_cutflow[i],
+                "raw_weight": tot_main_raw[i],
+                "mc_weight": tot_main_mc[i],
+            }
+            for i, c in enumerate(cut_defs)
+        ]
+        sig_stats = [
+            {
+                "id": c["id"],
+                "name": c["name"],
+                "count": tot_sig_cutflow[i],
+                "raw_weight": tot_sig_raw[i],
+                "mc_weight": tot_sig_mc[i],
+            }
+            for i, c in enumerate(cut_defs)
+        ]
+        ind_stats = [
+            {
+                "id": c["id"],
+                "name": c["name"],
+                "count": tot_ind_cutflow[i],
+                "raw_weight": tot_ind_raw[i],
+                "mc_weight": tot_ind_mc[i],
+            }
+            for i, c in enumerate(cut_defs)
+        ]
 
         print_cutflow_summary(all_stats, sig_stats, args.cutflow)
         if args.cutflow:
-            save_cutflow_root_file(args.cutflow, all_stats, stage_histograms={}, signal_cutflow_stats=sig_stats, scale_factor=sample_scale)
+            save_cutflow_root_file(
+                output_filepath=args.cutflow,
+                cutflow_stats=all_stats,
+                stage_histograms={},
+                signal_cutflow_stats=sig_stats,
+                scale_factor=sample_scale,
+                indirect_cutflow_stats=ind_stats,
+            )
             print(f" Cutflow ROOT File:    {args.cutflow}")
 
         print("=" * 80)
@@ -1318,6 +1453,7 @@ def main():
         print(f" Partitions Processed: {completed_count}/{len(tasks)}")
         print(f" Main Events:          {tot_main_out}/{tot_main_in} passed ({overall_main_yield:.2f}%)")
         print(f" Signal Events:        {tot_sig_out}/{tot_sig_in} passed ({overall_sig_yield:.2f}%)")
+        print(f" Indirect Events:      {tot_ind_out}/{tot_ind_in} passed ({overall_ind_yield:.2f}%)")
         print(f" Signal Failed Events: {tot_sig_failed}")
         if args.failed_cuts_csv:
             print(f" Failed Cuts CSV:      {args.failed_cuts_csv}")

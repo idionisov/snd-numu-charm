@@ -21,8 +21,10 @@ python3 -X faulthandler scripts/prefilter.py \
   -o "/eos/user/i/idioniso/snd-numu-charm/prefiltered/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root" \
   --signal-input "/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonDirect.root" \
   --signal-output "/eos/user/i/idioniso/snd-numu-charm/prefiltered/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonDirect.root" \
+  --indirect-input "/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonIndirect.root" \
+  --indirect-output "/eos/user/i/idioniso/snd-numu-charm/prefiltered/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonIndirect.root" \
+  --cutflow "/eos/user/i/idioniso/snd-numu-charm/prefiltered/cutflow_combined_1000parts.root" \
   --failed-cuts-csv "/eos/user/i/idioniso/snd-numu-charm/signal/2022_down_nu14_failed_cuts.csv" \
   --config "config/dimuon_prefilter_config.yaml" \
   -p "${PARTITIONS}" \
-  -w "${WORKERS}" \
-  --skip-existing
+  -w "${WORKERS}"

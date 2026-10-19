@@ -198,7 +198,7 @@ def _run_worker_task(task_args: tuple) -> dict:
             cfg=_worker_cfg,
             max_entries=max_entries,
             create_symlinks=create_symlinks,
-            weight_fn=get_mctruth_weight,
+            weight_fn=weight_fn,
             truth_tree_name=truth_tree_name,
             store_in_cbmsim=store_in_cbmsim,
         )
@@ -449,7 +449,7 @@ def main():
     if args.jobs > 1 and total_tasks > 1:
         from concurrent.futures import ProcessPoolExecutor, as_completed
         worker_args = [
-            (part_str, in_f, out_f, args.entries, do_symlink, config_path, truth_tree_name, store_in_cbmsim)
+            (part_str, in_f, out_f, args.entries, do_symlink, config_path, truth_tree_name, store_in_cbmsim, sample_type)
             for (part_str, in_f, out_f) in tasks
         ]
         print(f"\nDispatching {total_tasks} partition tasks to pool of {args.jobs} worker processes...\n")

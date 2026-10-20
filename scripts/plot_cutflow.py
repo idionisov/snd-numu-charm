@@ -53,14 +53,14 @@ def load_dataset_histograms(
         ],
         "raw_weight": [
             f"h_cutflow_{prefix_type}_raw_weight",
-            "h_cutflow_raw_weight",
             f"h_cutflow_{prefix_type}",
+            "h_cutflow_raw_weight",
             "h_cutflow",
         ],
         "unweighted": [
             f"h_cutflow_{prefix_type}_unweighted",
-            "h_cutflow_unweighted",
             f"h_cutflow_{prefix_type}",
+            "h_cutflow_unweighted",
             "h_cutflow",
         ],
     }
@@ -231,11 +231,11 @@ def build_comparison_canvas(
         else:
             hstack.GetHistogram().GetYaxis().SetRangeUser(max(min_val * 0.1, 0.05), max_val * 15.0)
 
-    leg = ROOT.TLegend(0.42, 0.70, 0.90, 0.89)
+    leg = ROOT.TLegend(0.38, 0.67, 0.90, 0.89)
     leg.SetBorderSize(1)
     leg.SetFillStyle(1001)
     leg.SetFillColor(ROOT.kWhite)
-    leg.SetTextSize(0.026)
+    leg.SetTextSize(0.024)
 
     for d, h_draw in drawn_hists:
         init_val = h_draw.GetBinContent(1)
@@ -251,9 +251,13 @@ def build_comparison_canvas(
     ref_h = drawn_hists[0][1]
     draw_rotated_labels_on_canvas(c, ref_h, angle=45.0, text_size=0.028)
 
+    c.Modified()
+    c.Update()
+
     # Keep references on canvas to prevent Python garbage collection
     c._hstack_ref = hstack
     c._hists_ref = [h for _, h in drawn_hists]
+    c._leg_ref = leg
     return c, [h for _, h in drawn_hists]
 
 
@@ -281,6 +285,12 @@ def plot_cutflow_comparison(
             all_filepath = combined_filepath
         if not sig_filepath:
             sig_filepath = combined_filepath
+        if not indirect_filepath and os.path.isfile(combined_filepath):
+            f_chk = ROOT.TFile.Open(combined_filepath, "READ")
+            if f_chk and not f_chk.IsZombie():
+                if f_chk.Get("h_cutflow_indirect") or f_chk.Get("h_cutflow_indirect_mc_weight"):
+                    indirect_filepath = combined_filepath
+                f_chk.Close()
 
     dataset_entries: List[Dict[str, Any]] = []
 
@@ -430,6 +440,14 @@ def plot_cutflow_comparison(
 
         f_out.Close()
         print(f"[Done] Cutflow comparison canvases and histograms saved to ROOT file: {output_filepath}")
+
+        # Save companion images (.png, .pdf)
+        base_img = output_filepath[:-5]
+        for cname in ["c_cutflow_mc_weight", "c_cutflow_mc_weight_norm", "c_cutflow_raw_weight", "c_cutflow_unweighted"]:
+            if cname in canvases:
+                canvases[cname].Print(f"{base_img}_{cname}.png")
+                canvases[cname].Print(f"{base_img}_{cname}.pdf")
+        print(f"[Done] Cutflow companion images (.png, .pdf) saved to: {base_img}_*.png / .pdf")
     else:
         # Save images
         base, ext = os.path.splitext(output_filepath)

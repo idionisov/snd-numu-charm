@@ -107,7 +107,9 @@ def process_single_partition_signal(
                 charm_pdg = int(getattr(t_truth, "charm_pdg", 0))
 
             # Diagnostic hit counts
-            n_veto = cut_veto.countVetoHits(t_cbm.Digi_MuFilterHits) if hasattr(t_cbm, "Digi_MuFilterHits") else 0
+            sf_hits = getattr(t_cbm, "Digi_ScifiHits", None)
+            mf_hits = getattr(t_cbm, "Digi_MuFilterHits", None)
+            n_veto = cut_veto.countVetoHits(mf_hits, sf_hits) if mf_hits else 0
             n_ds_tracks = cut_tracks.countTracks(t_cbm.Reco_MuonTracks) if hasattr(t_cbm, "Reco_MuonTracks") else 0
 
             # Independent cut evaluations (1 = pass, 0 = fail)
@@ -115,7 +117,7 @@ def process_single_partition_signal(
             p_sb = 1
             p_dt = 1
             p_timing = int(bool(cut_timing(t_cbm.Digi_ScifiHits, t_cbm.Digi_MuFilterHits)))
-            p_veto = int(bool(cut_veto(t_cbm.Digi_MuFilterHits)))
+            p_veto = int(bool(cut_veto(t_cbm.Digi_MuFilterHits, t_cbm.Digi_ScifiHits)))
             p_dimuon = int(bool(cut_dimuon(t_cbm.Digi_MuFilterHits)))
             p_tracks = int(bool(cut_tracks(t_cbm.Reco_MuonTracks)))
 

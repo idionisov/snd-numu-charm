@@ -397,7 +397,10 @@ def prefilter_file(
 
         # Define Veto cut boolean
         if has_mufi and cut_veto is not None:
-            df_processed = df_processed.Define("pass_veto_cut", cut_veto, ["Digi_MuFilterHits"])
+            if has_scifi:
+                df_processed = df_processed.Define("pass_veto_cut", cut_veto, ["Digi_MuFilterHits", "Digi_ScifiHits"])
+            else:
+                df_processed = df_processed.Define("pass_veto_cut", cut_veto, ["Digi_MuFilterHits"])
         else:
             df_processed = df_processed.Define("pass_veto_cut", "true")
 
@@ -653,7 +656,7 @@ def _filter_partition_stream(
 
             t_cbm.GetEntry(iev)
             p_t = bool(cut_timing(t_cbm.Digi_ScifiHits, t_cbm.Digi_MuFilterHits))
-            p_v = bool(cut_veto(t_cbm.Digi_MuFilterHits))
+            p_v = bool(cut_veto(t_cbm.Digi_MuFilterHits, t_cbm.Digi_ScifiHits))
             p_d = bool(cut_dimuon(t_cbm.Digi_MuFilterHits))
             p_tr = bool(cut_tracks(t_cbm.Reco_MuonTracks))
 
@@ -803,6 +806,8 @@ def process_single_partition_pipeline(
         min_hits=veto_cfg.get("min_hits", 0),
         max_hits=veto_cfg.get("max_hits", 0),
         require_valid=veto_cfg.get("require_valid", False),
+        time_threshold=veto_cfg.get("time_threshold", 0.3),
+        use_timing=veto_cfg.get("use_timing", True),
     )
 
     ds_dimuon_cfg = next((c for c in cuts_list if c.get("filter") == "pass_ds_dimuon_cut" or "ds_dimuon" in c.get("id", "")), {})
@@ -1158,6 +1163,8 @@ def main():
         min_hits=veto_cfg.get("min_hits", 0),
         max_hits=veto_cfg.get("max_hits", 0),
         require_valid=veto_cfg.get("require_valid", False),
+        time_threshold=veto_cfg.get("time_threshold", 0.3),
+        use_timing=veto_cfg.get("use_timing", True),
     )
 
     station_cfg = next((c for c in cuts_list if c.get("filter") == "pass_scifi_station_cut" or "scifi_station" in c.get("id", "")), {})

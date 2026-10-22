@@ -50,10 +50,12 @@ cuts:
     name: "No Veto Hits"
     filter: "pass_veto_cut"
     enabled: true
-    description: "Veto system (System 1) hit count selection"
+    description: "Veto system (System 1) hit count selection with timing tolerance"
     min_hits: 0
     max_hits: 0
     require_valid: false
+    time_threshold: 0.3
+    use_timing: true
 
   - id: "step6_ds_dimuon"
     name: "DS Dimuon"

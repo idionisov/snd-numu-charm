@@ -50,7 +50,9 @@ cuts:
     min_hits: 0
     max_hits: 0
     require_valid: false
-    description: "Require 0 hits in Veto system (System 1)"
+    time_threshold: 0.3
+    use_timing: true
+    description: "Require 0 in-time hits in Veto system (System 1) with 0.3 ns tolerance"
 
   - id: "step6_ds_dimuon"
     name: "DS Dimuon"

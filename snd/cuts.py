@@ -120,6 +120,8 @@ def get_veto_cut(
     min_hits: int = 0,
     max_hits: int = 0,
     require_valid: bool = False,
+    time_threshold: float = 0.3,
+    use_timing: bool = True,
 ) -> ROOT.snd.VetoCut:
     """
     Instantiate and return the C++ snd::VetoCut object for RDataFrame.
@@ -128,6 +130,8 @@ def get_veto_cut(
         min_hits: Minimum number of hits in MuFilter System 1 (default: 0).
         max_hits: Maximum number of hits in MuFilter System 1 (default: 0; <0 for unbounded).
         require_valid: If True, require hit->isValid() (default: False).
+        time_threshold: Maximum tolerated latency in ns relative to earliest SciFi hit (default: 0.3).
+        use_timing: If True, ignore late veto hits (t_veto - t_scifi_min > time_threshold) (default: True).
 
     Returns:
         ROOT.snd.VetoCut instance.
@@ -137,6 +141,8 @@ def get_veto_cut(
         int(min_hits),
         int(max_hits),
         bool(require_valid),
+        float(time_threshold),
+        bool(use_timing),
     )
 
 
@@ -151,11 +157,15 @@ class VetoCut:
         min_hits: int = 0,
         max_hits: int = 0,
         require_valid: bool = False,
+        time_threshold: float = 0.3,
+        use_timing: bool = True,
     ):
         return get_veto_cut(
             min_hits=min_hits,
             max_hits=max_hits,
             require_valid=require_valid,
+            time_threshold=time_threshold,
+            use_timing=use_timing,
         )
 
 

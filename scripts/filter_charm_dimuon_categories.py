@@ -223,6 +223,12 @@ def main():
         help="Partition range or list (e.g. '1-1000', '1-10', '1,2,3', 'all'). Default: '1-1000'",
     )
     parser.add_argument(
+        "-f", "--args-file", "--partitions-file",
+        dest="partitions_file",
+        default=None,
+        help="Text file with partition IDs (one per line, e.g. args_nu14_volTarget_1000_failed.txt)",
+    )
+    parser.add_argument(
         "-i", "--input",
         default=None,
         help="Input file pattern or base directory (e.g. '/path/to/%%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root')",
@@ -263,7 +269,16 @@ def main():
         elif os.path.isfile(inp):
             base_dir = os.path.dirname(os.path.dirname(inp))
 
-    partitions = parse_partitions(args.partitions)
+    if args.partitions_file and os.path.isfile(args.partitions_file):
+        partitions = []
+        with open(args.partitions_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and line.isdigit():
+                    partitions.append(int(line))
+        partitions = sorted(list(set(partitions)))
+    else:
+        partitions = parse_partitions(args.partitions)
     write_empty = not args.no_empty
 
     print("=" * 80)

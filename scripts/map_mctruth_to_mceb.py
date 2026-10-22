@@ -268,6 +268,12 @@ def main():
         help="Optional partition range or list for batch processing (e.g. '1-100', '1,2,5')",
     )
     parser.add_argument(
+        "-f", "--partitions-file", "--args-file",
+        dest="partitions_file",
+        default=None,
+        help="Text file containing partition IDs (one per line, e.g. args_nu14_volTarget_1000_failed.txt)",
+    )
+    parser.add_argument(
         "-j", "--jobs",
         type=int,
         default=4,
@@ -276,7 +282,16 @@ def main():
 
     args = parser.parse_args()
 
-    partitions = parse_partitions(args.partitions)
+    partitions = []
+    if args.partitions_file and os.path.isfile(args.partitions_file):
+        with open(args.partitions_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and line.isdigit():
+                    partitions.append(int(line))
+        partitions = sorted(list(set(partitions)))
+    elif args.partitions:
+        partitions = parse_partitions(args.partitions)
 
     print("=" * 80)
     print(" SND@LHC MCTRUTH TO MCEB MAPPER & TREE TRANSPLANTER")

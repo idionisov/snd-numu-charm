@@ -90,7 +90,12 @@ def check_file(filepath: str, expected_trees: List[Any]) -> Tuple[bool, str, Dic
     return True, "OK", tree_entries
 
 
-def verify_single_partition(partition: int, base_dir: str) -> Dict[str, Any]:
+def verify_single_partition(
+    partition: int,
+    base_dir: str,
+    prefix: str = "sndLHC.Genie-TGeant4_dig_2MuTrks",
+    raw_name: str = "sndLHC.Genie-TGeant4_dig.root",
+) -> Dict[str, Any]:
     """Verify all 4 pipeline files for a given partition."""
     part_dir = os.path.join(base_dir, str(partition))
     res = {
@@ -111,13 +116,11 @@ def verify_single_partition(partition: int, base_dir: str) -> Dict[str, Any]:
         res["errors"].append("DIR_NOT_FOUND")
         return res
 
-    raw_path = os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig.root")
+    raw_path = os.path.join(part_dir, raw_name)
     if os.path.isfile(raw_path):
         ok, msg, trees = check_file(raw_path, ["cbmsim"])
         if ok:
             res["raw_entries"] = trees.get("cbmsim", 0)
-
-    prefix = "sndLHC.Genie-TGeant4_dig_2MuTrks"
 
     # 2. Tracked 2MuTrks
     track_path = os.path.join(part_dir, f"{prefix}.root")
@@ -201,14 +204,27 @@ def main():
         default=None,
         help="Path to write failed partition IDs (one per line) for re-submission or retry.",
     )
+    parser.add_argument("--mceb", action="store_true", help="Check MCEB output files instead of standard files.")
+    parser.add_argument("--prefix", default=None, help="Custom prefix for tracked files.")
 
     args = parser.parse_args()
     partitions = parse_partitions(args.partitions)
+
+    if args.prefix:
+        prefix = args.prefix
+        raw_name = "sndLHC.Genie-TGeant4_dig.root"
+    elif args.mceb:
+        prefix = "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks"
+        raw_name = "sndLHC.Genie-TGeant4_MCEB_dig.root"
+    else:
+        prefix = "sndLHC.Genie-TGeant4_dig_2MuTrks"
+        raw_name = "sndLHC.Genie-TGeant4_dig.root"
 
     print("=" * 80)
     print(" SND@LHC PIPELINE OUTPUT VERIFICATION & QA AUDITOR")
     print("=" * 80)
     print(f" Base Directory : {args.base_dir}")
+    print(f" Prefix         : {prefix}")
     print(f" Partitions     : {len(partitions)} partition(s) ({partitions[0]}..{partitions[-1]})")
     print(f" Workers        : {args.jobs}")
     if args.failed_file:
@@ -220,12 +236,15 @@ def main():
 
     if args.jobs > 1 and len(partitions) > 1:
         with ProcessPoolExecutor(max_workers=args.jobs) as executor:
-            futures = {executor.submit(verify_single_partition, p, args.base_dir): p for p in partitions}
+            futures = {
+                executor.submit(verify_single_partition, p, args.base_dir, prefix, raw_name): p
+                for p in partitions
+            }
             for fut in as_completed(futures):
                 results.append(fut.result())
     else:
         for p in partitions:
-            results.append(verify_single_partition(p, args.base_dir))
+            results.append(verify_single_partition(p, args.base_dir, prefix, raw_name))
 
     results.sort(key=lambda x: x["partition"])
     t1 = time.time()

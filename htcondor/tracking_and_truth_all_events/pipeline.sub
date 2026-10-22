@@ -13,7 +13,7 @@ initialdir              = $(base_dir)
 
 executable              = $(base_dir)/run_pipeline_partition.sh
 arguments               = $(partition) $(input_pattern) $(track_pattern) $(truth_pattern) $(disp_pattern) all
-environment             = "FORCE=1 ALL_EVENTS=1"
+environment             = "$(env_vars:FORCE=1 ALL_EVENTS=1)"
 
 flavour                 = $(flavour:longlunch)
 args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)

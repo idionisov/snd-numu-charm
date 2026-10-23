@@ -1272,13 +1272,19 @@ def print_scoreboard(results: List[Dict[str, Any]], sort_key: str = "score_genie
     }
     title = header_titles.get(sort_key, sort_key)
 
-    print("\n" + "=" * 160)
+    is_pairwise = results and results[0]["params"].get("use_pairwise", False)
+
+    print("\n" + "=" * 175)
     print(f" HOUGH PARAMETER OPTIMIZATION SCOREBOARD (Ranked by: {title})")
     print(f" Target Objective: Score = (1 - FPR) * (TPR)^2   |   Fiducial Acceptance: Target @ z=352 cm")
-    print("=" * 163)
-    print(f"{'Rank':<4} | {'Format':<14} | {'MaxAng':<6} | {'Factor':<6} | {'Bins':<11} | {'Tol':<4} | {'Smth':<4} | {'Sig':<4} | {'Trn':<4} | "
-          f"{'TPR(Gen)':<8} | {'FPR(Gen)':<8} | {'Score(GG)':<9} | {'TPR(Pgun)':<9} | {'FPR(pmu)':<8} | {'Score(GP)':<9} | {'Score(PG)':<9} | {'Score(PP)':<9}")
-    print("-" * 163)
+    print("=" * 175)
+    if is_pairwise:
+        print(f"{'Rank':<4} | {'Format':<14} | {'MaxAng':<6} | {'MaxOpen':<7} | {'Factor':<6} | {'Bins':<11} | {'Tol':<4} | {'Smth':<4} | {'Sig':<4} | {'Trn':<4} | "
+              f"{'TPR(Gen)':<8} | {'FPR(Gen)':<8} | {'Score(GG)':<9} | {'TPR(Pgun)':<9} | {'FPR(pmu)':<8} | {'Score(GP)':<9} | {'Score(PG)':<9} | {'Score(PP)':<9}")
+    else:
+        print(f"{'Rank':<4} | {'Format':<14} | {'MaxAng':<6} | {'Factor':<6} | {'Bins':<11} | {'Tol':<4} | {'Smth':<4} | {'Sig':<4} | {'Trn':<4} | "
+              f"{'TPR(Gen)':<8} | {'FPR(Gen)':<8} | {'Score(GG)':<9} | {'TPR(Pgun)':<9} | {'FPR(pmu)':<8} | {'Score(GP)':<9} | {'Score(PG)':<9} | {'Score(PP)':<9}")
+    print("-" * 175)
 
     for i, res in enumerate(results[:top_k]):
         p = res["params"]
@@ -1288,12 +1294,20 @@ def print_scoreboard(results: List[Dict[str, Any]], sort_key: str = "score_genie
         sig_str = f"{p['sigma']:.1f}" if p["smooth_full"] else "-"
         trunc_str = f"{p['truncate']:.1f}" if p["smooth_full"] else "-"
         max_ang_str = f"{p.get('max_angle', 0.175):.3f}"
+        max_open = p.get("max_opening_angle")
+        max_open_str = f"{max_open:.3f}" if (max_open is not None and max_open < 900.0) else ("inf" if max_open is not None else "-")
 
-        print(f"{i+1:<4} | {fmt_short:<14} | {max_ang_str:<6} | {p['binning_factor']:<6.2f} | {bins_str:<11} | {p['tolerance']:<4.1f} | {smth:<4} | {sig_str:<4} | {trunc_str:<4} | "
-              f"{res['tpr_genie']*100:<7.1f}% | {res['fpr_genie']*100:<7.1f}% | {res['score_genie_genie']:<9.4f} | "
-              f"{res['tpr_pgun']*100:<8.1f}% | {res['fpr_pmu']*100:<7.1f}% | {res['score_genie_pmu']:<9.4f} | "
-              f"{res['score_pgun_genie']:<9.4f} | {res['score_pgun_pmu']:<9.4f}")
-    print("=" * 163 + "\n")
+        if is_pairwise:
+            print(f"{i+1:<4} | {fmt_short:<14} | {max_ang_str:<6} | {max_open_str:<7} | {p['binning_factor']:<6.2f} | {bins_str:<11} | {p['tolerance']:<4.1f} | {smth:<4} | {sig_str:<4} | {trunc_str:<4} | "
+                  f"{res['tpr_genie']*100:<7.1f}% | {res['fpr_genie']*100:<7.1f}% | {res['score_genie_genie']:<9.4f} | "
+                  f"{res['tpr_pgun']*100:<8.1f}% | {res['fpr_pmu']*100:<7.1f}% | {res['score_genie_pmu']:<9.4f} | "
+                  f"{res['score_pgun_genie']:<9.4f} | {res['score_pgun_pmu']:<9.4f}")
+        else:
+            print(f"{i+1:<4} | {fmt_short:<14} | {max_ang_str:<6} | {p['binning_factor']:<6.2f} | {bins_str:<11} | {p['tolerance']:<4.1f} | {smth:<4} | {sig_str:<4} | {trunc_str:<4} | "
+                  f"{res['tpr_genie']*100:<7.1f}% | {res['fpr_genie']*100:<7.1f}% | {res['score_genie_genie']:<9.4f} | "
+                  f"{res['tpr_pgun']*100:<8.1f}% | {res['fpr_pmu']*100:<7.1f}% | {res['score_genie_pmu']:<9.4f} | "
+                  f"{res['score_pgun_genie']:<9.4f} | {res['score_pgun_pmu']:<9.4f}")
+    print("=" * 175 + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -1316,13 +1330,15 @@ def plot_tuning_summary(results: List[Dict[str, Any]], output_plot_path: str = "
     bp = best["params"]
     fmt = bp["h_format"]
 
-    # Filter results for best format and best smoothing
+    # Filter results for best format, best smoothing, and best angle slice
     slice_res = [
         r for r in results 
         if r["params"]["h_format"] == fmt 
         and r["params"]["smooth_full"] == bp["smooth_full"] 
         and r["params"]["sigma"] == bp["sigma"]
         and r["params"]["truncate"] == bp["truncate"]
+        and r["params"].get("max_angle") == bp.get("max_angle")
+        and r["params"].get("max_opening_angle") == bp.get("max_opening_angle")
     ]
 
     factors = sorted(list(set(r["params"]["binning_factor"] for r in slice_res)))
@@ -1537,7 +1553,10 @@ def main():
     print(f"  Accumulator Res: {bp['n_xH']} x {bp['n_yH']} bins")
     print(f"  Tolerance:       {bp['tolerance']} cm")
     print(f"  Smooth Full:     {bp['smooth_full']} (sigma={bp['sigma']}, truncate={bp['truncate']})")
-    print(f"  Max Angle:       {bp['max_angle']} rad (175 mrad)")
+    print(f"  Max Angle:       {bp['max_angle']} rad")
+    if bp.get("max_opening_angle") is not None:
+        open_str = f"{bp['max_opening_angle']} rad" if bp['max_opening_angle'] < 900.0 else "unconstrained (inf)"
+        print(f"  Max Open Angle:  {open_str}")
     print(f"  Target Window:   z={bp['z_target']} cm, x in {bp['target_window_xz']}, y in {bp['target_window_yz']}")
     print("-" * 70)
     print(f"  Genie Signal TPR:       {best['tpr_genie']*100:.2f}%")

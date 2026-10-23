@@ -307,6 +307,12 @@
      <Nhits_per_plane> 8 </Nhits_per_plane>
      <max_reco_muons> 2 </max_reco_muons>
      <max_angle unit="rad"> 1. </max_angle>
+     <!-- Optional working area constraint: lines are required to cross this plane window -->
+     <z_plane unit="cm"> 352. </z_plane>
+     <x_area_min unit="cm"> -50. </x_area_min>
+     <x_area_max unit="cm"> -3. </x_area_max>
+     <y_area_min unit="cm"> 5. </y_area_min>
+     <y_area_max unit="cm"> 60. </y_area_max>
      <n_random> 0 </n_random>
      <mufi_weight> 1 </mufi_weight>
      <tolerance unit="cm"> 0.4 </tolerance>

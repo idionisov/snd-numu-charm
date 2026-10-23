@@ -507,6 +507,8 @@ class Snd2DEventDisplay:
             if charm_trk is not None and charm_id >= 0:
                 truth["charm_pdg"] = int(charm_trk.GetPdgCode())
                 c_start = (charm_trk.GetStartX(), charm_trk.GetStartY(), charm_trk.GetStartZ())
+                if c_start[2] < 280.0 and truth["vtx"][2] > -9000.0:
+                    c_start = truth["vtx"]
                 c_end = None
                 for d_trk in tree.MCTrack:
                     if d_trk.GetMotherId() == charm_id:
@@ -693,15 +695,25 @@ class Snd2DEventDisplay:
             tracks["mu1"] = pts
 
         # Trajectory for Charm
-        if charm_trk is not None:
-            c_start = (charm_trk[1].GetStartX(), charm_trk[1].GetStartY(), charm_trk[1].GetStartZ())
+        if charm_trk is not None or truth_info.get("charm_pdg", 0) != 0:
+            if charm_trk is not None:
+                c_start = (charm_trk[1].GetStartX(), charm_trk[1].GetStartY(), charm_trk[1].GetStartZ())
+            else:
+                c_start = vtx
+            if c_start[2] < 280.0:
+                c_start = vtx
+
             c_decay = None
             if intermediate_chain:
                 first_trk = tree.MCTrack[intermediate_chain[0]["track_id"]]
                 c_decay = (first_trk.GetStartX(), first_trk.GetStartY(), first_trk.GetStartZ())
-            elif mu2_trk is not None and mu2_trk[1].GetMotherId() == charm_trk[0]:
+            elif mu2_trk is not None and charm_trk is not None and mu2_trk[1].GetMotherId() == charm_trk[0]:
                 c_decay = (mu2_trk[1].GetStartX(), mu2_trk[1].GetStartY(), mu2_trk[1].GetStartZ())
-            elif truth_info.get("decay_length_3d", 0) > 0 and charm_trk[1].GetP() > 0:
+            elif hasattr(tree, "charm_decay_z") and getattr(tree, "charm_decay_z") > 280.0:
+                c_decay = (float(tree.charm_decay_x), float(tree.charm_decay_y), float(tree.charm_decay_z))
+            elif mu2_trk is not None:
+                c_decay = (mu2_trk[1].GetStartX(), mu2_trk[1].GetStartY(), mu2_trk[1].GetStartZ())
+            elif truth_info.get("decay_length_3d", 0) > 0 and charm_trk is not None and charm_trk[1].GetP() > 0:
                 L = truth_info["decay_length_3d"]
                 p = charm_trk[1].GetP()
                 c_decay = (

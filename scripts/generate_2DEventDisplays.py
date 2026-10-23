@@ -98,6 +98,8 @@ def copy_tcanvases_recursive(src_dir, dest_dir) -> None:
                 dest_dir.cd()
                 ROOT.TColor.DefinedColors(1)
                 obj.Write(key.GetName(), ROOT.TObject.kOverwrite)
+                ROOT.gROOT.GetListOfCanvases().Remove(obj)
+                ROOT.SetOwnership(obj, False)
         elif "TDirectory" in cls_name:
             sub_src = key.ReadObj()
             if sub_src:
@@ -360,10 +362,15 @@ def process_single_file_worker(args_tuple):
                 category = run_dir_name
                 is_in_acceptance = False
 
-            canvas_name = canvas_name_format.format(run_num=ev_run_id, event_num=event_num)
+            if mc_truth and (ev_run_id <= 1 or str(ev_run_id) == str(run_num)):
+                display_run_id = run_num if run_num else ev_run_id
+            else:
+                display_run_id = ev_run_id
+
+            canvas_name = canvas_name_format.format(run_num=display_run_id, event_num=event_num)
             if mc_truth:
                 hierarchy_label = "/".join(target_parts[1:])
-                canvas_title = f"SND@LHC Run {ev_run_id} Event {event_num} ({hierarchy_label})"
+                canvas_title = f"SND@LHC Run {display_run_id} Event {event_num} ({hierarchy_label})"
             else:
                 canvas_title = f"SND@LHC Run {ev_run_id} Event {event_num}"
 
@@ -372,7 +379,7 @@ def process_single_file_worker(args_tuple):
                 event_idx=iev,
                 canvas_name=canvas_name,
                 canvas_title=canvas_title,
-                run_number=ev_run_id,
+                run_number=display_run_id,
                 event_number=event_num,
                 show_mc_truth=mc_truth,
                 draw_reco_tracks=reco_muons,
@@ -382,6 +389,8 @@ def process_single_file_worker(args_tuple):
             target_tdir.cd()
             ROOT.TColor.DefinedColors(1)
             canvas.Write(canvas_name)
+            ROOT.gROOT.GetListOfCanvases().Remove(canvas)
+            ROOT.SetOwnership(canvas, False)
 
             result["saved_displays"] += 1
             if mc_truth and split_acceptance:
@@ -460,6 +469,12 @@ def main():
         action="store_true",
         default=False,
         help="Plot reconstructed muon tracks from Reco_MuonTracks branch",
+    )
+    parser.add_argument(
+        "-u", "--update",
+        action="store_true",
+        default=False,
+        help="Open output ROOT file in UPDATE mode to append into existing TDirectories without wiping existing files/histograms",
     )
     parser.add_argument(
         "--events",
@@ -733,7 +748,8 @@ def main():
 
         out_root_abs = os.path.abspath(output_file)
         os.makedirs(os.path.dirname(out_root_abs), exist_ok=True)
-        fout = ROOT.TFile.Open(out_root_abs, "RECREATE")
+        fout_mode = "UPDATE" if args.update and os.path.exists(out_root_abs) else "RECREATE"
+        fout = ROOT.TFile.Open(out_root_abs, fout_mode)
 
         for res in worker_results:
             if res["status"] != "OK":

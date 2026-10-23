@@ -701,6 +701,240 @@ def main():
             }
             return fallback_theta;
         }
+
+        struct DSPointAngleStats {
+            double avg_theta_xz_mrad;
+            double std_theta_xz_mrad;
+            double avg_theta_yz_mrad;
+            double std_theta_yz_mrad;
+            int n_points;
+        };
+
+        inline DSPointAngleStats get_ds_point_angle_stats(int trk_id, const TClonesArray& pts) {
+            DSPointAngleStats stats{-9999.0, -9999.0, -9999.0, -9999.0, 0};
+            if (trk_id < 0) return stats;
+            const int nPoints = pts.GetEntriesFast();
+            std::vector<double> tx_vals;
+            std::vector<double> ty_vals;
+            tx_vals.reserve(16);
+            ty_vals.reserve(16);
+
+            double sum_tx = 0.0;
+            double sum_ty = 0.0;
+
+            for (int i = 0; i < nPoints; ++i) {
+                auto* pt = static_cast<const FairMCPoint*>(pts.At(i));
+                if (!pt || pt->GetTrackID() != trk_id) continue;
+                int detID = pt->GetDetectorID();
+                if ((detID / 10000) != 3) continue; // Downstream (DS) MuFilter only
+                double pz = pt->GetPz();
+                if (std::abs(pz) < 1e-6) continue;
+                double tx = (pt->GetPx() / pz) * 1000.0; // in mrad
+                double ty = (pt->GetPy() / pz) * 1000.0; // in mrad
+                tx_vals.push_back(tx);
+                ty_vals.push_back(ty);
+                sum_tx += tx;
+                sum_ty += ty;
+            }
+
+            const size_t N = tx_vals.size();
+            stats.n_points = static_cast<int>(N);
+            if (N == 0) return stats;
+
+            double mean_tx = sum_tx / N;
+            double mean_ty = sum_ty / N;
+            stats.avg_theta_xz_mrad = mean_tx;
+            stats.avg_theta_yz_mrad = mean_ty;
+
+            if (N == 1) {
+                stats.std_theta_xz_mrad = 0.0;
+                stats.std_theta_yz_mrad = 0.0;
+                return stats;
+            }
+
+            double var_tx = 0.0;
+            double var_ty = 0.0;
+            for (size_t i = 0; i < N; ++i) {
+                double d_tx = tx_vals[i] - mean_tx;
+                double d_ty = ty_vals[i] - mean_ty;
+                var_tx += d_tx * d_tx;
+                var_ty += d_ty * d_ty;
+            }
+            stats.std_theta_xz_mrad = std::sqrt(var_tx / N);
+            stats.std_theta_yz_mrad = std::sqrt(var_ty / N);
+            return stats;
+        }
+
+        inline double ds_pt_avg_theta_xz_mrad(int trk_id, const TClonesArray& pts) {
+            return get_ds_point_angle_stats(trk_id, pts).avg_theta_xz_mrad;
+        }
+        inline double ds_pt_std_theta_xz_mrad(int trk_id, const TClonesArray& pts) {
+            return get_ds_point_angle_stats(trk_id, pts).std_theta_xz_mrad;
+        }
+        inline double ds_pt_avg_theta_yz_mrad(int trk_id, const TClonesArray& pts) {
+            return get_ds_point_angle_stats(trk_id, pts).avg_theta_yz_mrad;
+        }
+        inline double ds_pt_std_theta_yz_mrad(int trk_id, const TClonesArray& pts) {
+            return get_ds_point_angle_stats(trk_id, pts).std_theta_yz_mrad;
+        }
+
+        inline double ds_opening_angle_3d_mrad(double tx1_mrad, double ty1_mrad, double tx2_mrad, double ty2_mrad) {
+            if (tx1_mrad < -9000.0 || tx2_mrad < -9000.0) return -9999.0;
+            double t1x = tx1_mrad / 1000.0;
+            double t1y = ty1_mrad / 1000.0;
+            double t2x = tx2_mrad / 1000.0;
+            double t2y = ty2_mrad / 1000.0;
+            double norm1 = std::sqrt(t1x * t1x + t1y * t1y + 1.0);
+            double norm2 = std::sqrt(t2x * t2x + t2y * t2y + 1.0);
+            double dot = (t1x * t2x + t1y * t2y + 1.0) / (norm1 * norm2);
+            dot = std::max(-1.0, std::min(1.0, dot));
+            return std::acos(dot) * 1000.0;
+        }
+
+        struct LinearFitResult {
+            double slope;
+            double intercept;
+            int n_points;
+        };
+
+        inline LinearFitResult fit_mcpoints_line(int trk_id, const TClonesArray& pts, bool is_xz) {
+            LinearFitResult res{-9999.0, -9999.0, 0};
+            if (trk_id < 0) return res;
+            const int nPoints = pts.GetEntriesFast();
+
+            std::vector<double> z_vals;
+            std::vector<double> coord_vals;
+            z_vals.reserve(16);
+            coord_vals.reserve(16);
+
+            for (int i = 0; i < nPoints; ++i) {
+                auto* pt = static_cast<const FairMCPoint*>(pts.At(i));
+                if (!pt || pt->GetTrackID() != trk_id) continue;
+                int detID = pt->GetDetectorID();
+                if ((detID / 10000) != 3) continue; // Downstream (DS) MuFilter only
+                int bar = (detID % 1000);
+                if (is_xz && bar < 60) continue; // vertical bars (XZ sensitive)
+                if (!is_xz && bar >= 60) continue; // horizontal bars (YZ sensitive)
+                z_vals.push_back(pt->GetZ());
+                coord_vals.push_back(is_xz ? pt->GetX() : pt->GetY());
+            }
+
+            if (z_vals.size() < 2) {
+                z_vals.clear();
+                coord_vals.clear();
+                for (int i = 0; i < nPoints; ++i) {
+                    auto* pt = static_cast<const FairMCPoint*>(pts.At(i));
+                    if (!pt || pt->GetTrackID() != trk_id) continue;
+                    int detID = pt->GetDetectorID();
+                    if ((detID / 10000) != 3) continue;
+                    z_vals.push_back(pt->GetZ());
+                    coord_vals.push_back(is_xz ? pt->GetX() : pt->GetY());
+                }
+            }
+
+            const size_t N = z_vals.size();
+            res.n_points = static_cast<int>(N);
+            if (N < 2) return res;
+
+            double sum_z = 0.0, sum_c = 0.0;
+            for (size_t i = 0; i < N; ++i) {
+                sum_z += z_vals[i];
+                sum_c += coord_vals[i];
+            }
+            double mean_z = sum_z / N;
+            double mean_c = sum_c / N;
+
+            double s_zz = 0.0, s_zc = 0.0;
+            for (size_t i = 0; i < N; ++i) {
+                double dz = z_vals[i] - mean_z;
+                double dc = coord_vals[i] - mean_c;
+                s_zz += dz * dz;
+                s_zc += dz * dc;
+            }
+
+            if (s_zz < 1e-9) return res;
+            res.slope = s_zc / s_zz;
+            res.intercept = mean_c - res.slope * mean_z;
+            return res;
+        }
+
+        inline double get_mcpoints_fit_angle_mrad(int trk_id, const TClonesArray& pts, bool is_xz) {
+            LinearFitResult f = fit_mcpoints_line(trk_id, pts, is_xz);
+            if (f.n_points < 2) return -9999.0;
+            return f.slope * 1000.0;
+        }
+
+        inline double get_mcpoints_fit_opening_angle_mrad(int trk1_id, int trk2_id, const TClonesArray& pts, bool is_xz) {
+            double a1 = get_mcpoints_fit_angle_mrad(trk1_id, pts, is_xz);
+            double a2 = get_mcpoints_fit_angle_mrad(trk2_id, pts, is_xz);
+            if (a1 < -9000.0 || a2 < -9000.0) return -9999.0;
+            return std::abs(a1 - a2);
+        }
+
+        inline double get_mcpoints_cross_z(int trk1_id, int trk2_id, const TClonesArray& pts, bool is_xz) {
+            if (trk1_id < 0 || trk2_id < 0) return -9999.0;
+            LinearFitResult f1 = fit_mcpoints_line(trk1_id, pts, is_xz);
+            LinearFitResult f2 = fit_mcpoints_line(trk2_id, pts, is_xz);
+            if (f1.n_points < 2 || f2.n_points < 2) return -9999.0;
+            double dm = f1.slope - f2.slope;
+            if (std::abs(dm) < 1e-6) return -9999.0;
+            return (f2.intercept - f1.intercept) / dm;
+        }
+
+        inline double get_mcpoints_delta_z_cross(double vtx_z, int trk1_id, int trk2_id, const TClonesArray& pts, bool is_xz) {
+            double z_cross = get_mcpoints_cross_z(trk1_id, trk2_id, pts, is_xz);
+            if (z_cross < -9000.0) return -9999.0;
+            return vtx_z - z_cross;
+        }
+
+        struct DSPlanePoint {
+            double x;
+            double y;
+            double z;
+            bool has_point;
+        };
+
+        inline DSPlanePoint get_muon_ds_plane_point(int trk_id, const TClonesArray& pts, int target_plane = 2) {
+            DSPlanePoint res{0.0, 0.0, 0.0, false};
+            if (trk_id < 0) return res;
+            const int nPoints = pts.GetEntriesFast();
+            double sum_x = 0.0, sum_y = 0.0, sum_z = 0.0;
+            int count = 0;
+            for (int i = 0; i < nPoints; ++i) {
+                auto* pt = static_cast<const FairMCPoint*>(pts.At(i));
+                if (!pt || pt->GetTrackID() != trk_id) continue;
+                int detID = pt->GetDetectorID();
+                if ((detID / 10000) != 3) continue; // DS only
+                int plane = (detID % 10000) / 1000;
+                if (plane == target_plane) {
+                    sum_x += pt->GetX();
+                    sum_y += pt->GetY();
+                    sum_z += pt->GetZ();
+                    count++;
+                }
+            }
+            if (count > 0) {
+                res.x = sum_x / count;
+                res.y = sum_y / count;
+                res.z = sum_z / count;
+                res.has_point = true;
+            }
+            return res;
+        }
+
+        inline double get_ds_plane_dx(int trk1_id, int trk2_id, const TClonesArray& pts, int target_plane = 2) {
+            DSPlanePoint p1 = get_muon_ds_plane_point(trk1_id, pts, target_plane);
+            DSPlanePoint p2 = get_muon_ds_plane_point(trk2_id, pts, target_plane);
+            if (!p1.has_point || !p2.has_point) return -9999.0;
+            return p1.x - p2.x;
+        }
+
+        inline double get_ds_plane_dy(int trk1_id, int trk2_id, const TClonesArray& pts, int target_plane = 2) {
+            DSPlanePoint p1 = get_muon_ds_plane_point(trk1_id, pts, target_plane);
+            DSPlanePoint p2 = get_muon_ds_plane_point(trk2_id, pts, target_plane);
+            if (!p1.has_point || !p2.has_point) return -9999.0;
+            return p1.y - p2.y;
+        }
     }
     """)
 
@@ -1138,6 +1372,92 @@ def main():
     df_truth = safe_def(df_truth, "dimuon_delta_slope_xz", "std::abs(mu1_slope_xz - sec_mu_slope_xz)")
     df_truth = safe_def(df_truth, "dimuon_delta_slope_yz", "std::abs(mu1_slope_yz - sec_mu_slope_yz)")
 
+    # DS MCPoint Angle Distributions and Uncertainties (via MuFilterPoint px/pz and py/pz)
+    if has_mufilter or "MuFilterPoint" in existing_cols:
+        df_truth = safe_def(df_truth, "mu1_ds_avg_theta_xz_mrad", "TruthExt::ds_pt_avg_theta_xz_mrad(mu1_track_id, MuFilterPoint)")
+        df_truth = safe_def(df_truth, "mu1_ds_std_theta_xz_mrad", "TruthExt::ds_pt_std_theta_xz_mrad(mu1_track_id, MuFilterPoint)")
+        df_truth = safe_def(df_truth, "mu1_ds_avg_theta_yz_mrad", "TruthExt::ds_pt_avg_theta_yz_mrad(mu1_track_id, MuFilterPoint)")
+        df_truth = safe_def(df_truth, "mu1_ds_std_theta_yz_mrad", "TruthExt::ds_pt_std_theta_yz_mrad(mu1_track_id, MuFilterPoint)")
+
+        df_truth = safe_def(df_truth, "sec_mu_ds_avg_theta_xz_mrad", "(sec_mu_track_id >= 0) ? TruthExt::ds_pt_avg_theta_xz_mrad(sec_mu_track_id, MuFilterPoint) : -9999.0")
+        df_truth = safe_def(df_truth, "sec_mu_ds_std_theta_xz_mrad", "(sec_mu_track_id >= 0) ? TruthExt::ds_pt_std_theta_xz_mrad(sec_mu_track_id, MuFilterPoint) : -9999.0")
+        df_truth = safe_def(df_truth, "sec_mu_ds_avg_theta_yz_mrad", "(sec_mu_track_id >= 0) ? TruthExt::ds_pt_avg_theta_yz_mrad(sec_mu_track_id, MuFilterPoint) : -9999.0")
+        df_truth = safe_def(df_truth, "sec_mu_ds_std_theta_yz_mrad", "(sec_mu_track_id >= 0) ? TruthExt::ds_pt_std_theta_yz_mrad(sec_mu_track_id, MuFilterPoint) : -9999.0")
+
+        # Opening angles between the two muons from DS MCPoints
+        df_truth = safe_def(df_truth, "ds_opening_angle_xz_mrad", """
+            (mu1_ds_avg_theta_xz_mrad > -9000.0 && sec_mu_ds_avg_theta_xz_mrad > -9000.0)
+            ? std::abs(mu1_ds_avg_theta_xz_mrad - sec_mu_ds_avg_theta_xz_mrad) : -9999.0
+        """)
+        df_truth = safe_def(df_truth, "ds_opening_angle_yz_mrad", """
+            (mu1_ds_avg_theta_yz_mrad > -9000.0 && sec_mu_ds_avg_theta_yz_mrad > -9000.0)
+            ? std::abs(mu1_ds_avg_theta_yz_mrad - sec_mu_ds_avg_theta_yz_mrad) : -9999.0
+        """)
+        df_truth = safe_def(df_truth, "ds_opening_angle_total_mrad", """
+            TruthExt::ds_opening_angle_3d_mrad(mu1_ds_avg_theta_xz_mrad, mu1_ds_avg_theta_yz_mrad, sec_mu_ds_avg_theta_xz_mrad, sec_mu_ds_avg_theta_yz_mrad)
+        """)
+
+        # Combined standard deviations of the two muons
+        df_truth = safe_def(df_truth, "ds_opening_angle_xz_sum_std_mrad", """
+            (mu1_ds_std_theta_xz_mrad >= 0.0 && sec_mu_ds_std_theta_xz_mrad >= 0.0)
+            ? (mu1_ds_std_theta_xz_mrad + sec_mu_ds_std_theta_xz_mrad) : -9999.0
+        """)
+        df_truth = safe_def(df_truth, "ds_opening_angle_yz_sum_std_mrad", """
+            (mu1_ds_std_theta_yz_mrad >= 0.0 && sec_mu_ds_std_theta_yz_mrad >= 0.0)
+            ? (mu1_ds_std_theta_yz_mrad + sec_mu_ds_std_theta_yz_mrad) : -9999.0
+        """)
+        df_truth = safe_def(df_truth, "ds_opening_angle_total_sum_std_mrad", """
+            (ds_opening_angle_xz_sum_std_mrad >= 0.0 && ds_opening_angle_yz_sum_std_mrad >= 0.0)
+            ? (ds_opening_angle_xz_sum_std_mrad + ds_opening_angle_yz_sum_std_mrad) : -9999.0
+        """)
+
+        # Opening angles with standard deviations added
+        df_truth = safe_def(df_truth, "ds_opening_angle_xz_plus_std_mrad", """
+            (ds_opening_angle_xz_mrad >= 0.0 && ds_opening_angle_xz_sum_std_mrad >= 0.0)
+            ? (ds_opening_angle_xz_mrad + ds_opening_angle_xz_sum_std_mrad) : -9999.0
+        """)
+        df_truth = safe_def(df_truth, "ds_opening_angle_yz_plus_std_mrad", """
+            (ds_opening_angle_yz_mrad >= 0.0 && ds_opening_angle_yz_sum_std_mrad >= 0.0)
+            ? (ds_opening_angle_yz_mrad + ds_opening_angle_yz_sum_std_mrad) : -9999.0
+        """)
+        df_truth = safe_def(df_truth, "ds_opening_angle_total_plus_sum_std_mrad", """
+            (ds_opening_angle_total_mrad >= 0.0 && ds_opening_angle_total_sum_std_mrad >= 0.0)
+            ? (ds_opening_angle_total_mrad + ds_opening_angle_total_sum_std_mrad) : -9999.0
+        """)
+
+        # Linear least-squares fits of MCPoints in XZ and YZ
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_mu1_theta_xz_mrad", "TruthExt::get_mcpoints_fit_angle_mrad(mu1_track_id, MuFilterPoint, true)")
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_mu1_theta_yz_mrad", "TruthExt::get_mcpoints_fit_angle_mrad(mu1_track_id, MuFilterPoint, false)")
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_sec_mu_theta_xz_mrad", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_fit_angle_mrad(sec_mu_track_id, MuFilterPoint, true) : -9999.0")
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_sec_mu_theta_yz_mrad", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_fit_angle_mrad(sec_mu_track_id, MuFilterPoint, false) : -9999.0")
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_opening_angle_xz_mrad", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_fit_opening_angle_mrad(mu1_track_id, sec_mu_track_id, MuFilterPoint, true) : -9999.0")
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_opening_angle_yz_mrad", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_fit_opening_angle_mrad(mu1_track_id, sec_mu_track_id, MuFilterPoint, false) : -9999.0")
+
+        # Crossing point z and difference with true vertex z (z_vtx - z_cross)
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_delta_z_cross_xz", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_delta_z_cross(vtx_z, mu1_track_id, sec_mu_track_id, MuFilterPoint, true) : -9999.0")
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_delta_z_cross_yz", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_delta_z_cross(vtx_z, mu1_track_id, sec_mu_track_id, MuFilterPoint, false) : -9999.0")
+
+        # Third DS Plane (plane == 2) positions and distances
+        df_truth = safe_def(df_truth, "ds3_mcpoint_dx", "(sec_mu_track_id >= 0) ? TruthExt::get_ds_plane_dx(mu1_track_id, sec_mu_track_id, MuFilterPoint, 2) : -9999.0")
+        df_truth = safe_def(df_truth, "ds3_mcpoint_dy", "(sec_mu_track_id >= 0) ? TruthExt::get_ds_plane_dy(mu1_track_id, sec_mu_track_id, MuFilterPoint, 2) : -9999.0")
+        df_truth = safe_def(df_truth, "has_both_muons_in_ds3", "(ds3_mcpoint_dx > -9000.0 && ds3_mcpoint_dy > -9000.0) ? 1 : 0")
+    else:
+        for c in [
+            "mu1_ds_avg_theta_xz_mrad", "mu1_ds_std_theta_xz_mrad",
+            "mu1_ds_avg_theta_yz_mrad", "mu1_ds_std_theta_yz_mrad",
+            "sec_mu_ds_avg_theta_xz_mrad", "sec_mu_ds_std_theta_xz_mrad",
+            "sec_mu_ds_avg_theta_yz_mrad", "sec_mu_ds_std_theta_yz_mrad",
+            "ds_opening_angle_xz_mrad", "ds_opening_angle_yz_mrad", "ds_opening_angle_total_mrad",
+            "ds_opening_angle_xz_sum_std_mrad", "ds_opening_angle_yz_sum_std_mrad", "ds_opening_angle_total_sum_std_mrad",
+            "ds_opening_angle_xz_plus_std_mrad", "ds_opening_angle_yz_plus_std_mrad", "ds_opening_angle_total_plus_sum_std_mrad",
+            "ds_mcpoint_fit_mu1_theta_xz_mrad", "ds_mcpoint_fit_mu1_theta_yz_mrad",
+            "ds_mcpoint_fit_sec_mu_theta_xz_mrad", "ds_mcpoint_fit_sec_mu_theta_yz_mrad",
+            "ds_mcpoint_fit_opening_angle_xz_mrad", "ds_mcpoint_fit_opening_angle_yz_mrad",
+            "ds_mcpoint_fit_delta_z_cross_xz", "ds_mcpoint_fit_delta_z_cross_yz",
+            "ds3_mcpoint_dx", "ds3_mcpoint_dy", "has_both_muons_in_ds3",
+        ]:
+            df_truth = safe_def(df_truth, c, "-9999.0")
+
     # Spatial separations at detector planes (SciFi start ~300cm, SciFi exit ~390cm, DS entrance ~470cm)
     df_truth = safe_def(df_truth, "dimuon_sep_x_scifi_entrance", "std::abs(mu1_slope_xz - sec_mu_slope_xz) * std::max(0.0, 300.0 - vtx_z)")
     df_truth = safe_def(df_truth, "dimuon_sep_y_scifi_entrance", "std::abs(mu1_slope_yz - sec_mu_slope_yz) * std::max(0.0, 300.0 - vtx_z)")
@@ -1337,6 +1657,13 @@ def main():
     df_indirect_2ds_in_acc = df_indirect_2ds.Filter("dimuon_in_ds_acceptance", "Indirect with >=2 DS Tracks In DS Acc")
     df_non_charm_2ds_in_acc = df_non_charm_2ds.Filter("dimuon_in_ds_acceptance", "Non-Charm with >=2 DS Tracks In DS Acc")
     df_signal_like_2ds_in_acc = df_signal_like_2ds.Filter("dimuon_in_ds_acceptance", "All Signal-Like with >=2 DS Tracks In DS Acc")
+
+    # Both muons having corresponding MCPoint in the 3rd DS plane (plane == 2)
+    df_in_acc_ds3 = df_in_acc.Filter("has_both_muons_in_ds3 == 1", "Inclusive Signal Both Muons in DS3")
+    df_direct_in_acc_ds3 = df_direct_in_acc.Filter("has_both_muons_in_ds3 == 1", "Direct Signal Both Muons in DS3")
+    df_indirect_in_acc_ds3 = df_indirect_in_acc.Filter("has_both_muons_in_ds3 == 1", "Indirect Signal Both Muons in DS3")
+    df_non_charm_in_acc_ds3 = df_non_charm_in_acc.Filter("has_both_muons_in_ds3 == 1", "Non-Charm Both Muons in DS3")
+    df_signal_like_in_acc_ds3 = df_signal_like_in_acc.Filter("has_both_muons_in_ds3 == 1", "All Signal-Like Both Muons in DS3")
 
     # Register filter nodes for booking
     filter_nodes = {
@@ -1798,6 +2125,61 @@ def main():
         book_2d(f"h2_{pref}_opening_angle_yz_vs_xz", f"Opening Angle YZ vs XZ ({lbl});#Delta#theta_{{XZ}} [mrad];#Delta#theta_{{YZ}} [mrad]", "dimuon_opening_angle_xz_mrad", "dimuon_opening_angle_yz_mrad", node, 50, 0.0, 300.0, 50, 0.0, 300.0)
         book_2d(f"h2_{pref}_sep_ds_entrance_y_vs_x", f"Dimuon Separation at DS Entrance ({lbl});#Delta x [cm];#Delta y [cm]", "dimuon_sep_x_ds_entrance", "dimuon_sep_y_ds_entrance", node, 50, 0.0, 60.0, 50, 0.0, 60.0)
 
+        # ----------------------------------------------------------------------
+        # DS MCPoint Angle Distributions and Uncertainties (MuFilterPoint)
+        # ----------------------------------------------------------------------
+        # 1D: Primary Muon DS MCPoint Angles and Stdev
+        book_1d(f"h_{pref}_ds_mcpoint_mu1_theta_xz_mrad", f"Primary #mu_{{1}} DS MCPoint Mean #theta_{{XZ}} ({lbl});#bar{{#theta}}_{{XZ}}(#mu_{{1}}) [mrad];Events", "mu1_ds_avg_theta_xz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_ds_mcpoint_mu1_std_xz_mrad", f"Primary #mu_{{1}} DS MCPoint #sigma(#theta_{{XZ}}) ({lbl});#sigma(#theta_{{XZ}})(#mu_{{1}}) [mrad];Events", "mu1_ds_std_theta_xz_mrad", node, 50, 0.0, 50.0)
+        book_1d(f"h_{pref}_ds_mcpoint_mu1_theta_yz_mrad", f"Primary #mu_{{1}} DS MCPoint Mean #theta_{{YZ}} ({lbl});#bar{{#theta}}_{{YZ}}(#mu_{{1}}) [mrad];Events", "mu1_ds_avg_theta_yz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_ds_mcpoint_mu1_std_yz_mrad", f"Primary #mu_{{1}} DS MCPoint #sigma(#theta_{{YZ}}) ({lbl});#sigma(#theta_{{YZ}})(#mu_{{1}}) [mrad];Events", "mu1_ds_std_theta_yz_mrad", node, 50, 0.0, 50.0)
+
+        # 1D: Secondary Muon DS MCPoint Angles and Stdev
+        book_1d(f"h_{pref}_ds_mcpoint_sec_mu_theta_xz_mrad", f"Secondary #mu_{{2}} DS MCPoint Mean #theta_{{XZ}} ({lbl});#bar{{#theta}}_{{XZ}}(#mu_{{2}}) [mrad];Events", "sec_mu_ds_avg_theta_xz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_ds_mcpoint_sec_mu_std_xz_mrad", f"Secondary #mu_{{2}} DS MCPoint #sigma(#theta_{{XZ}}) ({lbl});#sigma(#theta_{{XZ}})(#mu_{{2}}) [mrad];Events", "sec_mu_ds_std_theta_xz_mrad", node, 50, 0.0, 50.0)
+        book_1d(f"h_{pref}_ds_mcpoint_sec_mu_theta_yz_mrad", f"Secondary #mu_{{2}} DS MCPoint Mean #theta_{{YZ}} ({lbl});#bar{{#theta}}_{{YZ}}(#mu_{{2}}) [mrad];Events", "sec_mu_ds_avg_theta_yz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_ds_mcpoint_sec_mu_std_yz_mrad", f"Secondary #mu_{{2}} DS MCPoint #sigma(#theta_{{YZ}}) ({lbl});#sigma(#theta_{{YZ}})(#mu_{{2}}) [mrad];Events", "sec_mu_ds_std_theta_yz_mrad", node, 50, 0.0, 50.0)
+
+        # 2D: Angles vs Stdev (Angle on X, Uncertainty on Y)
+        book_2d(f"h2_{pref}_ds_mcpoint_mu1_std_vs_theta_xz", f"Primary #mu_{{1}} DS MCPoint #sigma(#theta_{{XZ}}) vs #bar{{#theta}}_{{XZ}} ({lbl});#bar{{#theta}}_{{XZ}}(#mu_{{1}}) [mrad];#sigma(#theta_{{XZ}})(#mu_{{1}}) [mrad]", "mu1_ds_avg_theta_xz_mrad", "mu1_ds_std_theta_xz_mrad", node, 50, -300.0, 300.0, 50, 0.0, 50.0)
+        book_2d(f"h2_{pref}_ds_mcpoint_mu1_std_vs_theta_yz", f"Primary #mu_{{1}} DS MCPoint #sigma(#theta_{{YZ}}) vs #bar{{#theta}}_{{YZ}} ({lbl});#bar{{#theta}}_{{YZ}}(#mu_{{1}}) [mrad];#sigma(#theta_{{YZ}})(#mu_{{1}}) [mrad]", "mu1_ds_avg_theta_yz_mrad", "mu1_ds_std_theta_yz_mrad", node, 50, -300.0, 300.0, 50, 0.0, 50.0)
+        book_2d(f"h2_{pref}_ds_mcpoint_sec_mu_std_vs_theta_xz", f"Secondary #mu_{{2}} DS MCPoint #sigma(#theta_{{XZ}}) vs #bar{{#theta}}_{{XZ}} ({lbl});#bar{{#theta}}_{{XZ}}(#mu_{{2}}) [mrad];#sigma(#theta_{{XZ}})(#mu_{{2}}) [mrad]", "sec_mu_ds_avg_theta_xz_mrad", "sec_mu_ds_std_theta_xz_mrad", node, 50, -300.0, 300.0, 50, 0.0, 50.0)
+        book_2d(f"h2_{pref}_ds_mcpoint_sec_mu_std_vs_theta_yz", f"Secondary #mu_{{2}} DS MCPoint #sigma(#theta_{{YZ}}) vs #bar{{#theta}}_{{YZ}} ({lbl});#bar{{#theta}}_{{YZ}}(#mu_{{2}}) [mrad];#sigma(#theta_{{YZ}})(#mu_{{2}}) [mrad]", "sec_mu_ds_avg_theta_yz_mrad", "sec_mu_ds_std_theta_yz_mrad", node, 50, -300.0, 300.0, 50, 0.0, 50.0)
+
+        # ----------------------------------------------------------------------
+        # DS MCPoint Opening Angles Between Muons (Without Stdev, With Stdev, and 2D)
+        # ----------------------------------------------------------------------
+        # 1D: Opening Angles (stdev not added)
+        book_1d(f"h_{pref}_ds_mcpoint_opening_angle_xz_mrad", f"DS MCPoint Dimuon Opening Angle in XZ ({lbl});#Delta#theta_{{XZ}} [mrad];Events", "ds_opening_angle_xz_mrad", node, 60, 0.0, 300.0)
+        book_1d(f"h_{pref}_ds_mcpoint_opening_angle_yz_mrad", f"DS MCPoint Dimuon Opening Angle in YZ ({lbl});#Delta#theta_{{YZ}} [mrad];Events", "ds_opening_angle_yz_mrad", node, 60, 0.0, 300.0)
+        book_1d(f"h_{pref}_ds_mcpoint_opening_angle_total_mrad", f"DS MCPoint Dimuon Total Opening Angle ({lbl});#theta_{{open}} [mrad];Events", "ds_opening_angle_total_mrad", node, 60, 0.0, 300.0)
+
+        # 1D: Opening Angles (stdev added)
+        book_1d(f"h_{pref}_ds_mcpoint_opening_angle_xz_plus_std_mrad", f"DS MCPoint Dimuon Opening Angle XZ + #sigma_{{XZ}} ({lbl});#Delta#theta_{{XZ}} + #sigma_{{XZ}} [mrad];Events", "ds_opening_angle_xz_plus_std_mrad", node, 60, 0.0, 350.0)
+        book_1d(f"h_{pref}_ds_mcpoint_opening_angle_yz_plus_std_mrad", f"DS MCPoint Dimuon Opening Angle YZ + #sigma_{{YZ}} ({lbl});#Delta#theta_{{YZ}} + #sigma_{{YZ}} [mrad];Events", "ds_opening_angle_yz_plus_std_mrad", node, 60, 0.0, 350.0)
+        book_1d(f"h_{pref}_ds_mcpoint_opening_angle_total_plus_sum_std_mrad", f"DS MCPoint Dimuon Total Opening Angle + #Sigma#sigma ({lbl});#theta_{{open}} + #sigma_{{XZ}} + #sigma_{{YZ}} [mrad];Events", "ds_opening_angle_total_plus_sum_std_mrad", node, 60, 0.0, 350.0)
+
+        # 2D: Opening Angle on X, Sum Stdev on Y
+        book_2d(f"h2_{pref}_ds_mcpoint_std_vs_opening_angle_xz", f"DS MCPoint #sigma_{{XZ}} vs Opening Angle XZ ({lbl});#Delta#theta_{{XZ}} [mrad];#sigma_{{XZ}} [mrad]", "ds_opening_angle_xz_mrad", "ds_opening_angle_xz_sum_std_mrad", node, 50, 0.0, 300.0, 50, 0.0, 80.0)
+        book_2d(f"h2_{pref}_ds_mcpoint_std_vs_opening_angle_yz", f"DS MCPoint #sigma_{{YZ}} vs Opening Angle YZ ({lbl});#Delta#theta_{{YZ}} [mrad];#sigma_{{YZ}} [mrad]", "ds_opening_angle_yz_mrad", "ds_opening_angle_yz_sum_std_mrad", node, 50, 0.0, 300.0, 50, 0.0, 80.0)
+        book_2d(f"h2_{pref}_ds_mcpoint_sum_std_vs_opening_angle_total", f"DS MCPoint (#sigma_{{XZ}} + #sigma_{{YZ}}) vs Total Opening Angle ({lbl});#theta_{{open}} [mrad];(#sigma_{{XZ}} + #sigma_{{YZ}}) [mrad]", "ds_opening_angle_total_mrad", "ds_opening_angle_total_sum_std_mrad", node, 50, 0.0, 300.0, 50, 0.0, 100.0)
+
+        # ----------------------------------------------------------------------
+        # Linear Least-Squares Fits of DS MCPoints & Extrapolated Crossing Residuals
+        # ----------------------------------------------------------------------
+        # Fitted Angles
+        book_1d(f"h_{pref}_ds_mcpoint_fit_mu1_theta_xz_mrad", f"Primary #mu_{{1}} DS MCPoint Fit #theta_{{XZ}} ({lbl});#theta_{{XZ}}^{{fit}}(#mu_{{1}}) [mrad];Events", "ds_mcpoint_fit_mu1_theta_xz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_ds_mcpoint_fit_mu1_theta_yz_mrad", f"Primary #mu_{{1}} DS MCPoint Fit #theta_{{YZ}} ({lbl});#theta_{{YZ}}^{{fit}}(#mu_{{1}}) [mrad];Events", "ds_mcpoint_fit_mu1_theta_yz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_ds_mcpoint_fit_sec_mu_theta_xz_mrad", f"Secondary #mu_{{2}} DS MCPoint Fit #theta_{{XZ}} ({lbl});#theta_{{XZ}}^{{fit}}(#mu_{{2}}) [mrad];Events", "ds_mcpoint_fit_sec_mu_theta_xz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_ds_mcpoint_fit_sec_mu_theta_yz_mrad", f"Secondary #mu_{{2}} DS MCPoint Fit #theta_{{YZ}} ({lbl});#theta_{{YZ}}^{{fit}}(#mu_{{2}}) [mrad];Events", "ds_mcpoint_fit_sec_mu_theta_yz_mrad", node, 60, -300.0, 300.0)
+        book_1d(f"h_{pref}_ds_mcpoint_fit_opening_angle_xz_mrad", f"DS MCPoint Fit Dimuon Opening Angle XZ ({lbl});#Delta#theta_{{XZ}}^{{fit}} [mrad];Events", "ds_mcpoint_fit_opening_angle_xz_mrad", node, 60, 0.0, 300.0)
+        book_1d(f"h_{pref}_ds_mcpoint_fit_opening_angle_yz_mrad", f"DS MCPoint Fit Dimuon Opening Angle YZ ({lbl});#Delta#theta_{{YZ}}^{{fit}} [mrad];Events", "ds_mcpoint_fit_opening_angle_yz_mrad", node, 60, 0.0, 300.0)
+
+        # Difference between true vertex z and crossing point z: z_vtx - z_cross
+        book_1d(f"h_{pref}_ds_mcpoint_fit_delta_z_cross_xz", f"DS MCPoint Crossing z Residual in XZ ({lbl});z_{{vtx}} - z_{{cross}}^{{XZ}} [cm];Events", "ds_mcpoint_fit_delta_z_cross_xz", node, 80, -200.0, 200.0)
+        book_1d(f"h_{pref}_ds_mcpoint_fit_delta_z_cross_yz", f"DS MCPoint Crossing z Residual in YZ ({lbl});z_{{vtx}} - z_{{cross}}^{{YZ}} [cm];Events", "ds_mcpoint_fit_delta_z_cross_yz", node, 80, -200.0, 200.0)
+        book_2d(f"h2_{pref}_ds_mcpoint_fit_delta_z_cross_yz_vs_xz", f"DS MCPoint Crossing z Residual YZ vs XZ ({lbl});z_{{vtx}} - z_{{cross}}^{{XZ}} [cm];z_{{vtx}} - z_{{cross}}^{{YZ}} [cm]", "ds_mcpoint_fit_delta_z_cross_xz", "ds_mcpoint_fit_delta_z_cross_yz", node, 60, -200.0, 200.0, 60, -200.0, 200.0)
+
     # --------------------------------------------------------------------------
     # 8b-4b. Stage 4: Reconstructed Track Angles (for 2 DS Track Events In DS Acc)
     # --------------------------------------------------------------------------
@@ -1859,6 +2241,21 @@ def main():
         book_1d(f"h_{pref}_2ds_abs_delta_z_cross", f"Absolute Crossing z Difference |XZ - YZ| ({lbl});|#Delta z_{{cross}}| [cm];Events", "reco_ds_abs_delta_z_cross", node_cross_both, 60, 0.0, 150.0)
         book_2d(f"h2_{pref}_2ds_cross_z_yz_vs_xz", f"DS Crossing z_{{YZ}} vs z_{{XZ}} ({lbl});z_{{cross, XZ}} [cm];z_{{cross, YZ}} [cm]", "reco_ds_cross_z_xz", "reco_ds_cross_z_yz", node_cross_both, 60, 150.0, 450.0, 60, 150.0, 450.0)
         book_2d(f"h2_{pref}_2ds_cross_y_vs_x", f"DS Crossing y vs x ({lbl});x_{{cross}} [cm];y_{{cross}} [cm]", "reco_ds_cross_x", "reco_ds_cross_y", node_cross_both, 50, -60.0, 0.0, 50, 5.0, 65.0)
+
+    # --------------------------------------------------------------------------
+    # 8b-4c. Third DS Plane (DS3, Station 3) Dimuon Distances
+    # --------------------------------------------------------------------------
+    ds3_samples = [
+        ("signal_in_acc", df_in_acc_ds3, "Inclusive Signal in DS Acc (Both in DS3)"),
+        ("direct_in_acc", df_direct_in_acc_ds3, "Direct Signal in DS Acc (Both in DS3)"),
+        ("indirect_in_acc", df_indirect_in_acc_ds3, "Indirect Fake in DS Acc (Both in DS3)"),
+        ("non_charm_in_acc", df_non_charm_in_acc_ds3, "Non-Charm in DS Acc (Both in DS3)"),
+        ("signal_like_in_acc", df_signal_like_in_acc_ds3, "All Signal-Like in DS Acc (Both in DS3)"),
+    ]
+    for pref, node, lbl in ds3_samples:
+        book_1d(f"h_{pref}_ds3_mcpoint_dx", f"Dimuon Distance #Delta x at 3rd DS Plane ({lbl});X_{{#mu1}} - X_{{#mu2}} [cm];Events", "ds3_mcpoint_dx", node, 60, -60.0, 60.0)
+        book_1d(f"h_{pref}_ds3_mcpoint_dy", f"Dimuon Distance #Delta y at 3rd DS Plane ({lbl});Y_{{#mu1}} - Y_{{#mu2}} [cm];Events", "ds3_mcpoint_dy", node, 60, -60.0, 60.0)
+        book_2d(f"h2_{pref}_ds3_mcpoint_dy_vs_dx", f"Dimuon #Delta y vs #Delta x at 3rd DS Plane ({lbl});X_{{#mu1}} - X_{{#mu2}} [cm];Y_{{#mu1}} - Y_{{#mu2}} [cm]", "ds3_mcpoint_dx", "ds3_mcpoint_dy", node, 50, -60.0, 60.0, 50, -60.0, 60.0)
 
     # --------------------------------------------------------------------------
     # 8c. TProfiles: Kinematic Means & Acceptance Probability Profiles
@@ -2408,7 +2805,7 @@ def main():
 
         # Helper to separate projected and reco variables from pure 3D folders
         def is_proj_or_reco(n):
-            return any(x in n for x in ["_slope_", "_theta_xz", "_theta_yz", "_opening_angle_xz", "_opening_angle_yz", "_sep_", "_reco_", "_2ds_", "has_two_ds"])
+            return any(x in n for x in ["_slope_", "_theta_xz", "_theta_yz", "_opening_angle_xz", "_opening_angle_yz", "_sep_", "_reco_", "_2ds_", "has_two_ds", "_ds_mcpoint_", "_ds3_mcpoint_"])
 
         # 2. truth_3d
         d_truth3d = out_file.mkdir("truth_3d")
@@ -2534,6 +2931,39 @@ def main():
                 h_res.GetValue().Write()
         for name, h2_res in booked_histograms_2d.items():
             if any(x in name for x in ["_reco_sec_mu_theta_", "_reco_opening_angle_"]):
+                h2_res.GetValue().Write()
+
+        # 4b. ds_mcpoints_angles (MuFilterPoint Angle Statistics, Linear Fits & 3rd Plane Distances)
+        d_ds_mc = out_file.mkdir("ds_mcpoints_angles")
+        d_ds_mc_angles = d_ds_mc.mkdir("individual_muon_angles")
+        d_ds_mc_open = d_ds_mc.mkdir("opening_angles")
+        d_ds_mc_fits = d_ds_mc.mkdir("linear_fits_and_crossing")
+        d_ds_mc_ds3 = d_ds_mc.mkdir("third_ds_plane_distances")
+        d_ds_mc_2d = d_ds_mc.mkdir("correlations_2d")
+
+        d_ds_mc_angles.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if ("_ds_mcpoint_mu1_" in name or "_ds_mcpoint_sec_mu_" in name) and not ("_fit_" in name):
+                h_res.GetValue().Write()
+
+        d_ds_mc_open.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if "_ds_mcpoint_opening_angle_" in name and not ("_fit_" in name):
+                h_res.GetValue().Write()
+
+        d_ds_mc_fits.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if "_ds_mcpoint_fit_" in name:
+                h_res.GetValue().Write()
+
+        d_ds_mc_ds3.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if "_ds3_mcpoint_" in name:
+                h_res.GetValue().Write()
+
+        d_ds_mc_2d.cd()
+        for name, h2_res in booked_histograms_2d.items():
+            if "_ds_mcpoint_" in name or "_ds3_mcpoint_" in name:
                 h2_res.GetValue().Write()
 
         # 5. efficiencies_clopper_pearson

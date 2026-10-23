@@ -302,7 +302,7 @@ def compute_hough_accumulator_arrays(
 def create_hough_plot_canvas(
     event_idx: int,
     event_number: int,
-    run_number: int,
+    run_number: Any,
     tree: Any,
     bar_geo: Dict[int, Any],
     params: Dict[str, Any],
@@ -310,10 +310,13 @@ def create_hough_plot_canvas(
     canvas_title: str,
     show_reco_tracks: bool = True,
     use_smoothed_for_canvas: bool = True,
-) -> Tuple[ROOT.TCanvas, ROOT.TH2D, ROOT.TH2D]:
+    enable_pairwise: bool = False,
+    max_opening_angle: float = 0.120,
+    min_opening_angle: float = 0.002,
+) -> Tuple[ROOT.TCanvas, ROOT.TH2D, ROOT.TH2D, Dict[str, Any]]:
     """
     Builds the interactive TCanvas displaying the binned 2D Hough space for XZ and YZ
-    with fiducial and angular overlays, returning (canvas, h_xz, h_yz).
+    with fiducial and angular overlays, returning (canvas, h_xz, h_yz, pairwise_objects).
     """
     z_offset = params["z_offset"]
     has_crossing_plane = params.get("has_crossing_plane", False)
@@ -597,7 +600,326 @@ def create_hough_plot_canvas(
     for obj in [h_xz, h_yz] + decorations:
         ROOT.SetOwnership(obj, False)
 
-    return canvas, h_xz, h_yz
+    pairwise_objects = {}
+    if enable_pairwise:
+        pairwise_objects = compute_dimuon_pairwise_objects(
+            run_label=run_number,
+            event_number=event_number,
+            disp_xz=disp_xz,
+            disp_yz=disp_yz,
+            params=params,
+            reco_tracks=reco_tracks,
+            h_xz=h_xz,
+            h_yz=h_yz,
+            max_opening_angle=max_opening_angle,
+            min_opening_angle=min_opening_angle,
+        )
+
+    return canvas, h_xz, h_yz, pairwise_objects
+
+
+# ---------------------------------------------------------------------------
+# 4b. Pairwise Dimuon Analysis & 3D Parameter Volume Generator
+# ---------------------------------------------------------------------------
+
+def compute_dimuon_pairwise_objects(
+    run_label: Any,
+    event_number: int,
+    disp_xz: np.ndarray,
+    disp_yz: np.ndarray,
+    params: Dict[str, Any],
+    reco_tracks: List[Dict[str, float]],
+    h_xz: ROOT.TH2D,
+    h_yz: ROOT.TH2D,
+    max_opening_angle: float = 0.120,
+    min_opening_angle: float = 0.002,
+) -> Dict[str, Any]:
+    """
+    Builds the pairwise dimuon representations:
+      1. 2D Correlation Heatmaps (m1 vs m2) for XZ and YZ with opening angle corridor.
+      2. 3D Parameter Volumes (TH3D) over (m_mean, delta_m, vtx_tgt).
+      3. 4-Panel Multi-Canvas (Single Hough + Pairwise Correlation).
+      4. 2-Panel 3D Volume Canvas.
+    """
+    z_offset = params["z_offset"]
+    z_target = params.get("z_plane") or params.get("z_sf5") or params.get("z_target") or 352.0
+    dz_target = z_target - z_offset
+    angle_cut = params.get("angle_cut", 0.175)
+    tgt_xz = params.get("target_window_xz", (-50.0, -3.0))
+    tgt_yz = params.get("target_window_yz", (5.0, 60.0))
+    xH_range_xz = params["xH_range_xz"]
+    yH_range_xz = params["yH_range_xz"]
+    xH_range_yz = params["xH_range_yz"]
+    yH_range_yz = params["yH_range_yz"]
+
+    def compute_corr_heatmap(disp, xH_range, yH_range, tgt_window):
+        n_m = 60
+        m_max = angle_cut * 1.25
+        m_bins = np.linspace(-m_max, m_max, n_m)
+        K = 30
+        x_tgt = np.linspace(tgt_window[0], tgt_window[1], K)
+
+        M_grid, X_grid = np.meshgrid(m_bins, x_tgt, indexing="ij")
+        B_grid = X_grid - M_grid * dz_target
+
+        col = (M_grid - xH_range[0]) / (xH_range[1] - xH_range[0]) * disp.shape[1]
+        row = (B_grid - yH_range[0]) / (yH_range[1] - yH_range[0]) * disp.shape[0]
+
+        V = scipy.ndimage.map_coordinates(disp, [row, col], order=1, mode="constant", cval=0.0)
+        V[V < 0.2] = 0.0
+
+        valid = (V[:, None, :] > 0) & (V[None, :, :] > 0)
+        joint_k = np.where(valid, V[:, None, :] + V[None, :, :], 0.0)
+        heatmap = np.max(joint_k, axis=2)
+        D_m = np.abs(m_bins[:, None] - m_bins[None, :])
+        heatmap[D_m < min_opening_angle] = 0.0
+        return heatmap, m_bins, m_max
+
+    def compute_3d_grid(disp, xH_range, yH_range, tgt_window):
+        n_m = 40
+        n_dm = 30
+        n_x = 35
+        m_bins = np.linspace(-angle_cut, angle_cut, n_m)
+        dm_max = min(2.0 * angle_cut, max(max_opening_angle * 1.5, 0.25))
+        dm_bins = np.linspace(min_opening_angle, dm_max, n_dm)
+        x_bins = np.linspace(tgt_window[0] - 5.0, tgt_window[1] + 5.0, n_x)
+
+        M, DM, X = np.meshgrid(m_bins, dm_bins, x_bins, indexing="ij")
+        m1 = M + 0.5 * DM
+        m2 = M - 0.5 * DM
+        b1 = X - m1 * dz_target
+        b2 = X - m2 * dz_target
+
+        col1 = (m1 - xH_range[0]) / (xH_range[1] - xH_range[0]) * disp.shape[1]
+        row1 = (b1 - yH_range[0]) / (yH_range[1] - yH_range[0]) * disp.shape[0]
+        v1 = scipy.ndimage.map_coordinates(disp, [row1, col1], order=1, mode="constant", cval=0.0)
+
+        col2 = (m2 - xH_range[0]) / (xH_range[1] - xH_range[0]) * disp.shape[1]
+        row2 = (b2 - yH_range[0]) / (yH_range[1] - yH_range[0]) * disp.shape[0]
+        v2 = scipy.ndimage.map_coordinates(disp, [row2, col2], order=1, mode="constant", cval=0.0)
+
+        viable = (
+            (np.abs(m1) <= angle_cut)
+            & (np.abs(m2) <= angle_cut)
+            & (DM >= min_opening_angle)
+            & (DM <= max_opening_angle)
+            & (X >= tgt_window[0])
+            & (X <= tgt_window[1])
+        )
+        votes3d = (v1 + v2) * viable * (v1 > 0.5) * (v2 > 0.5)
+        return votes3d, m_bins, dm_bins, x_bins
+
+    # 1. 2D Correlation Heatmaps
+    corr_xz, m_bins_xz, m_max_xz = compute_corr_heatmap(disp_xz, xH_range_xz, yH_range_xz, tgt_xz)
+    corr_yz, m_bins_yz, m_max_yz = compute_corr_heatmap(disp_yz, xH_range_yz, yH_range_yz, tgt_yz)
+
+    h_name_corr_xz = f"h_m1_vs_m2_xz_{run_label}_{event_number}"
+    h_corr_xz = ROOT.TH2D(
+        h_name_corr_xz,
+        f"ZX Dimuon Correlation (m_{{1}} vs m_{{2}}) - {run_label} Ev {event_number};Slope m_{{1}} = dx/dz [rad];Slope m_{{2}} = dx/dz [rad];Joint Pair Votes",
+        len(m_bins_xz), -m_max_xz, m_max_xz, len(m_bins_xz), -m_max_xz, m_max_xz,
+    )
+    h_name_corr_yz = f"h_m1_vs_m2_yz_{run_label}_{event_number}"
+    h_corr_yz = ROOT.TH2D(
+        h_name_corr_yz,
+        f"ZY Dimuon Correlation (m_{{1}} vs m_{{2}}) - {run_label} Ev {event_number};Slope m_{{1}} = dy/dz [rad];Slope m_{{2}} = dy/dz [rad];Joint Pair Votes",
+        len(m_bins_yz), -m_max_yz, m_max_yz, len(m_bins_yz), -m_max_yz, m_max_yz,
+    )
+
+    for h in [h_corr_xz, h_corr_yz]:
+        h.SetDirectory(0)
+        h.SetStats(False)
+
+    for iy in range(len(m_bins_xz)):
+        for ix in range(len(m_bins_xz)):
+            vx = float(corr_xz[ix, iy])
+            if vx > 0:
+                h_corr_xz.SetBinContent(ix + 1, iy + 1, vx)
+            vy = float(corr_yz[ix, iy])
+            if vy > 0:
+                h_corr_yz.SetBinContent(ix + 1, iy + 1, vy)
+
+    # 2. 3D Parameter Volumes
+    v3d_xz, m_3d_x, dm_3d_x, x_3d_x = compute_3d_grid(disp_xz, xH_range_xz, yH_range_xz, tgt_xz)
+    v3d_yz, m_3d_y, dm_3d_y, x_3d_y = compute_3d_grid(disp_yz, xH_range_yz, yH_range_yz, tgt_yz)
+
+    h3_name_xz = f"h_dimuon3d_xz_{run_label}_{event_number}"
+    h3_xz = ROOT.TH3D(
+        h3_name_xz,
+        f"ZX Dimuon 3D Parameter Volume - {run_label} Ev {event_number};Mean Slope #bar{{m}}_{{zx}} [rad];Opening Angle #Delta m_{{zx}} [rad];Target Vertex x_{{tgt}} [cm]",
+        len(m_3d_x), -angle_cut, angle_cut, len(dm_3d_x), dm_3d_x[0], dm_3d_x[-1], len(x_3d_x), x_3d_x[0], x_3d_x[-1],
+    )
+    h3_name_yz = f"h_dimuon3d_yz_{run_label}_{event_number}"
+    h3_yz = ROOT.TH3D(
+        h3_name_yz,
+        f"ZY Dimuon 3D Parameter Volume - {run_label} Ev {event_number};Mean Slope #bar{{m}}_{{zy}} [rad];Opening Angle #Delta m_{{zy}} [rad];Target Vertex y_{{tgt}} [cm]",
+        len(m_3d_y), -angle_cut, angle_cut, len(dm_3d_y), dm_3d_y[0], dm_3d_y[-1], len(x_3d_y), x_3d_y[0], x_3d_y[-1],
+    )
+
+    for h in [h3_xz, h3_yz]:
+        h.SetDirectory(0)
+
+    nz_x = np.argwhere(v3d_xz > 0)
+    for ix, iy, iz in nz_x:
+        h3_xz.SetBinContent(int(ix) + 1, int(iy) + 1, int(iz) + 1, float(v3d_xz[ix, iy, iz]))
+
+    nz_y = np.argwhere(v3d_yz > 0)
+    for ix, iy, iz in nz_y:
+        h3_yz.SetBinContent(int(ix) + 1, int(iy) + 1, int(iz) + 1, float(v3d_yz[ix, iy, iz]))
+
+    # 3. 4-Panel Multi-Canvas (1600 x 1200)
+    c_pairwise_name = f"c_hough_pairwise_{run_label}_{event_number}"
+    c_pairwise = ROOT.TCanvas(c_pairwise_name, f"Dimuon Pairwise Hough Analysis - {run_label} Event {event_number}", 1600, 1200)
+    c_pairwise.Divide(2, 2, 0.005, 0.005)
+
+    decorations = []
+
+    # Pad 1: Single ZX
+    pad1 = c_pairwise.cd(1)
+    pad1.SetLeftMargin(0.12)
+    pad1.SetRightMargin(0.15)
+    pad1.SetBottomMargin(0.12)
+    pad1.SetTopMargin(0.08)
+    h_xz.DrawCopy("COLZ")
+
+    # Pad 2: Single ZY
+    pad2 = c_pairwise.cd(2)
+    pad2.SetLeftMargin(0.12)
+    pad2.SetRightMargin(0.15)
+    pad2.SetBottomMargin(0.12)
+    pad2.SetTopMargin(0.08)
+    h_yz.DrawCopy("COLZ")
+
+    # Pad 3: ZX Correlation (m1 vs m2)
+    pad3 = c_pairwise.cd(3)
+    pad3.SetLeftMargin(0.12)
+    pad3.SetRightMargin(0.15)
+    pad3.SetBottomMargin(0.12)
+    pad3.SetTopMargin(0.08)
+    h_corr_xz.Draw("COLZ")
+
+    # Draw corridor lines for Pad 3
+    l_p3_1 = ROOT.TLine(-m_max_xz, -m_max_xz + max_opening_angle, m_max_xz - max_opening_angle, m_max_xz)
+    l_p3_2 = ROOT.TLine(-m_max_xz + max_opening_angle, -m_max_xz, m_max_xz, m_max_xz - max_opening_angle)
+    for l in [l_p3_1, l_p3_2]:
+        l.SetLineColor(ROOT.kCyan + 2)
+        l.SetLineWidth(2)
+        l.SetLineStyle(2)
+        l.Draw("same")
+        decorations.append(l)
+
+    l_p3_min1 = ROOT.TLine(-m_max_xz, -m_max_xz + min_opening_angle, m_max_xz - min_opening_angle, m_max_xz)
+    l_p3_min2 = ROOT.TLine(-m_max_xz + min_opening_angle, -m_max_xz, m_max_xz, m_max_xz - min_opening_angle)
+    for l in [l_p3_min1, l_p3_min2]:
+        l.SetLineColor(ROOT.kRed + 1)
+        l.SetLineWidth(1)
+        l.SetLineStyle(3)
+        l.Draw("same")
+        decorations.append(l)
+
+    # Reco track pair marker for XZ
+    mkr_pair_x = None
+    if len(reco_tracks) >= 2:
+        tx1, tx2 = reco_tracks[0]["tx"], reco_tracks[1]["tx"]
+        mkr1 = ROOT.TMarker(tx1, tx2, 29)
+        mkr2 = ROOT.TMarker(tx2, tx1, 29)
+        for m in [mkr1, mkr2]:
+            m.SetMarkerColor(ROOT.kYellow)
+            m.SetMarkerSize(2.5)
+            m.Draw("same")
+            decorations.append(m)
+        mkr_pair_x = mkr1
+
+    leg3 = ROOT.TLegend(0.14, 0.76, 0.62, 0.90)
+    leg3.SetBorderSize(1)
+    leg3.SetFillColorAlpha(ROOT.kWhite, 0.85)
+    leg3.SetTextFont(42)
+    leg3.SetTextSize(0.026)
+    leg3.AddEntry(l_p3_1, f"Opening Angle #leq {max_opening_angle*1000:.0f} mrad", "l")
+    if mkr_pair_x:
+        leg3.AddEntry(mkr_pair_x, "Reco Dimuon Pair", "p")
+    leg3.Draw("same")
+    decorations.append(leg3)
+
+    # Pad 4: ZY Correlation (m1 vs m2)
+    pad4 = c_pairwise.cd(4)
+    pad4.SetLeftMargin(0.12)
+    pad4.SetRightMargin(0.15)
+    pad4.SetBottomMargin(0.12)
+    pad4.SetTopMargin(0.08)
+    h_corr_yz.Draw("COLZ")
+
+    l_p4_1 = ROOT.TLine(-m_max_yz, -m_max_yz + max_opening_angle, m_max_yz - max_opening_angle, m_max_yz)
+    l_p4_2 = ROOT.TLine(-m_max_yz + max_opening_angle, -m_max_yz, m_max_yz, m_max_yz - max_opening_angle)
+    for l in [l_p4_1, l_p4_2]:
+        l.SetLineColor(ROOT.kCyan + 2)
+        l.SetLineWidth(2)
+        l.SetLineStyle(2)
+        l.Draw("same")
+        decorations.append(l)
+
+    l_p4_min1 = ROOT.TLine(-m_max_yz, -m_max_yz + min_opening_angle, m_max_yz - min_opening_angle, m_max_yz)
+    l_p4_min2 = ROOT.TLine(-m_max_yz + min_opening_angle, -m_max_yz, m_max_yz, m_max_yz - min_opening_angle)
+    for l in [l_p4_min1, l_p4_min2]:
+        l.SetLineColor(ROOT.kRed + 1)
+        l.SetLineWidth(1)
+        l.SetLineStyle(3)
+        l.Draw("same")
+        decorations.append(l)
+
+    mkr_pair_y = None
+    if len(reco_tracks) >= 2:
+        ty1, ty2 = reco_tracks[0]["ty"], reco_tracks[1]["ty"]
+        mkr1 = ROOT.TMarker(ty1, ty2, 29)
+        mkr2 = ROOT.TMarker(ty2, ty1, 29)
+        for m in [mkr1, mkr2]:
+            m.SetMarkerColor(ROOT.kYellow)
+            m.SetMarkerSize(2.5)
+            m.Draw("same")
+            decorations.append(m)
+        mkr_pair_y = mkr1
+
+    leg4 = ROOT.TLegend(0.14, 0.76, 0.62, 0.90)
+    leg4.SetBorderSize(1)
+    leg4.SetFillColorAlpha(ROOT.kWhite, 0.85)
+    leg4.SetTextFont(42)
+    leg4.SetTextSize(0.026)
+    leg4.AddEntry(l_p4_1, f"Opening Angle #leq {max_opening_angle*1000:.0f} mrad", "l")
+    if mkr_pair_y:
+        leg4.AddEntry(mkr_pair_y, "Reco Dimuon Pair", "p")
+    leg4.Draw("same")
+    decorations.append(leg4)
+
+    # 4. 2-Panel 3D Volume Canvas (1600 x 750)
+    c_3d_name = f"c_dimuon3d_{run_label}_{event_number}"
+    c_3d = ROOT.TCanvas(c_3d_name, f"Dimuon 3D Parameter Volume - {run_label} Event {event_number}", 1600, 750)
+    c_3d.Divide(2, 1, 0.005, 0.005)
+
+    p3d_1 = c_3d.cd(1)
+    p3d_1.SetTheta(25)
+    p3d_1.SetPhi(40)
+    h3_xz.Draw("BOX2")
+
+    p3d_2 = c_3d.cd(2)
+    p3d_2.SetTheta(25)
+    p3d_2.SetPhi(40)
+    h3_yz.Draw("BOX2")
+
+    # Ownership management
+    for c in [c_pairwise, c_3d]:
+        ROOT.gROOT.GetListOfCanvases().Remove(c)
+        ROOT.SetOwnership(c, False)
+    for obj in [h_corr_xz, h_corr_yz, h3_xz, h3_yz] + decorations:
+        ROOT.SetOwnership(obj, False)
+
+    return {
+        c_pairwise_name: c_pairwise,
+        h_name_corr_xz: h_corr_xz,
+        h_name_corr_yz: h_corr_yz,
+        h3_name_xz: h3_xz,
+        h3_name_yz: h3_yz,
+        c_3d_name: c_3d,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -608,7 +930,7 @@ def copy_objects_recursive(src_dir, dest_dir) -> None:
     """Recursively copies all TCanvases and TH2Ds from src_dir to dest_dir."""
     for key in src_dir.GetListOfKeys():
         cls_name = key.GetClassName()
-        if cls_name in ("TCanvas", "TH2D", "TH2F", "TH1D", "TH1F"):
+        if cls_name in ("TCanvas", "TH2D", "TH2F", "TH3D", "TH3F", "TH1D", "TH1F"):
             obj = key.ReadObj()
             if obj and not (hasattr(obj, "IsZombie") and obj.IsZombie()):
                 dest_dir.cd()
@@ -654,6 +976,9 @@ def process_single_file_worker(args_tuple):
         other_name,
         reco_muons,
         use_smoothed,
+        pairwise,
+        max_opening_angle,
+        min_opening_angle,
     ) = args_tuple
 
     import ROOT
@@ -813,7 +1138,7 @@ def process_single_file_worker(args_tuple):
                 canvas_title = f"SND@LHC Hough Space - Run {ev_run_id} Event {event_num}"
 
             # Generate interactive TCanvas and histograms
-            canvas, h_xz, h_yz = create_hough_plot_canvas(
+            canvas, h_xz, h_yz, pairwise_objs = create_hough_plot_canvas(
                 event_idx=iev,
                 event_number=event_num,
                 run_number=run_label,
@@ -824,6 +1149,9 @@ def process_single_file_worker(args_tuple):
                 canvas_title=canvas_title,
                 show_reco_tracks=reco_muons,
                 use_smoothed_for_canvas=use_smoothed,
+                enable_pairwise=pairwise,
+                max_opening_angle=max_opening_angle,
+                min_opening_angle=min_opening_angle,
             )
 
             target_tdir = get_or_create_tdirectory(ftemp, target_parts)
@@ -833,8 +1161,15 @@ def process_single_file_worker(args_tuple):
             h_xz.Write(h_xz.GetName())
             h_yz.Write(h_yz.GetName())
 
+            for p_name, p_obj in pairwise_objs.items():
+                p_obj.Write(p_name)
+
             ROOT.gROOT.GetListOfCanvases().Remove(canvas)
             ROOT.SetOwnership(canvas, False)
+            for p_obj in pairwise_objs.values():
+                if isinstance(p_obj, ROOT.TCanvas):
+                    ROOT.gROOT.GetListOfCanvases().Remove(p_obj)
+                    ROOT.SetOwnership(p_obj, False)
 
             result["saved_displays"] += 1
             if mc_truth and split_acceptance:
@@ -849,6 +1184,10 @@ def process_single_file_worker(args_tuple):
                 os.makedirs(sub_img_dir, exist_ok=True)
                 png_path = os.path.join(sub_img_dir, f"{canvas_name}.png")
                 canvas.Print(png_path)
+                for p_name, p_obj in pairwise_objs.items():
+                    if isinstance(p_obj, ROOT.TCanvas):
+                        png_p = os.path.join(sub_img_dir, f"{p_name}.png")
+                        p_obj.Print(png_p)
 
         ftemp.cd()
         ROOT.gROOT.GetListOfColors().Write("ListOfColors", ROOT.TObject.kSingleKey)
@@ -1019,6 +1358,25 @@ def main():
         default="./hough_images",
         help="Output directory for PNG images when --save-images is enabled",
     )
+    parser.add_argument(
+        "--pairwise", "--dimuon-3d", "--dimuon-pairwise",
+        dest="pairwise",
+        action="store_true",
+        default=False,
+        help="Generate pairwise dimuon 3D parameter volumes (TH3D) and (m1 vs m2) joint correlation heatmaps",
+    )
+    parser.add_argument(
+        "--max-opening-angle",
+        type=float,
+        default=0.120,
+        help="Maximum track opening angle in projection (in rad) for pairwise correlation corridor (default: 0.120)",
+    )
+    parser.add_argument(
+        "--min-opening-angle",
+        type=float,
+        default=0.002,
+        help="Minimum track opening angle in projection (in rad) for pairwise correlation corridor (default: 0.002)",
+    )
 
     args = parser.parse_args()
 
@@ -1061,6 +1419,7 @@ def main():
         print(f" Working Area Window:   Disabled (Not configured for case '{args.case}')")
     print(f" Angular Acceptance:    Shaded |theta| <= {hough_params['angle_cut']} rad (175 mrad)")
     print(f" Reco Muon Tracks:      {'Enabled' if args.reco_muons else 'Disabled'}")
+    print(f" Pairwise Dimuon Rep:   {'Enabled' if args.pairwise else 'Disabled'}" + (f" (Opening angle in [{args.min_opening_angle*1000:.0f}, {args.max_opening_angle*1000:.0f}] mrad)" if args.pairwise else ""))
     print(f" Events Filter:         {args.events if args.events else 'All events'}")
     print(f" Parallel Workers:      {args.jobs}")
     print(f" Save PNG Images:       {args.save_images}" + (f" -> {args.images_dir}" if args.save_images else ""))
@@ -1108,6 +1467,9 @@ def main():
             args.other_dir,
             args.reco_muons,
             use_smoothed,
+            args.pairwise,
+            args.max_opening_angle,
+            args.min_opening_angle,
         ))
 
     total_saved = 0

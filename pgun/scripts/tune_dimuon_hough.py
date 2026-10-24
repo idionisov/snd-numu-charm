@@ -1397,13 +1397,14 @@ def plot_tuning_summary(results: List[Dict[str, Any]], output_plot_path: str = "
 
 
 def export_results_to_csv(results: List[Dict[str, Any]], csv_path: str) -> None:
-    """Export parameter grid results to a flat CSV table with parameters and ending in Score, TPR, FPR."""
+    """Export parameter grid results to a flat CSV table with parameters, base rates, and all four 2x2 scores."""
     import csv
     os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
     rows = []
     for r in results:
         p = r["params"]
         row = {
+            # 1. Hough Configuration Parameters
             "format": p.get("h_format"),
             "max_angle": p.get("max_angle"),
             "max_opening_angle": p.get("max_opening_angle", np.inf),
@@ -1414,15 +1415,17 @@ def export_results_to_csv(results: List[Dict[str, Any]], csv_path: str) -> None:
             "smooth_full": p.get("smooth_full"),
             "sigma": p.get("sigma"),
             "truncate": p.get("truncate"),
-            "tpr_pgun": r.get("tpr_pgun"),
-            "fpr_pmu": r.get("fpr_pmu"),
-            "score_genie_pmu": r.get("score_genie_pmu"),
-            "score_pgun_genie": r.get("score_pgun_genie"),
-            "score_pgun_pmu": r.get("score_pgun_pmu"),
-            "score_mean": r.get("score_mean"),
-            "Score": r.get("score_genie_genie"),
-            "TPR": r.get("tpr_genie"),
-            "FPR": r.get("fpr_genie"),
+            # 2. Base Evaluation Rates (TPR on signals, FPR on backgrounds)
+            "TPR_genie": r.get("tpr_genie"),
+            "TPR_pgun": r.get("tpr_pgun"),
+            "FPR_genie": r.get("fpr_genie"),
+            "FPR_pmu": r.get("fpr_pmu"),
+            # 3. Four 2x2 Evaluation Scores: (1 - FPR) * (TPR)^2
+            "score_genie_genie": r.get("score_genie_genie"),  # Sig: Genie, Bkg: Genie
+            "score_genie_pmu":   r.get("score_genie_pmu"),    # Sig: Genie, Bkg: pmu
+            "score_pgun_genie":  r.get("score_pgun_genie"),   # Sig: PGun,  Bkg: Genie
+            "score_pgun_pmu":    r.get("score_pgun_pmu"),     # Sig: PGun,  Bkg: pmu
+            "score_mean":        r.get("score_mean"),         # Mean of 4 scores
         }
         rows.append(row)
 

@@ -1396,6 +1396,47 @@ def plot_tuning_summary(results: List[Dict[str, Any]], output_plot_path: str = "
     print(f"Saved response heatmaps to {output_plot_path} and {pdf_path}")
 
 
+def export_results_to_csv(results: List[Dict[str, Any]], csv_path: str) -> None:
+    """Export parameter grid results to a flat CSV table with parameters and ending in Score, TPR, FPR."""
+    import csv
+    os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
+    rows = []
+    for r in results:
+        p = r["params"]
+        row = {
+            "format": p.get("h_format"),
+            "max_angle": p.get("max_angle"),
+            "max_opening_angle": p.get("max_opening_angle", np.inf),
+            "binning_factor": p.get("binning_factor"),
+            "n_xH": p.get("n_xH"),
+            "n_yH": p.get("n_yH"),
+            "tolerance": p.get("tolerance"),
+            "smooth_full": p.get("smooth_full"),
+            "sigma": p.get("sigma"),
+            "truncate": p.get("truncate"),
+            "tpr_pgun": r.get("tpr_pgun"),
+            "fpr_pmu": r.get("fpr_pmu"),
+            "score_genie_pmu": r.get("score_genie_pmu"),
+            "score_pgun_genie": r.get("score_pgun_genie"),
+            "score_pgun_pmu": r.get("score_pgun_pmu"),
+            "score_mean": r.get("score_mean"),
+            "Score": r.get("score_genie_genie"),
+            "TPR": r.get("tpr_genie"),
+            "FPR": r.get("fpr_genie"),
+        }
+        rows.append(row)
+
+    if not rows:
+        return
+
+    fieldnames = list(rows[0].keys())
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"Saved tabular evaluation results to {csv_path}")
+
+
 # ---------------------------------------------------------------------------
 # 6. Main Entry Point
 # ---------------------------------------------------------------------------
@@ -1428,6 +1469,7 @@ def main():
     parser.add_argument("-w", "--workers", type=int, default=12, help="Number of parallel worker processes")
     parser.add_argument("--max-events", type=int, default=0, help="Cap number of events per dataset (0 = all cached events)")
     parser.add_argument("--output-pickle", default="pgun/plots/hough_fom_results.pkl", help="Output pickle path for results")
+    parser.add_argument("--output-csv", default=None, help="Output CSV path for results (defaults to replacing .pkl with .csv)")
     args = parser.parse_args()
 
     # Load plane crossing constraints from XML if available
@@ -1540,6 +1582,9 @@ def main():
     with open(args.output_pickle, "wb") as f:
         pickle.dump(results, f)
     print(f"Saved full evaluation results to {args.output_pickle}")
+
+    csv_path = args.output_csv or os.path.splitext(args.output_pickle)[0] + ".csv"
+    export_results_to_csv(results, csv_path)
 
     # Plot response landscapes
     plot_tuning_summary(results)

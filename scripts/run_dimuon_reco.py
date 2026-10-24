@@ -239,6 +239,15 @@ def run_single_partition(
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
+    # If input file has 0 events, skip reconstruction gracefully
+    is_valid_in, in_entries = verify_root_file(input_file)
+    if is_valid_in and in_entries == 0:
+        if not os.path.exists(output_file):
+            shutil.copyfile(input_file, output_file)
+        result["entries"] = 0
+        result["status"] = "SUCCESS"
+        return result
+
     # For safety with network filesystems (EOS) and in-place updates:
     # Always stage reconstruction output through a local temporary directory in /tmp
     tmp_dir = tempfile.mkdtemp(prefix=f"dimuon_reco_p{partition}_", dir="/tmp")

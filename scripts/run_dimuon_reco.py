@@ -277,6 +277,14 @@ def run_single_partition(
     if extra_args:
         cmd.extend(extra_args)
 
+    # Restrict sub-threads per process to prevent OpenMP/BLAS thread exhaustion & futex deadlocks
+    sub_env = os.environ.copy()
+    sub_env["OMP_NUM_THREADS"] = "1"
+    sub_env["OPENBLAS_NUM_THREADS"] = "1"
+    sub_env["MKL_NUM_THREADS"] = "1"
+    sub_env["VECLIB_MAXIMUM_THREADS"] = "1"
+    sub_env["NUMEXPR_NUM_THREADS"] = "1"
+
     start_time = time.time()
     try:
         proc = subprocess.run(
@@ -284,6 +292,8 @@ def run_single_partition(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            env=sub_env,
+            timeout=180,
         )
         elapsed = time.time() - start_time
         result["elapsed_sec"] = elapsed
@@ -344,6 +354,11 @@ def run_single_partition(
             tail = "\n  ".join(lines[-10:]) if lines else "Process terminated without output"
             result["error_message"] = f"Exit code {proc.returncode}; Output invalid.\n  {tail}"
 
+    except subprocess.TimeoutExpired as err:
+        elapsed = time.time() - start_time
+        result["elapsed_sec"] = elapsed
+        result["status"] = "TIMEOUT"
+        result["error_message"] = f"Subprocess timed out after {err.timeout}s on partition {partition}"
     except Exception as err:
         result["elapsed_sec"] = time.time() - start_time
         result["status"] = "EXCEPTION"
@@ -578,6 +593,8 @@ def main():
                     for t in tasks_to_run:
                         if t["geo_file"] == primary_geo:
                             t["geo_file"] = local_geo_cache
+                    import atexit
+                    atexit.register(lambda: os.remove(local_geo_cache) if os.path.isfile(local_geo_cache) else None)
             except Exception:
                 pass
 

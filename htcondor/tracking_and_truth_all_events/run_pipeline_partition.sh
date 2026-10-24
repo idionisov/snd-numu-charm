@@ -158,6 +158,14 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
     fi
     echo " ~ Tracking output verified: ${TRACK_FILE}"
 
+    if [ "${TRACKING_ONLY:-0}" = "1" ]; then
+        echo "======================================================================"
+        echo " ~ [Tracking-Only Mode] Successfully completed tracking for partition ${PARTITION} at $(date)!"
+        echo "   Reconstructed ROOT file: ${TRACK_FILE}"
+        echo "======================================================================"
+        exit 0
+    fi
+
     # 5. Step 2: Run MCTruth Extraction
     echo " ~ [4/7] Step 2/4: Running MCTruth extraction..."
     "${PYTHON_BIN}" "${TRUTH_SCRIPT}" \

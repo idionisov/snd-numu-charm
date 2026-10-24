@@ -39,6 +39,8 @@ from __future__ import annotations
 import os
 import sys
 import time
+import shutil
+import tempfile
 import argparse
 import subprocess
 import threading
@@ -237,12 +239,10 @@ def run_single_partition(
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    # If writing in-place, reconstruct to a temporary file first
-    is_in_place = os.path.abspath(input_file) == os.path.abspath(output_file)
-    actual_output = (
-        output_file + f".tmp_{os.getpid()}_{int(time.time()*1000)}.root"
-        if is_in_place else output_file
-    )
+    # For safety with network filesystems (EOS) and in-place updates:
+    # Always stage reconstruction output through a local temporary directory in /tmp
+    tmp_dir = tempfile.mkdtemp(prefix=f"dimuon_reco_p{partition}_", dir="/tmp")
+    local_output = os.path.join(tmp_dir, os.path.basename(output_file))
 
     cmd = [
         sys.executable,
@@ -250,7 +250,7 @@ def run_single_partition(
         "-t", str(track_type),
         "--nTracks", str(n_tracks),
         "-f", input_file,
-        "-o", actual_output,
+        "-o", local_output,
         "-g", geo_file,
         "-s", str(start_event),
         "-n", str(n_events),
@@ -290,22 +290,23 @@ def run_single_partition(
                 pass
 
         # run_TrackSelections.py calls pyExit() with self-SIGTERM (exit code -15 or 143)
-        # Verify output ROOT file directly
-        is_valid, entries = verify_root_file(actual_output)
+        # Verify local output ROOT file directly
+        is_valid, entries = verify_root_file(local_output)
 
         if is_valid:
             # Preserve any auxiliary trees/objects from input file (e.g. mctruth)
             try:
                 import ROOT
                 ROOT.gROOT.SetBatch(True)
-                f_in = ROOT.TFile.Open(input_file)
+                f_in = ROOT.TFile.Open(input_file, "READ")
                 if f_in and not f_in.IsZombie():
                     aux_keys = [
                         k.GetName() for k in f_in.GetListOfKeys()
                         if k.GetName() not in ("cbmsim", "BranchList")
                     ]
                     if aux_keys:
-                        f_out = ROOT.TFile.Open(actual_output, "UPDATE")
+                        # Open local output file in UPDATE mode (local filesystem, completely safe)
+                        f_out = ROOT.TFile.Open(local_output, "UPDATE")
                         if f_out and not f_out.IsZombie():
                             for k in set(aux_keys):
                                 obj = f_in.Get(k)
@@ -321,18 +322,13 @@ def run_single_partition(
             except Exception:
                 pass
 
-            if is_in_place:
-                os.replace(actual_output, output_file)
+            # Stream finalized, complete file to destination
+            shutil.copyfile(local_output, output_file)
 
             is_valid, entries = verify_root_file(output_file)
             result["entries"] = entries
-            result["status"] = "SUCCESS"
+            result["status"] = "SUCCESS" if is_valid else "ERROR"
         else:
-            if is_in_place and os.path.exists(actual_output):
-                try:
-                    os.remove(actual_output)
-                except OSError:
-                    pass
             result["status"] = "ERROR"
             # Extract last few error lines from stdout
             lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
@@ -340,14 +336,12 @@ def run_single_partition(
             result["error_message"] = f"Exit code {proc.returncode}; Output invalid.\n  {tail}"
 
     except Exception as err:
-        if is_in_place and os.path.exists(actual_output):
-            try:
-                os.remove(actual_output)
-            except OSError:
-                pass
         result["elapsed_sec"] = time.time() - start_time
         result["status"] = "EXCEPTION"
         result["error_message"] = str(err)
+    finally:
+        # Always remove local temporary staging directory
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     return result
 

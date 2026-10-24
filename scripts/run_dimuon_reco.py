@@ -237,13 +237,20 @@ def run_single_partition(
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
+    # If writing in-place, reconstruct to a temporary file first
+    is_in_place = os.path.abspath(input_file) == os.path.abspath(output_file)
+    actual_output = (
+        output_file + f".tmp_{os.getpid()}_{int(time.time()*1000)}.root"
+        if is_in_place else output_file
+    )
+
     cmd = [
         sys.executable,
         tracking_script,
         "-t", str(track_type),
         "--nTracks", str(n_tracks),
         "-f", input_file,
-        "-o", output_file,
+        "-o", actual_output,
         "-g", geo_file,
         "-s", str(start_event),
         "-n", str(n_events),
@@ -284,12 +291,48 @@ def run_single_partition(
 
         # run_TrackSelections.py calls pyExit() with self-SIGTERM (exit code -15 or 143)
         # Verify output ROOT file directly
-        is_valid, entries = verify_root_file(output_file)
-        result["entries"] = entries
+        is_valid, entries = verify_root_file(actual_output)
 
         if is_valid:
+            # Preserve any auxiliary trees/objects from input file (e.g. mctruth)
+            try:
+                import ROOT
+                ROOT.gROOT.SetBatch(True)
+                f_in = ROOT.TFile.Open(input_file)
+                if f_in and not f_in.IsZombie():
+                    aux_keys = [
+                        k.GetName() for k in f_in.GetListOfKeys()
+                        if k.GetName() not in ("cbmsim", "BranchList")
+                    ]
+                    if aux_keys:
+                        f_out = ROOT.TFile.Open(actual_output, "UPDATE")
+                        if f_out and not f_out.IsZombie():
+                            for k in set(aux_keys):
+                                obj = f_in.Get(k)
+                                if obj:
+                                    f_out.cd()
+                                    if isinstance(obj, ROOT.TTree):
+                                        obj_clone = obj.CloneTree(-1, "fast")
+                                        obj_clone.Write(k, ROOT.TObject.kOverwrite)
+                                    else:
+                                        obj.Write(k, ROOT.TObject.kOverwrite | ROOT.TObject.kSingleKey)
+                            f_out.Close()
+                    f_in.Close()
+            except Exception:
+                pass
+
+            if is_in_place:
+                os.replace(actual_output, output_file)
+
+            is_valid, entries = verify_root_file(output_file)
+            result["entries"] = entries
             result["status"] = "SUCCESS"
         else:
+            if is_in_place and os.path.exists(actual_output):
+                try:
+                    os.remove(actual_output)
+                except OSError:
+                    pass
             result["status"] = "ERROR"
             # Extract last few error lines from stdout
             lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
@@ -297,6 +340,11 @@ def run_single_partition(
             result["error_message"] = f"Exit code {proc.returncode}; Output invalid.\n  {tail}"
 
     except Exception as err:
+        if is_in_place and os.path.exists(actual_output):
+            try:
+                os.remove(actual_output)
+            except OSError:
+                pass
         result["elapsed_sec"] = time.time() - start_time
         result["status"] = "EXCEPTION"
         result["error_message"] = str(err)

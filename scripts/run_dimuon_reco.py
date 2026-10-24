@@ -213,6 +213,7 @@ def run_single_partition(
     track_type: str = "dimuon_DS",
     n_tracks: int = 2,
     hough_tracking: bool = True,
+    hough_format: str = "linearSlopeIntercept",
     par_file: Optional[str] = None,
     extra_args: Optional[List[str]] = None,
     save_logs: bool = False,
@@ -250,6 +251,9 @@ def run_single_partition(
 
     if hough_tracking:
         cmd.append("-ht")
+
+    if hough_format:
+        cmd.extend(["-hf", str(hough_format)])
 
     if par_file:
         cmd.extend(["-par", par_file])
@@ -388,12 +392,22 @@ def main():
         default=True,
         help="Disable Hough Tracking (-ht flag)",
     )
+    default_par_path = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "TrackingParams.xml")
+    )
     parser.add_argument(
         "-par", "--par-file",
         dest="par_file",
         type=str,
-        default=None,
-        help="TrackingParams.xml parameter file path override",
+        default=default_par_path if os.path.isfile(default_par_path) else None,
+        help="TrackingParams.xml parameter file path override (default: config/TrackingParams.xml)",
+    )
+    parser.add_argument(
+        "-hf", "--hough-format",
+        dest="hough_format",
+        type=str,
+        default="linearSlopeIntercept",
+        help="Hough space format representation (default: linearSlopeIntercept)",
     )
     parser.add_argument(
         "--skip-existing",
@@ -538,6 +552,7 @@ def main():
             track_type=args.track_type,
             n_tracks=effective_n_tracks,
             hough_tracking=args.hough_tracking,
+            hough_format=args.hough_format,
             par_file=args.par_file,
             extra_args=extra_args,
             save_logs=args.save_logs,

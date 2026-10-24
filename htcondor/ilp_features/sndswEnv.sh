@@ -8,7 +8,17 @@ CVMFS_SW="/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/sw/rhel9_x86-64"
 if [ ! -d "${CVMFS_SW}" ]; then
     CVMFS_SW="/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/sw/slc9_x86-64"
 fi
-USER_SNDSW_BUILD="/afs/cern.ch/user/i/idioniso/snd_master/sw/rhel9_x86-64/sndsw/latest-master-newpars-release"
+
+# Load alienv environment for latest-snd-numu-charm-release if alienv is available
+ALIENV_BIN="/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/alibuild/alienv"
+if [ -x "${ALIENV_BIN}" ] && [ -d "/afs/cern.ch/user/i/idioniso/snd_master/sw-numucharm" ]; then
+    eval "$(${ALIENV_BIN} --work-dir /afs/cern.ch/user/i/idioniso/snd_master/sw-numucharm printenv sndsw/latest-snd-numu-charm-release 2>/dev/null)" || true
+fi
+
+USER_SNDSW_BUILD="/afs/cern.ch/user/i/idioniso/snd_master/sw-numucharm/rhel9_x86-64/sndsw/latest-snd-numu-charm-release"
+if [ ! -d "${USER_SNDSW_BUILD}" ]; then
+    USER_SNDSW_BUILD="/afs/cern.ch/user/i/idioniso/snd_master/sw-numucharm/slc9_x86-64/sndsw/latest-snd-numu-charm-release"
+fi
 USER_SNDSW_SRC="/afs/cern.ch/user/i/idioniso/snd_master/sndsw"
 
 # 1. Base SNDSW & FairRoot Core Paths

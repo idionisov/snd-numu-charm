@@ -622,9 +622,16 @@ def _filter_partition_stream(
         t_cbm.SetBranchStatus("*", 0)
         t_cbm.SetBranchStatus("Digi_ScifiHits*", 1)
         t_cbm.SetBranchStatus("Digi_MuFilterHits*", 1)
-        t_cbm.SetBranchStatus("Reco_MuonTracks*", 1)
+        trk_branches = [b for b in t_cbm.GetListOfBranches() if b.GetName() == "Reco_MuonTracks"]
+        for b in trk_branches[:-1]:
+            b.SetStatus(0)
+        if trk_branches:
+            trk_branches[-1].SetStatus(1)
         if record_failures:
             t_cbm.SetBranchStatus("EventHeader*", 1)
+
+        leaves = [l for l in t_cbm.GetListOfLeaves() if l.GetName() == "Reco_MuonTracks"]
+        last_trk_leaf = leaves[-1] if leaves else None
 
         for iev in range(n_entries):
             rw = 1.0
@@ -658,7 +665,8 @@ def _filter_partition_stream(
             p_t = bool(cut_timing(t_cbm.Digi_ScifiHits, t_cbm.Digi_MuFilterHits))
             p_v = bool(cut_veto(t_cbm.Digi_MuFilterHits, t_cbm.Digi_ScifiHits))
             p_d = bool(cut_dimuon(t_cbm.Digi_MuFilterHits))
-            p_tr = bool(cut_tracks(t_cbm.Reco_MuonTracks))
+            trks = last_trk_leaf.GetObject() if last_trk_leaf else getattr(t_cbm, "Reco_MuonTracks", None)
+            p_tr = bool(cut_tracks(trks)) if trks is not None else False
 
             if p_t:
                 res["cut_counts"][4] += 1
@@ -739,6 +747,10 @@ def _filter_partition_stream(
                         obj.Write(k, ROOT.TObject.kSingleKey)
                 f_out.Close()
 
+    if t_cbm:
+        t_cbm.ResetBranchAddresses()
+    if t_truth:
+        t_truth.ResetBranchAddresses()
     f_in.Close()
     return res, failed_records
 
@@ -892,6 +904,10 @@ def process_single_partition_pipeline(
         "sig": sig_res,
         "ind": ind_res,
     }, sig_failed_records
+
+
+def _pipeline_task_runner(args_tuple):
+    return process_single_partition_pipeline(*args_tuple)
 
 
 def load_cutflow_stats_from_root(filepath: str) -> List[Dict[str, Any]]:
@@ -1343,22 +1359,11 @@ def main():
                         f_csv.write(f"{r['partition']},{r['event_number']},{r['failed_cut_stage']},{r['entry']},{r['failed_cuts']}\n")
                     f_csv.flush()
 
-        if args.workers > 1:
-            from concurrent.futures import ProcessPoolExecutor, as_completed
-            with ProcessPoolExecutor(max_workers=args.workers) as executor:
-                future_to_task = {
-                    executor.submit(process_single_partition_pipeline, *t): t[0]
-                    for t in tasks
-                }
-                for fut in as_completed(future_to_task):
+        if args.workers > 1 or len(tasks) > 1:
+            import multiprocessing as mp
+            with mp.Pool(processes=max(args.workers, 1), maxtasksperchild=1) as pool:
+                for p_res, failed_records in pool.imap_unordered(_pipeline_task_runner, tasks):
                     completed_count += 1
-                    try:
-                        p_res, failed_records = fut.result()
-                    except Exception as err:
-                        part_id = future_to_task[fut]
-                        print(f"[{completed_count:4d}/{len(tasks)}] Partition {part_id}: ERROR: {err}")
-                        continue
-
                     _accumulate_result(p_res, failed_records)
 
                     part = p_res["partition"]

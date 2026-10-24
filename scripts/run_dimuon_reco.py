@@ -239,10 +239,10 @@ def run_single_partition(
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    # If input file has 0 events, skip reconstruction gracefully
+    # If input file has 0 events, preserve/create output root file with 0 events gracefully
     is_valid_in, in_entries = verify_root_file(input_file)
     if is_valid_in and in_entries == 0:
-        if not os.path.exists(output_file):
+        if os.path.abspath(input_file) != os.path.abspath(output_file):
             shutil.copyfile(input_file, output_file)
         result["entries"] = 0
         result["status"] = "SUCCESS"

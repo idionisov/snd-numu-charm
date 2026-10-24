@@ -562,6 +562,25 @@ def main():
         print("\nNo matching tasks to process. Exiting.")
         sys.exit(0)
 
+    # Pre-cache common geofile locally in /tmp to eliminate repeated XRootD network latency
+    if tasks_to_run and os.path.exists("/tmp"):
+        primary_geo = tasks_to_run[0]["geo_file"]
+        if primary_geo:
+            local_geo_cache = "/tmp/sndlhc_geofile_cache.root"
+            try:
+                if not os.path.isfile(local_geo_cache) or os.path.getsize(local_geo_cache) < 1000:
+                    if primary_geo.startswith("root://") or primary_geo.startswith("/eos/"):
+                        xrd_url = primary_geo if primary_geo.startswith("root://") else f"root://eospublic.cern.ch/{primary_geo}"
+                        subprocess.run(["xrdcp", "-s", "-f", xrd_url, local_geo_cache], check=True, timeout=30)
+                    else:
+                        shutil.copyfile(primary_geo, local_geo_cache)
+                if os.path.isfile(local_geo_cache) and os.path.getsize(local_geo_cache) > 1000:
+                    for t in tasks_to_run:
+                        if t["geo_file"] == primary_geo:
+                            t["geo_file"] = local_geo_cache
+            except Exception:
+                pass
+
     if args.dry_run:
         print("\n[Dry Run] Sample commands that would be executed:")
         for t in tasks_to_run[:5]:

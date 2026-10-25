@@ -1328,6 +1328,7 @@ def process_categorized_neutrino_file(
     weight_fn: Optional[Callable[[Any, Any], float]] = None,
     truth_tree_name: Optional[str] = None,
     store_in_cbmsim: Optional[bool] = None,
+    truth_source: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Process an SND@LHC neutrino simulation file and categorize all events:
@@ -1374,6 +1375,37 @@ def process_categorized_neutrino_file(
 
     n_process = min(n_tot, max_entries) if max_entries > 0 else n_tot
 
+    f_truth = None
+    t_truth_cbm = None
+    truth_event_map = {}
+    truth_source_active = False
+
+    if truth_source and os.path.abspath(truth_source) != os.path.abspath(input_file):
+        if not os.path.isfile(truth_source):
+            return {"input_file": input_file, "total": 0, "processed": 0, "status": f"error_truth_source_not_found: {truth_source}"}
+        f_truth = ROOT.TFile.Open(truth_source, "READ")
+        if not f_truth or f_truth.IsZombie():
+            if f_truth:
+                f_truth.Close()
+            return {"input_file": input_file, "total": 0, "processed": 0, "status": f"error_open_truth_source: {truth_source}"}
+
+        t_truth_cbm = f_truth.Get("cbmsim") or f_truth.Get("rawConv") or f_truth.Get("events")
+        if not t_truth_cbm:
+            f_truth.Close()
+            return {"input_file": input_file, "total": 0, "processed": 0, "status": f"no_tree_in_truth_source: {truth_source}"}
+
+        t_truth_cbm.SetBranchStatus("*", 0)
+        t_truth_cbm.SetBranchStatus("EventHeader*", 1)
+        for i in range(t_truth_cbm.GetEntries()):
+            t_truth_cbm.GetEntry(i)
+            ev_hdr = getattr(t_truth_cbm, "EventHeader", None)
+            if ev_hdr:
+                truth_event_map[int(ev_hdr.GetEventNumber())] = i
+            else:
+                truth_event_map[i] = i
+        t_truth_cbm.SetBranchStatus("*", 1)
+        truth_source_active = True
+
     out_dir = os.path.dirname(os.path.abspath(output_file))
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
@@ -1384,6 +1416,8 @@ def process_categorized_neutrino_file(
     f_out = ROOT.TFile.Open(output_file, "RECREATE")
     if not f_out or f_out.IsZombie():
         f_in.Close()
+        if f_truth:
+            f_truth.Close()
         return {"input_file": input_file, "total": n_tot, "processed": 0, "status": "error_create_out"}
 
     out_tree = t_in.CloneTree(0)
@@ -1411,8 +1445,24 @@ def process_categorized_neutrino_file(
 
     for iev in range(n_process):
         t_in.GetEntry(iev)
-        mufilter_pts = getattr(t_in, "MuFilterPoint", None)
-        mc_tracks = getattr(t_in, "MCTrack", None)
+        if truth_source_active:
+            ev_hdr = getattr(t_in, "EventHeader", None)
+            ev_num = int(ev_hdr.GetEventNumber()) if ev_hdr else iev
+            truth_idx = truth_event_map.get(ev_num, None)
+            if truth_idx is not None:
+                t_truth_cbm.GetEntry(truth_idx)
+                mufilter_pts = getattr(t_truth_cbm, "MuFilterPoint", None)
+                mc_tracks = getattr(t_truth_cbm, "MCTrack", None)
+                truth_event_obj = t_truth_cbm
+            else:
+                mufilter_pts = getattr(t_in, "MuFilterPoint", None)
+                mc_tracks = getattr(t_in, "MCTrack", None)
+                truth_event_obj = t_in
+        else:
+            mufilter_pts = getattr(t_in, "MuFilterPoint", None)
+            mc_tracks = getattr(t_in, "MCTrack", None)
+            truth_event_obj = t_in
+
         if hasattr(processor, "processMuonNeutrino"):
             info = processor.processMuonNeutrino(mc_tracks, mufilter_pts)
         else:
@@ -1423,7 +1473,7 @@ def process_categorized_neutrino_file(
         mc_w = None
         if weight_fn is not None:
             try:
-                res_w = weight_fn(t_in, info)
+                res_w = weight_fn(truth_event_obj, info)
                 if isinstance(res_w, dict):
                     raw_w = float(res_w["raw_weight"]) if "raw_weight" in res_w else None
                     mc_w = float(res_w["mc_weight"]) if "mc_weight" in res_w else None
@@ -1482,6 +1532,8 @@ def process_categorized_neutrino_file(
     truth_tree.Write()
     f_out.Close()
     f_in.Close()
+    if f_truth:
+        f_truth.Close()
 
     # Save lookup table
     try:

@@ -138,10 +138,11 @@ ${CVMFS_SW}/Python-modules/1.0-local1/bin:\
 ${PATH}"
 
 # 6. PYTHONPATH
-# Prioritize user custom python scripts, followed by ddfUtils, CVMFS ROOT, and Python packages
-export PYTHONPATH="${USER_SNDSW_SRC}/python:\
+# Prioritize target build release python modules, followed by custom scripts, ddfUtils, etc.
+export PYTHONPATH="${USER_SNDSW_BUILD}/python:\
+${USER_SNDSW_BUILD}/shipLHC/scripts:\
+${USER_SNDSW_SRC}/python:\
 ${USER_SNDSW_SRC}/shipLHC/scripts:\
-${USER_SNDSW_BUILD}/python:\
 ${ddfUtils}:\
 ${CVMFS_SW}/ROOT/v6-36-04-alice1-local1/lib:\
 ${CVMFS_SW}/XRootD/v5.7.3-local1/lib/python/site-packages:\

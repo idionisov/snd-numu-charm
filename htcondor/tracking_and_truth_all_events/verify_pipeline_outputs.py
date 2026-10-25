@@ -33,6 +33,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import ROOT
 ROOT.gROOT.SetBatch(True)
+ROOT.gEnv.SetValue("TFile.Recover", 0)
+ROOT.gErrorIgnoreLevel = ROOT.kError
 
 
 def parse_partitions(part_arg: Optional[str]) -> List[int]:
@@ -66,7 +68,10 @@ def check_file(filepath: str, expected_trees: List[Any]) -> Tuple[bool, str, Dic
     if size < 500:
         return False, f"CORRUPT_SIZE ({size}B)", {}
 
-    tf = ROOT.TFile.Open(filepath, "READ")
+    try:
+        tf = ROOT.TFile.Open(filepath, "READ")
+    except (OSError, Exception) as e:
+        return False, "ZOMBIE", {}
     if not tf or tf.IsZombie():
         if tf:
             tf.Close()
@@ -156,7 +161,10 @@ def verify_single_partition(
             res["errors"].append(f"TRACK_TRUTH_MISMATCH:track={res['tracked_entries']}!=truth={res['truth_entries']}")
 
         # Count expected direct / indirect yields directly from truth tree
-        tf = ROOT.TFile.Open(truth_path, "READ")
+        try:
+            tf = ROOT.TFile.Open(truth_path, "READ")
+        except (OSError, Exception):
+            tf = None
         if tf and not tf.IsZombie():
             t = tf.Get("mctruth") or tf.Get("mc_truth") or tf.Get("truth")
             if t:

@@ -149,3 +149,6 @@ ${CVMFS_SW}/XRootD/v5.7.3-local1/lib/python/site-packages:\
 ${HOME}/.local/lib/python3.9/site-packages:\
 ${CVMFS_SW}/Python-modules/latest/lib/python3.9/site-packages\
 ${PYTHONPATH+:$PYTHONPATH}"
+
+# 7. Channel Table Distributed Execution Mode
+export SND_CHANNELS_READONLY=1

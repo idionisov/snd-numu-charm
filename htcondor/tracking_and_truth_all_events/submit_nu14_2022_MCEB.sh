@@ -58,7 +58,7 @@ condor_submit pipeline_mceb.sub \
     disp_pattern="${DISP_PATTERN}" \
     truth_source="${TRUTH_SOURCE_PATTERN}" \
     flavour="longlunch" \
-    env_vars="FORCE=1 ALL_EVENTS=1" \
+    env_vars="FORCE=1 ALL_EVENTS=1 SND_CHANNELS_READONLY=1" \
     "$@"
 
 echo ""

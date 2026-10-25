@@ -324,42 +324,48 @@ class ChannelLookupManager:
 
     def save(self):
         """Thread-safe and process-safe save to disk, merging any memory updates."""
+        if getattr(self, "read_only", False) or os.environ.get("SND_CHANNELS_READONLY", "0") == "1":
+            return
         with self._lock:
             if not self._dirty:
                 return
-            with self._file_lock():
-                # Read latest from disk to avoid overwriting channels registered by other workers
-                current_local_primary = dict(self.primary_channels)
-                current_local_charm = dict(self.charm_decay_channels)
-                self._load_unlocked()
+            try:
+                with self._file_lock(timeout=3.0):
+                    # Read latest from disk to avoid overwriting channels registered by other workers
+                    current_local_primary = dict(self.primary_channels)
+                    current_local_charm = dict(self.charm_decay_channels)
+                    self._load_unlocked()
 
-                # Merge any missing primary channels
-                for k, v in current_local_primary.items():
-                    if k not in self.primary_channels:
-                        existing_ids = [
-                            entry["channel_id"]
-                            for entry in self.primary_channels.values()
-                            if isinstance(entry, dict) and "channel_id" in entry
-                        ]
-                        next_id = max(existing_ids, default=0) + 1
-                        v["channel_id"] = next_id
-                        self.primary_channels[k] = v
-                        self.primary_by_id[next_id] = v
+                    # Merge any missing primary channels
+                    for k, v in current_local_primary.items():
+                        if k not in self.primary_channels:
+                            existing_ids = [
+                                entry["channel_id"]
+                                for entry in self.primary_channels.values()
+                                if isinstance(entry, dict) and "channel_id" in entry
+                            ]
+                            next_id = max(existing_ids, default=0) + 1
+                            v["channel_id"] = next_id
+                            self.primary_channels[k] = v
+                            self.primary_by_id[next_id] = v
 
-                # Merge any missing charm decay channels
-                for k, v in current_local_charm.items():
-                    if k not in self.charm_decay_channels:
-                        existing_ids = [
-                            entry["decay_id"]
-                            for entry in self.charm_decay_channels.values()
-                            if isinstance(entry, dict) and "decay_id" in entry
-                        ]
-                        next_id = max(existing_ids, default=0) + 1
-                        v["decay_id"] = next_id
-                        self.charm_decay_channels[k] = v
-                        self.charm_by_id[next_id] = v
+                    # Merge any missing charm decay channels
+                    for k, v in current_local_charm.items():
+                        if k not in self.charm_decay_channels:
+                            existing_ids = [
+                                entry["decay_id"]
+                                for entry in self.charm_decay_channels.values()
+                                if isinstance(entry, dict) and "decay_id" in entry
+                            ]
+                            next_id = max(existing_ids, default=0) + 1
+                            v["decay_id"] = next_id
+                            self.charm_decay_channels[k] = v
+                            self.charm_by_id[next_id] = v
 
-                self._save_unlocked()
+                    self._save_unlocked()
+                    self._dirty = False
+            except Exception as e:
+                print(f"[Warning] Could not persist new channels to disk: {e}")
 
     def get_or_register_channel(
         self,
@@ -374,53 +380,44 @@ class ChannelLookupManager:
         sorted_pdgs = sorted([int(p) for p in primary_pdgs])
         key = ",".join(str(p) for p in sorted_pdgs)
 
-        # Fast path: check in-memory cache
         with self._lock:
             if key in self.primary_channels:
                 entry = self.primary_channels[key]
                 return entry["channel_id"], entry["formula"], entry
 
-        # Slow path: new channel needs registration under cross-process lock
-        with self._lock:
-            with self._file_lock():
-                # Re-check disk in case another worker just registered this channel
-                self._load_unlocked()
-                if key in self.primary_channels:
-                    entry = self.primary_channels[key]
-                    return entry["channel_id"], entry["formula"], entry
+            # Register locally in memory without disk locking during event loop
+            existing_ids = [
+                v["channel_id"]
+                for v in self.primary_channels.values()
+                if isinstance(v, dict) and "channel_id" in v
+            ]
+            next_id = max(existing_ids, default=0) + 1
+            formula = format_channel_formula(sorted_pdgs)
 
-                existing_ids = [
-                    v["channel_id"]
-                    for v in self.primary_channels.values()
-                    if isinstance(v, dict) and "channel_id" in v
-                ]
-                next_id = max(existing_ids, default=0) + 1
-                formula = format_channel_formula(sorted_pdgs)
+            has_charm = any(is_charmed_hadron(p) for p in sorted_pdgs)
+            charm_pdgs = [p for p in sorted_pdgs if is_charmed_hadron(p)]
+            leptons = [p for p in sorted_pdgs if abs(p) in [11, 12, 13, 14, 15, 16]]
+            is_cc = any(abs(p) in [11, 13, 15] for p in sorted_pdgs)
+            is_nc = not is_cc
 
-                has_charm = any(is_charmed_hadron(p) for p in sorted_pdgs)
-                charm_pdgs = [p for p in sorted_pdgs if is_charmed_hadron(p)]
-                leptons = [p for p in sorted_pdgs if abs(p) in [11, 12, 13, 14, 15, 16]]
-                is_cc = any(abs(p) in [11, 13, 15] for p in sorted_pdgs)
-                is_nc = not is_cc
+            entry = {
+                "channel_id": next_id,
+                "key": key,
+                "formula": formula,
+                "primary_pdgs": sorted_pdgs,
+                "multiplicity": len(sorted_pdgs),
+                "is_cc": is_cc,
+                "is_nc": is_nc,
+                "has_charm": has_charm,
+                "charm_pdgs": charm_pdgs,
+                "primary_leptons": leptons,
+                "incoming_nu_pdg": nu_pdg,
+            }
 
-                entry = {
-                    "channel_id": next_id,
-                    "key": key,
-                    "formula": formula,
-                    "primary_pdgs": sorted_pdgs,
-                    "multiplicity": len(sorted_pdgs),
-                    "is_cc": is_cc,
-                    "is_nc": is_nc,
-                    "has_charm": has_charm,
-                    "charm_pdgs": charm_pdgs,
-                    "primary_leptons": leptons,
-                    "incoming_nu_pdg": nu_pdg,
-                }
-
-                self.primary_channels[key] = entry
-                self.primary_by_id[next_id] = entry
-                self._save_unlocked()
-                return next_id, formula, entry
+            self.primary_channels[key] = entry
+            self.primary_by_id[next_id] = entry
+            self._dirty = True
+            return next_id, formula, entry
 
     def get_or_register_charm_decay(
         self,
@@ -437,61 +434,53 @@ class ChannelLookupManager:
         sorted_daughters = sorted([int(p) for p in daughter_pdgs])
         key = f"{parent_p}:" + ",".join(str(p) for p in sorted_daughters)
 
-        # Fast path: check in-memory cache
         with self._lock:
             if key in self.charm_decay_channels:
                 entry = self.charm_decay_channels[key]
                 return entry["decay_id"], entry["formula"], entry["mode"], entry
 
-        # Slow path: new charm decay needs registration under cross-process lock
-        with self._lock:
-            with self._file_lock():
-                self._load_unlocked()
-                if key in self.charm_decay_channels:
-                    entry = self.charm_decay_channels[key]
-                    return entry["decay_id"], entry["formula"], entry["mode"], entry
+            # Register locally in memory without disk locking during event loop
+            existing_ids = [
+                v["decay_id"]
+                for v in self.charm_decay_channels.values()
+                if isinstance(v, dict) and "decay_id" in v
+            ]
+            next_id = max(existing_ids, default=0) + 1
+            parent_name = pdg_to_name(parent_p)
+            daughter_formula = format_channel_formula(sorted_daughters)
+            full_formula = f"{parent_name} -> {daughter_formula}"
 
-                existing_ids = [
-                    v["decay_id"]
-                    for v in self.charm_decay_channels.values()
-                    if isinstance(v, dict) and "decay_id" in v
-                ]
-                next_id = max(existing_ids, default=0) + 1
-                parent_name = pdg_to_name(parent_p)
-                daughter_formula = format_channel_formula(sorted_daughters)
-                full_formula = f"{parent_name} -> {daughter_formula}"
+            has_muon = any(abs(p) == 13 for p in sorted_daughters)
+            has_electron = any(abs(p) == 11 for p in sorted_daughters)
+            has_pion = any(abs(p) in [211, 111] for p in sorted_daughters)
+            has_kaon = any(abs(p) in [321, 311, 310, 130] for p in sorted_daughters)
 
-                has_muon = any(abs(p) == 13 for p in sorted_daughters)
-                has_electron = any(abs(p) == 11 for p in sorted_daughters)
-                has_pion = any(abs(p) in [211, 111] for p in sorted_daughters)
-                has_kaon = any(abs(p) in [321, 311, 310, 130] for p in sorted_daughters)
+            if has_muon:
+                mode = "to_muon"
+            elif has_electron:
+                mode = "to_electron"
+            elif all(abs(p) > 100 for p in sorted_daughters if p != 22):
+                mode = "hadronic"
+            else:
+                mode = "other"
 
-                if has_muon:
-                    mode = "to_muon"
-                elif has_electron:
-                    mode = "to_electron"
-                elif all(abs(p) > 100 for p in sorted_daughters if p != 22):
-                    mode = "hadronic"
-                else:
-                    mode = "other"
+            entry = {
+                "decay_id": next_id,
+                "key": key,
+                "parent_pdg": parent_p,
+                "parent_name": parent_name,
+                "daughter_pdgs": sorted_daughters,
+                "formula": full_formula,
+                "daughter_formula": daughter_formula,
+                "mode": mode,
+                "has_direct_muon": has_muon,
+                "has_direct_electron": has_electron,
+                "has_direct_pion": has_pion,
+                "has_direct_kaon": has_kaon,
+                "n_daughters": len(sorted_daughters),
+            }
 
-                entry = {
-                    "decay_id": next_id,
-                    "key": key,
-                    "parent_pdg": parent_p,
-                    "parent_name": parent_name,
-                    "daughter_pdgs": sorted_daughters,
-                    "formula": full_formula,
-                    "daughter_formula": daughter_formula,
-                    "mode": mode,
-                    "has_direct_muon": has_muon,
-                    "has_direct_electron": has_electron,
-                    "has_direct_pion": has_pion,
-                    "has_direct_kaon": has_kaon,
-                    "n_daughters": len(sorted_daughters),
-                }
-
-                self.charm_decay_channels[key] = entry
-                self.charm_by_id[next_id] = entry
-                self._save_unlocked()
-                return next_id, full_formula, mode, entry
+            self.charm_decay_channels[key] = entry
+            self.charm_by_id[next_id] = entry
+            self._dirty = True
+            return next_id, full_formula, mode, entry

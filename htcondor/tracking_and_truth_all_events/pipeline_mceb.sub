@@ -19,7 +19,7 @@ track_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000f
 truth_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root
 disp_pattern            = /eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_MCEB/partitions/displays_part%s.root
 truth_source            = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig.root
-env_vars                = FORCE=1 ALL_EVENTS=1
+env_vars                = FORCE=1 ALL_EVENTS=1 SND_CHANNELS_READONLY=1
 
 executable              = $(base_dir)/run_pipeline_partition.sh
 arguments               = $(partition) $(input_pattern) $(track_pattern) $(truth_pattern) $(disp_pattern) all $(truth_source)

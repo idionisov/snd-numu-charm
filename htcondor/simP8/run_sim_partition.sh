@@ -26,6 +26,14 @@ fi
 SRC_DIR_PATTERN="${2:-/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/2mmRangeCut/sndlhc_15000fb-1_2022_down/nu14/volume_volTarget/%s}"
 DEST_DIR_PATTERN="${3:-/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s}"
 
+# Clean up unexpanded HTCondor macro strings if any
+if [[ "${SRC_DIR_PATTERN}" == \$* ]] || [ -z "${SRC_DIR_PATTERN}" ]; then
+    SRC_DIR_PATTERN="/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/2mmRangeCut/sndlhc_15000fb-1_2022_down/nu14/volume_volTarget/%s"
+fi
+if [[ "${DEST_DIR_PATTERN}" == \$* ]] || [ -z "${DEST_DIR_PATTERN}" ]; then
+    DEST_DIR_PATTERN="/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s"
+fi
+
 # Resolve paths for this partition
 SRC_PART_DIR=$(printf "${SRC_DIR_PATTERN}" "${PARTITION}")
 DEST_PART_DIR=$(printf "${DEST_DIR_PATTERN}" "${PARTITION}")

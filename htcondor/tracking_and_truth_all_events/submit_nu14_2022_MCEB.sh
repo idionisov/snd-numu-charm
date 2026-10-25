@@ -48,7 +48,7 @@ echo " Displays Target: ${DISP_PATTERN}"
 echo " Extra Args     : $*"
 echo "=========================================================="
 
-condor_submit pipeline.sub \
+condor_submit pipeline_mceb.sub \
     args_file="${ARGS_FILE}" \
     input_pattern="${INPUT_PATTERN}" \
     track_pattern="${TRACK_PATTERN}" \

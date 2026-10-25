@@ -1,0 +1,46 @@
+# ==============================================================================
+# HTCondor Submit File: SND@LHC Chained Pipeline (2022 nu14 MCEB All Events)
+# Tracking (All Events) -> MCTruth Extraction -> 2D Event Displays
+#
+# Usage:
+#   condor_submit pipeline_mceb.sub
+#   ./submit_nu14_2022_MCEB.sh
+# ==============================================================================
+
+base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/tracking_and_truth_all_events
+initialdir              = $(base_dir)
+
+flavour                 = $(flavour:microcentury)
+args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
+
+# Explicit MCEB Path Patterns (Defined before arguments)
+input_pattern           = $(input_pattern:/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig.root)
+track_pattern           = $(track_pattern:/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks.root)
+truth_pattern           = $(truth_pattern:/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root)
+disp_pattern            = $(disp_pattern:/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_MCEB/partitions/displays_part%s.root)
+
+executable              = $(base_dir)/run_pipeline_partition.sh
+arguments               = $(partition) $(input_pattern) $(track_pattern) $(truth_pattern) $(disp_pattern) all
+environment             = "$(env_vars:FORCE=1 ALL_EVENTS=1)"
+
+output                  = $(base_dir)/out/pipeline_part$(partition)_$(ClusterId)_$(ProcId).out
+error                   = $(base_dir)/err/pipeline_part$(partition)_$(ClusterId)_$(ProcId).err
+log                     = $(base_dir)/log/pipeline_$(ClusterId).log
+
+getenv                  = False
+notification            = Never
+requirements            = (OpSysAndVer =?= "AlmaLinux9")
+
++JobFlavour             = "$(flavour)"
++AccountingGroup        = "group_u_SNDLHC.users"
+MY.JobRequiresAFS       = True
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = $(base_dir)/sndswEnv.sh, /afs/cern.ch/user/i/idioniso/ddfUtils
+
+request_cpus            = 1
+request_memory          = 2GB
+max_retries             = 3
+
+queue partition from $(args_file)

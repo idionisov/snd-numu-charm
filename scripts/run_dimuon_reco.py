@@ -125,20 +125,23 @@ def discover_available_partitions(input_pattern: str, max_check: int = 500) -> L
 def resolve_tracking_script() -> str:
     """Find the path to run_TrackSelections.py in user source or SNDSW_ROOT."""
     candidates = []
+
+    # Active SNDSW environment release takes precedence
+    sndsw_root = os.environ.get("SNDSW_ROOT")
+    if sndsw_root:
+        candidates.append(os.path.join(sndsw_root, "shipLHC", "scripts", "run_TrackSelections.py"))
+
     for env_var in ["SNDSW_SRC", "USER_SNDSW_SRC"]:
         src_dir = os.environ.get(env_var)
         if src_dir:
             candidates.append(os.path.join(src_dir, "shipLHC", "scripts", "run_TrackSelections.py"))
 
-    # User local source repos (containing dimuon_DS additions)
+    # Fallbacks to known releases containing dimuon_DS
     candidates.extend([
-        "/afs/cern.ch/user/i/idioniso/snd_master/sndsw/shipLHC/scripts/run_TrackSelections.py",
+        "/afs/cern.ch/user/i/idioniso/snd_master/sw-numucharm/rhel9_x86-64/sndsw/latest-snd-numu-charm-release/shipLHC/scripts/run_TrackSelections.py",
+        "/afs/cern.ch/user/i/idioniso/snd_master/sw-fs/slc9_x86-64/sndsw/master-local1/shipLHC/scripts/run_TrackSelections.py",
         "/afs/cern.ch/user/i/idioniso/snd_master/sw3.12/slc9_x86-64/sndsw/master-local1/shipLHC/scripts/run_TrackSelections.py",
     ])
-
-    sndsw_root = os.environ.get("SNDSW_ROOT")
-    if sndsw_root:
-        candidates.append(os.path.join(sndsw_root, "shipLHC", "scripts", "run_TrackSelections.py"))
 
     for path in candidates:
         if os.path.isfile(path):
@@ -153,7 +156,7 @@ def resolve_geofile_path(partition: int | str, input_file: str, explicit_geofile
     """
     Determine the appropriate geofile for reconstruction.
     1. If explicit_geofile is specified, use it (formatted if it contains '%s').
-    2. Check partition-local geofile_full.Genie-TGeant4.root.
+    2. Check partition-local geofile_full.Genie-TGeant4.root (resolved if symlink).
     3. Use snd.io_utils.get_geofile_for_run.
     """
     if explicit_geofile:
@@ -165,12 +168,12 @@ def resolve_geofile_path(partition: int | str, input_file: str, explicit_geofile
     in_dir = os.path.dirname(os.path.abspath(input_file))
     local_geo = os.path.join(in_dir, "geofile_full.Genie-TGeant4.root")
     if os.path.isfile(local_geo):
-        return local_geo
+        return os.path.realpath(local_geo)
 
     import glob
     candidates = sorted(glob.glob(os.path.join(in_dir, "geofile*.root")))
     if candidates:
-        return candidates[0]
+        return os.path.realpath(candidates[0])
 
     # Run / Year database fallback
     return get_geofile_for_run(run_number=partition, input_path=input_file)
@@ -581,17 +584,23 @@ def main():
     if tasks_to_run and os.path.exists("/tmp"):
         primary_geo = tasks_to_run[0]["geo_file"]
         if primary_geo:
+            real_geo = os.path.realpath(primary_geo)
             local_geo_cache = "/tmp/sndlhc_geofile_cache.root"
             try:
                 if not os.path.isfile(local_geo_cache) or os.path.getsize(local_geo_cache) < 1000:
-                    if primary_geo.startswith("root://") or primary_geo.startswith("/eos/"):
-                        xrd_url = primary_geo if primary_geo.startswith("root://") else f"root://eospublic.cern.ch/{primary_geo}"
+                    if real_geo.startswith("/eos/experiment/"):
+                        xrd_url = f"root://eospublic.cern.ch/{real_geo}"
                         subprocess.run(["xrdcp", "-s", "-f", xrd_url, local_geo_cache], check=True, timeout=30)
-                    else:
-                        shutil.copyfile(primary_geo, local_geo_cache)
+                    elif real_geo.startswith("/eos/user/"):
+                        xrd_url = f"root://eosuser.cern.ch/{real_geo}"
+                        subprocess.run(["xrdcp", "-s", "-f", xrd_url, local_geo_cache], check=True, timeout=30)
+                    elif real_geo.startswith("root://"):
+                        subprocess.run(["xrdcp", "-s", "-f", real_geo, local_geo_cache], check=True, timeout=30)
+                    elif os.path.isfile(real_geo):
+                        shutil.copyfile(real_geo, local_geo_cache)
                 if os.path.isfile(local_geo_cache) and os.path.getsize(local_geo_cache) > 1000:
                     for t in tasks_to_run:
-                        if t["geo_file"] == primary_geo:
+                        if t["geo_file"] == primary_geo or t["geo_file"] == real_geo:
                             t["geo_file"] = local_geo_cache
                     import atexit
                     atexit.register(lambda: os.remove(local_geo_cache) if os.path.isfile(local_geo_cache) else None)

@@ -11,18 +11,19 @@
 base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/tracking_and_truth_all_events
 initialdir              = $(base_dir)
 
-flavour                 = $(flavour:longlunch)
-args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
+flavour                 = longlunch
+args_file               = $(base_dir)/args_nu14_volTarget_1000.txt
 
-input_pattern           = $(input_pattern:/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig.root)
-track_pattern           = $(track_pattern:/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks.root)
-truth_pattern           = $(truth_pattern:/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root)
-disp_pattern            = $(disp_pattern:/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions/displays_part%s.root)
-truth_source            = $(truth_source:/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig.root)
+input_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig.root
+track_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks.root
+truth_pattern           = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root
+disp_pattern            = /eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions/displays_part%s.root
+truth_source            = /eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig.root
+env_vars                = FORCE=1 ALL_EVENTS=1
 
 executable              = $(base_dir)/run_pipeline_partition.sh
 arguments               = $(partition) $(input_pattern) $(track_pattern) $(truth_pattern) $(disp_pattern) all $(truth_source)
-environment             = "$(env_vars:FORCE=1 ALL_EVENTS=1)"
+environment             = "$(env_vars)"
 
 output                  = $(base_dir)/out/pipeline_part$(partition)_$(ClusterId)_$(ProcId).out
 error                   = $(base_dir)/err/pipeline_part$(partition)_$(ClusterId)_$(ProcId).err

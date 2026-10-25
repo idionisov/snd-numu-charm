@@ -95,6 +95,7 @@ def verify_single_partition(
     base_dir: str,
     prefix: str = "sndLHC.Genie-TGeant4_dig_2MuTrks",
     raw_name: str = "sndLHC.Genie-TGeant4_dig.root",
+    tracking_only: bool = False,
 ) -> Dict[str, Any]:
     """Verify all 4 pipeline files for a given partition."""
     part_dir = os.path.join(base_dir, str(partition))
@@ -133,6 +134,9 @@ def verify_single_partition(
         if res["raw_entries"] > 0 and res["tracked_entries"] != res["raw_entries"]:
             res["valid"] = False
             res["errors"].append(f"ENTRY_MISMATCH:raw={res['raw_entries']}!=track={res['tracked_entries']}")
+
+    if tracking_only:
+        return res
 
     # 3. MCTruth
     truth_tree_cands = ("mctruth", "mc_truth", "truth")
@@ -205,6 +209,7 @@ def main():
         help="Path to write failed partition IDs (one per line) for re-submission or retry.",
     )
     parser.add_argument("--mceb", action="store_true", help="Check MCEB output files instead of standard files.")
+    parser.add_argument("--tracking-only", action="store_true", help="Only verify raw input and tracking output consistency.")
     parser.add_argument("--prefix", default=None, help="Custom prefix for tracked files.")
 
     args = parser.parse_args()
@@ -226,6 +231,7 @@ def main():
     print(f" Base Directory : {args.base_dir}")
     print(f" Prefix         : {prefix}")
     print(f" Partitions     : {len(partitions)} partition(s) ({partitions[0]}..{partitions[-1]})")
+    print(f" Mode           : {'Tracking Only' if args.tracking_only else 'Full Pipeline (Track + Truth + Skims)'}")
     print(f" Workers        : {args.jobs}")
     if args.failed_file:
         print(f" Failed Output  : {args.failed_file}")
@@ -237,14 +243,14 @@ def main():
     if args.jobs > 1 and len(partitions) > 1:
         with ProcessPoolExecutor(max_workers=args.jobs) as executor:
             futures = {
-                executor.submit(verify_single_partition, p, args.base_dir, prefix, raw_name): p
+                executor.submit(verify_single_partition, p, args.base_dir, prefix, raw_name, args.tracking_only): p
                 for p in partitions
             }
             for fut in as_completed(futures):
                 results.append(fut.result())
     else:
         for p in partitions:
-            results.append(verify_single_partition(p, args.base_dir, prefix, raw_name))
+            results.append(verify_single_partition(p, args.base_dir, prefix, raw_name, args.tracking_only))
 
     results.sort(key=lambda x: x["partition"])
     t1 = time.time()
@@ -257,7 +263,12 @@ def main():
     print("-" * 80)
     for r in results:
         status_str = "OK" if r["valid"] else "FAIL"
-        err_msg = ", ".join(r["errors"]) if r["errors"] else "All 4 files 100% consistent"
+        if r["errors"]:
+            err_msg = ", ".join(r["errors"])
+        elif args.tracking_only:
+            err_msg = f"Tracking 100% consistent ({r['tracked_entries']}/{r['raw_entries']} events)"
+        else:
+            err_msg = "All 4 files 100% consistent"
         print(f"{r['partition']:<6} | {status_str:<6} | {r['raw_entries']:<5} | {r['tracked_entries']:<5} | {r['truth_entries']:<5} | {r['direct_entries']:<6} | {r['indirect_entries']:<8} | {err_msg}")
 
     print("=" * 80)

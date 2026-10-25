@@ -60,12 +60,22 @@ DEFAULT_TRUTH="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_do
 DEFAULT_DISP="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions/displays_part%s.root"
 DEFAULT_TRUTH_SOURCE="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig.root"
 
-INPUT_PATTERN="${2:-$DEFAULT_INPUT}"
-TRACK_PATTERN="${3:-$DEFAULT_TRACK}"
-TRUTH_PATTERN="${4:-$DEFAULT_TRUTH}"
-DISP_PATTERN="${5:-$DEFAULT_DISP}"
+sanitize_pattern() {
+    local val="$1"
+    local fallback="$2"
+    if [ -z "$val" ] || [[ "$val" == *'$('* ]]; then
+        echo "$fallback"
+    else
+        echo "$val"
+    fi
+}
+
+INPUT_PATTERN=$(sanitize_pattern "$2" "$DEFAULT_INPUT")
+TRACK_PATTERN=$(sanitize_pattern "$3" "$DEFAULT_TRACK")
+TRUTH_PATTERN=$(sanitize_pattern "$4" "$DEFAULT_TRUTH")
+DISP_PATTERN=$(sanitize_pattern "$5" "$DEFAULT_DISP")
 STORE_EVENTS_ARG="${6:-all}"
-TRUTH_SOURCE_PATTERN="${7:-${TRUTH_SOURCE:-$DEFAULT_TRUTH_SOURCE}}"
+TRUTH_SOURCE_PATTERN=$(sanitize_pattern "$7" "${TRUTH_SOURCE:-$DEFAULT_TRUTH_SOURCE}")
 
 # This worker defaults to keeping all events
 if [ "$STORE_EVENTS_ARG" = "two_tracks" ] || [ "$STORE_EVENTS_ARG" = "--two-tracks-only" ]; then

@@ -1,0 +1,78 @@
+# ==============================================================================
+# SND@LHC Prefilter: Dimuon Cutflow Configuration (No 2DS Tracks Cut)
+# Preselection for Hough Tuning: All cuts through DS Dimuon Activity
+# ==============================================================================
+
+cuts:
+  - id: "step0_raw"
+    name: "All Events"
+    filter: ""
+    enabled: true
+    description: "Initial uncut event sample"
+
+  # Data-only Upfront Cuts (evaluated as 100% pass on Monte Carlo)
+  - id: "step1_ip1"
+    name: "LHC IP1"
+    filter: "pass_ip1_cut"
+    enabled: true
+    data_only: true
+    description: "Select collision bunch crossings from LHC IP1"
+
+  - id: "step2_stable_beams"
+    name: "Stable Beams"
+    filter: "pass_stable_beams_cut"
+    enabled: true
+    data_only: true
+    beam_mode: 11
+    description: "Select LHC physics run with Stable Beams"
+
+  - id: "step3_event_deltat"
+    name: "Event #Delta t"
+    filter: "pass_event_deltat_cut"
+    enabled: true
+    data_only: true
+    min_delta_t: 100
+    description: "Reject events within 100 clock cycles of previous event"
+
+  # Physics & Detector Cuts (Preselection)
+  - id: "step4_scifi_ds_timing"
+    name: "SciFi-DS Timing"
+    filter: "pass_scifi_ds_timing_cut"
+    enabled: true
+    min_delta_t: 0.0
+    require_valid: true
+    reversed: false
+    description: "Require latest DS hit time > earliest SciFi hit time"
+
+  - id: "step5_veto_hits"
+    name: "No Veto Hits"
+    filter: "pass_veto_cut"
+    enabled: true
+    min_hits: 0
+    max_hits: 0
+    require_valid: false
+    time_threshold: 0.3
+    use_timing: true
+    description: "Require 0 in-time hits in Veto system (System 1) with 0.3 ns tolerance"
+
+  - id: "step6_ds_dimuon"
+    name: "DS Dimuon"
+    filter: "pass_ds_dimuon_cut"
+    enabled: true
+    min_planes_dimuon: 3
+    min_hits_dimuon: 2
+    min_planes_other: 3
+    min_hits_other: 1
+    require_valid: false
+    reversed: false
+    description: "Require >=2 hits per plane in 3 planes in one projection, and >=1 hit per plane in 3 planes in the other"
+
+  - id: "step7_two_ds_tracks"
+    name: "Two DS Tracks"
+    filter: "pass_two_ds_tracks_cut"
+    enabled: false
+    min_tracks: 2
+    max_tracks: 2
+    track_type: 13
+    reversed: false
+    description: "Disabled for Hough parameter tuning preselection"

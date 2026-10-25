@@ -87,12 +87,13 @@ LOCAL_GST="${SCRATCH_DIR}/$(basename "${GST_FILE}")"
 cd "${SCRATCH_DIR}"
 
 # Step 1: Geant4 simulation with updated DecayConfigPy8.C
-echo " ~ [4/5] [Step 1/4] Running Geant4 Simulation (Genie 4)..."
+NEVENTS="${NEVENTS:-1000}"
+echo " ~ [4/5] [Step 1/4] Running Geant4 Simulation (Genie 4, events: ${NEVENTS})..."
 python3 -X faulthandler "${VMCWORKDIR}/shipLHC/run_simSND.py" \
     --Genie 4 \
     -f "${LOCAL_GST}" \
     -y 2022 \
-    -n 1000 \
+    -n "${NEVENTS}" \
     -o "${SCRATCH_DIR}"
 
 SIM_FILE="${SCRATCH_DIR}/sndLHC.Genie-TGeant4.root"

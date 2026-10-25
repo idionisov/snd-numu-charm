@@ -9,15 +9,12 @@
 base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/simP8
 initialdir              = $(base_dir)
 
-flavour                 = workday
-args_file               = $(base_dir)/args_nu14_volTarget_1000.txt
-
-src_pattern             = /eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/2mmRangeCut/sndlhc_15000fb-1_2022_down/nu14/volume_volTarget/%s
-dest_pattern            = /eos/user/i/idioniso/snd-numu-charm/data/newP8/%s
+flavour                 = $(flavour:workday)
+args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
 
 executable              = $(base_dir)/run_sim_partition.sh
-arguments               = $(partition) $(src_pattern) $(dest_pattern)
-environment             = "FORCE=0"
+arguments               = $(partition)
+environment             = "FORCE=$(force:0) NEVENTS=$(nevents:1000)"
 
 output                  = $(base_dir)/out/sim_part$(partition)_$(ClusterId)_$(ProcId).out
 error                   = $(base_dir)/err/sim_part$(partition)_$(ClusterId)_$(ProcId).err

@@ -27,33 +27,57 @@ mkdir -p out err log
 
 ARGS_FILE="${SCRIPT_DIR}/args_nu14_volTarget_1000.txt"
 TMP_ARGS=""
+NEVENTS="1000"
+FLAVOUR="workday"
+POSITIONAL=()
 
-if [ $# -ge 1 ] && [[ "$1" =~ ^[0-9]+-[0-9]+$ ]]; then
-    START=$(echo "$1" | cut -d'-' -f1)
-    END=$(echo "$1" | cut -d'-' -f2)
-    shift
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n|--nevents)
+      NEVENTS="$2"
+      shift 2
+      ;;
+    -f|--flavour)
+      FLAVOUR="$2"
+      shift 2
+      ;;
+    -p|--partitions)
+      PART_ARG="$2"
+      shift 2
+      TMP_ARGS=$(mktemp /tmp/simP8_args_XXXXXX.txt)
+      if [[ "${PART_ARG}" =~ ^[0-9]+-[0-9]+$ ]]; then
+          START=$(echo "${PART_ARG}" | cut -d'-' -f1)
+          END=$(echo "${PART_ARG}" | cut -d'-' -f2)
+          seq "${START}" "${END}" > "${TMP_ARGS}"
+      else
+          echo "${PART_ARG}" | tr ',' '\n' > "${TMP_ARGS}"
+      fi
+      ARGS_FILE="${TMP_ARGS}"
+      ;;
+    *)
+      POSITIONAL+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [ ${#POSITIONAL[@]} -eq 1 ] && [[ "${POSITIONAL[0]}" =~ ^[0-9]+-[0-9]+$ ]]; then
+    START=$(echo "${POSITIONAL[0]}" | cut -d'-' -f1)
+    END=$(echo "${POSITIONAL[0]}" | cut -d'-' -f2)
     TMP_ARGS=$(mktemp /tmp/simP8_args_XXXXXX.txt)
     seq "${START}" "${END}" > "${TMP_ARGS}"
     ARGS_FILE="${TMP_ARGS}"
-elif [ $# -ge 2 ] && [[ "$1" =~ ^[0-9]+$ ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
-    START="$1"
-    END="$2"
-    shift 2
+elif [ ${#POSITIONAL[@]} -ge 2 ] && [[ "${POSITIONAL[0]}" =~ ^[0-9]+$ ]] && [[ "${POSITIONAL[1]}" =~ ^[0-9]+$ ]]; then
+    START="${POSITIONAL[0]}"
+    END="${POSITIONAL[1]}"
     TMP_ARGS=$(mktemp /tmp/simP8_args_XXXXXX.txt)
     seq "${START}" "${END}" > "${TMP_ARGS}"
     ARGS_FILE="${TMP_ARGS}"
-elif [ "${1:-}" == "-p" ] && [ -n "${2:-}" ]; then
-    PART_ARG="$2"
-    shift 2
-    TMP_ARGS=$(mktemp /tmp/simP8_args_XXXXXX.txt)
-    if [[ "${PART_ARG}" =~ ^[0-9]+-[0-9]+$ ]]; then
-        START=$(echo "${PART_ARG}" | cut -d'-' -f1)
-        END=$(echo "${PART_ARG}" | cut -d'-' -f2)
-        seq "${START}" "${END}" > "${TMP_ARGS}"
-    else
-        echo "${PART_ARG}" | tr ',' '\n' > "${TMP_ARGS}"
-    fi
-    ARGS_FILE="${TMP_ARGS}"
+fi
+
+# Auto-adjust flavour for short tests
+if [ "${NEVENTS}" -le 10 ] && [ "${FLAVOUR}" == "workday" ]; then
+    FLAVOUR="microcentury"
 fi
 
 trap '[ -n "${TMP_ARGS}" ] && rm -f "${TMP_ARGS}"' EXIT
@@ -62,22 +86,20 @@ DEST_PATTERN="/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s"
 
 TOTAL_PARTITIONS=$(wc -l < "${ARGS_FILE}")
 echo "=========================================================="
-echo " Submitting 2022 nu14 Simulation (Pythia8, 1000 Partitions) to HTCondor"
-echo " Total Jobs     : ${TOTAL_PARTITIONS} partitions (1..1000)"
+echo " Submitting 2022 nu14 Simulation (Pythia8, ${TOTAL_PARTITIONS} Partitions) to HTCondor"
+echo " Total Jobs     : ${TOTAL_PARTITIONS} partitions"
+echo " Events/job     : ${NEVENTS}"
 echo " Pipeline       : Geant4 Sim (Genie 4) -> MCEB -> Digi (raw + MCEB)"
 echo " Decayer Macro  : gconfig/DecayConfigPy8.C (local branch)"
-echo " Flavour        : workday (max 8 hours per job)"
+echo " Flavour        : ${FLAVOUR}"
 echo " Source Pattern : ${SRC_PATTERN}"
 echo " Dest Pattern   : ${DEST_PATTERN}"
-echo " Extra Args     : $*"
 echo "=========================================================="
 
 condor_submit sim_pipeline.sub \
     args_file="${ARGS_FILE}" \
-    src_pattern="${SRC_PATTERN}" \
-    dest_pattern="${DEST_PATTERN}" \
-    flavour="workday" \
-    "$@"
+    flavour="${FLAVOUR}" \
+    nevents="${NEVENTS}"
 
 echo ""
 echo "Jobs submitted! You can monitor them using:"

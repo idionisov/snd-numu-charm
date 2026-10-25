@@ -40,16 +40,17 @@ For each partition (1..1000):
 ### 1. Submit Jobs to HTCondor (from lxplus)
 
 ```bash
-# Submit all 1000 partitions (JobFlavour: workday, up to 8 hours)
-./submit_simP8.sh
+# Submit a 5-event smoke test for partition 1 (automatically uses microcentury flavour):
+./submit_simP8.sh -n 5 -p 1
 
-# Submit a specific partition or subset using submit_simP8.sh:
-./submit_simP8.sh 1 5
-# or
+# Or test run locally / interactively in the terminal without HTCondor:
+NEVENTS=5 ./run_sim_partition.sh 1
+
+# Submit partitions 1-5 with full statistics:
 ./submit_simP8.sh -p 1-5
 
-# Or submit via condor_submit directly with custom args_file:
-condor_submit sim_pipeline.sub args_file=<(seq 1 5)
+# Submit all 1000 partitions (JobFlavour: workday, up to 8 hours):
+./submit_simP8.sh
 ```
 
 ### 2. Monitor Progress

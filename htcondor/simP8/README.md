@@ -43,8 +43,13 @@ For each partition (1..1000):
 # Submit all 1000 partitions (JobFlavour: workday, up to 8 hours)
 ./submit_simP8.sh
 
-# Or submit a test partition or subset:
-condor_submit sim_pipeline.sub -queue "partition in 1 2 3 4 5"
+# Submit a specific partition or subset using submit_simP8.sh:
+./submit_simP8.sh 1 5
+# or
+./submit_simP8.sh -p 1-5
+
+# Or submit via condor_submit directly with custom args_file:
+condor_submit sim_pipeline.sub args_file=<(seq 1 5)
 ```
 
 ### 2. Monitor Progress

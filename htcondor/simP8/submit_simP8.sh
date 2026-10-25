@@ -26,6 +26,37 @@ fi
 mkdir -p out err log
 
 ARGS_FILE="${SCRIPT_DIR}/args_nu14_volTarget_1000.txt"
+TMP_ARGS=""
+
+if [ $# -ge 1 ] && [[ "$1" =~ ^[0-9]+-[0-9]+$ ]]; then
+    START=$(echo "$1" | cut -d'-' -f1)
+    END=$(echo "$1" | cut -d'-' -f2)
+    shift
+    TMP_ARGS=$(mktemp /tmp/simP8_args_XXXXXX.txt)
+    seq "${START}" "${END}" > "${TMP_ARGS}"
+    ARGS_FILE="${TMP_ARGS}"
+elif [ $# -ge 2 ] && [[ "$1" =~ ^[0-9]+$ ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
+    START="$1"
+    END="$2"
+    shift 2
+    TMP_ARGS=$(mktemp /tmp/simP8_args_XXXXXX.txt)
+    seq "${START}" "${END}" > "${TMP_ARGS}"
+    ARGS_FILE="${TMP_ARGS}"
+elif [ "${1:-}" == "-p" ] && [ -n "${2:-}" ]; then
+    PART_ARG="$2"
+    shift 2
+    TMP_ARGS=$(mktemp /tmp/simP8_args_XXXXXX.txt)
+    if [[ "${PART_ARG}" =~ ^[0-9]+-[0-9]+$ ]]; then
+        START=$(echo "${PART_ARG}" | cut -d'-' -f1)
+        END=$(echo "${PART_ARG}" | cut -d'-' -f2)
+        seq "${START}" "${END}" > "${TMP_ARGS}"
+    else
+        echo "${PART_ARG}" | tr ',' '\n' > "${TMP_ARGS}"
+    fi
+    ARGS_FILE="${TMP_ARGS}"
+fi
+
+trap '[ -n "${TMP_ARGS}" ] && rm -f "${TMP_ARGS}"' EXIT
 SRC_PATTERN="/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/2mmRangeCut/sndlhc_15000fb-1_2022_down/nu14/volume_volTarget/%s"
 DEST_PATTERN="/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s"
 

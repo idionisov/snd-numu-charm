@@ -54,6 +54,8 @@ condor_submit pipeline.sub \
     track_pattern="${TRACK_PATTERN}" \
     truth_pattern="${TRUTH_PATTERN}" \
     disp_pattern="${DISP_PATTERN}" \
+    flavour="longlunch" \
+    env_vars="FORCE=1 ALL_EVENTS=1" \
     "$@"
 
 echo ""

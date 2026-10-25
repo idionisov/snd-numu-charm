@@ -2,6 +2,32 @@
 # SND@LHC Prefilter: Dimuon Minimalistic Cutflow Configuration
 # ==============================================================================
 
+default_cutset: "essentials"
+
+cutsets:
+  essentials:
+    description: "Standard selection cuts including Two DS Tracks"
+    cuts:
+      - step0_raw
+      - step1_ip1
+      - step2_stable_beams
+      - step3_event_deltat
+      - step4_scifi_ds_timing
+      - step5_veto_hits
+      - step6_ds_dimuon
+      - step7_two_ds_tracks
+
+  hough_tuning:
+    description: "Preselection cuts up through DS Dimuon activity (excluding Two DS Tracks)"
+    cuts:
+      - step0_raw
+      - step1_ip1
+      - step2_stable_beams
+      - step3_event_deltat
+      - step4_scifi_ds_timing
+      - step5_veto_hits
+      - step6_ds_dimuon
+
 cuts:
   - id: "step0_raw"
     name: "All Events"

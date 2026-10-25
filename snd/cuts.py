@@ -445,9 +445,10 @@ class EventDeltatCut:
         )
 
 
-def load_cutflow_config(config_path: Optional[str] = None) -> dict:
+def load_cutflow_config(config_path: Optional[str] = None, cutset: Optional[str] = None) -> dict:
     """
     Load cutflow and diagnostic histogram configuration from a YAML file.
+    Optionally activates a specific cutset (e.g. 'essentials', 'hough_tuning').
     """
     import os
     if config_path is None:
@@ -466,7 +467,26 @@ def load_cutflow_config(config_path: Optional[str] = None) -> dict:
         with open(config_path, "r") as f:
             cfg = json.load(f)
 
-    return cfg or {}
+    if not cfg:
+        return {}
+
+    # If cutsets are defined, resolve the requested or default cutset
+    cutsets = cfg.get("cutsets", {})
+    if cutsets:
+        active_cutset_name = cutset or cfg.get("default_cutset", "essentials")
+        if active_cutset_name in cutsets:
+            cset = cutsets[active_cutset_name]
+            allowed_cut_ids = set(cset.get("cuts", cset) if isinstance(cset, dict) else cset)
+            for c in cfg.get("cuts", []):
+                c_id = c.get("id")
+                if c_id:
+                    c["enabled"] = (c_id in allowed_cut_ids)
+            cfg["active_cutset"] = active_cutset_name
+        else:
+            valid_csets = list(cutsets.keys())
+            raise ValueError(f"Unknown cutset '{active_cutset_name}'. Available cutsets in {config_path}: {valid_csets}")
+
+    return cfg
 
 
 def get_preselection_metric_columns() -> List[str]:

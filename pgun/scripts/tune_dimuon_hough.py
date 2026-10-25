@@ -47,6 +47,18 @@ import scipy.ndimage
 
 
 # ---------------------------------------------------------------------------
+# 0. Asimov Significance Metric
+# ---------------------------------------------------------------------------
+
+def compute_asimov_z(s: float, b: float) -> float:
+    """Compute the Asimov discovery significance Z = sqrt(2 * [(s + b)*ln(1 + s/b) - s])."""
+    if s <= 0.0 or b <= 0.0:
+        return 0.0
+    val = 2.0 * ((s + b) * np.log(1.0 + s / b) - s)
+    return float(np.sqrt(max(0.0, val)))
+
+
+# ---------------------------------------------------------------------------
 # 1. Standalone Hough Implementation (Matches SndlhcMuonReco.py)
 # ---------------------------------------------------------------------------
 
@@ -890,10 +902,26 @@ def evaluate_grouped_config(params: Dict[str, Any]) -> List[Dict[str, Any]]:
         score_pgun_pmu    = (1.0 - fpr_pmu)   * (tpr_pgun ** 2)
         score_mean = 0.25 * (score_genie_genie + score_genie_pmu + score_pgun_genie + score_pgun_pmu)
 
+        s_g = float(c_gs[tol])
+        s_pg = float(c_pg[tol])
+        b_g = float(c_gb[tol])
+        b_p = float(c_pb[tol])
+
+        z_asimov_genie = compute_asimov_z(s_g, b_g)
+        z_asimov_pmu   = compute_asimov_z(s_g, b_p)
+        z_asimov_comb  = compute_asimov_z(s_g, b_g + b_p)
+
         cfg_p = dict(base_p)
         cfg_p["tolerance"] = tol
         res_list.append({
             "params": cfg_p,
+            "s_genie": s_g,
+            "s_pgun": s_pg,
+            "b_genie": b_g,
+            "b_pmu": b_p,
+            "z_asimov_genie": z_asimov_genie,
+            "z_asimov_pmu": z_asimov_pmu,
+            "z_asimov_comb": z_asimov_comb,
             "tpr_genie": tpr_genie,
             "tpr_pgun": tpr_pgun,
             "fpr_genie": fpr_genie,
@@ -992,8 +1020,24 @@ def evaluate_config_on_samples(item: Any) -> Dict[str, Any]:
 
     elapsed = time.time() - t0
 
+    s_g = float(n_2trk_gs)
+    s_pg = float(n_2trk_pg)
+    b_g = float(n_2trk_gb)
+    b_p = float(n_2trk_pb)
+
+    z_asimov_genie = compute_asimov_z(s_g, b_g)
+    z_asimov_pmu   = compute_asimov_z(s_g, b_p)
+    z_asimov_comb  = compute_asimov_z(s_g, b_g + b_p)
+
     return {
         "params": params,
+        "s_genie": s_g,
+        "s_pgun": s_pg,
+        "b_genie": b_g,
+        "b_pmu": b_p,
+        "z_asimov_genie": z_asimov_genie,
+        "z_asimov_pmu": z_asimov_pmu,
+        "z_asimov_comb": z_asimov_comb,
         "tpr_genie": tpr_genie,
         "tpr_pgun": tpr_pgun,
         "fpr_genie": fpr_genie,
@@ -1264,21 +1308,32 @@ def generate_parameter_grid(
 
 def print_scoreboard(results: List[Dict[str, Any]], sort_key: str = "score_genie_genie", top_k: int = 25):
     header_titles = {
-        "score_genie_genie": "GENIE Signal vs GENIE Bkg",
-        "score_genie_pmu":   "GENIE Signal vs pmu2022 Bkg",
-        "score_pgun_genie":  "Particle Gun vs GENIE Bkg",
-        "score_pgun_pmu":    "Particle Gun vs pmu2022 Bkg",
-        "score_mean":        "Composite Mean Score",
+        "score_genie_genie": "GENIE Signal vs GENIE Bkg (FOM)",
+        "score_genie_pmu":   "GENIE Signal vs pmu2022 Bkg (FOM)",
+        "score_pgun_genie":  "Particle Gun vs GENIE Bkg (FOM)",
+        "score_pgun_pmu":    "Particle Gun vs pmu2022 Bkg (FOM)",
+        "score_mean":        "Composite Mean Score (FOM)",
+        "z_asimov_genie":    "Asimov Z = sqrt(2*[(s+B)*ln(1+s/B) - s]) [Genie Sig vs Genie Bkg]",
+        "z_asimov_pmu":      "Asimov Z [Genie Sig vs pmu2022 Bkg]",
+        "z_asimov_comb":     "Asimov Z [Genie Sig vs Combined Bkg]",
     }
     title = header_titles.get(sort_key, sort_key)
 
     is_pairwise = results and results[0]["params"].get("use_pairwise", False)
+    is_z_metric = sort_key.startswith("z_")
 
     print("\n" + "=" * 175)
     print(f" HOUGH PARAMETER OPTIMIZATION SCOREBOARD (Ranked by: {title})")
-    print(f" Target Objective: Score = (1 - FPR) * (TPR)^2   |   Fiducial Acceptance: Target @ z=352 cm")
+    if is_z_metric:
+        print(f" Target Objective: Asimov Significance Z = sqrt(2*[(s+B)*ln(1+s/B) - s])   |   Fiducial: Target @ z=352 cm")
+    else:
+        print(f" Target Objective: Score = (1 - FPR) * (TPR)^2   |   Fiducial Acceptance: Target @ z=352 cm")
     print("=" * 175)
-    if is_pairwise:
+
+    if is_z_metric:
+        print(f"{'Rank':<4} | {'Format':<14} | {'MaxAng':<6} | {'MaxOpen':<7} | {'Factor':<6} | {'Bins':<11} | {'Tol':<4} | {'Smth':<4} | {'Sig':<4} | {'Trn':<4} | "
+              f"{'s(Gen)':<7} | {'B(Gen)':<7} | {'Z(Genie)':<9} | {'B(pmu)':<7} | {'Z(Comb)':<9} | {'TPR(Gen)':<8} | {'FPR(Gen)':<8}")
+    elif is_pairwise:
         print(f"{'Rank':<4} | {'Format':<14} | {'MaxAng':<6} | {'MaxOpen':<7} | {'Factor':<6} | {'Bins':<11} | {'Tol':<4} | {'Smth':<4} | {'Sig':<4} | {'Trn':<4} | "
               f"{'TPR(Gen)':<8} | {'FPR(Gen)':<8} | {'Score(GG)':<9} | {'TPR(Pgun)':<9} | {'FPR(pmu)':<8} | {'Score(GP)':<9} | {'Score(PG)':<9} | {'Score(PP)':<9}")
     else:
@@ -1297,7 +1352,15 @@ def print_scoreboard(results: List[Dict[str, Any]], sort_key: str = "score_genie
         max_open = p.get("max_opening_angle")
         max_open_str = f"{max_open:.3f}" if (max_open is not None and max_open < 900.0) else ("inf" if max_open is not None else "-")
 
-        if is_pairwise:
+        if is_z_metric:
+            s_g_str = f"{int(res.get('s_genie', 0))}"
+            b_g_str = f"{int(res.get('b_genie', 0))}"
+            z_g_str = f"{res.get('z_asimov_genie', 0.0):.4f}"
+            b_p_str = f"{int(res.get('b_pmu', 0))}"
+            z_c_str = f"{res.get('z_asimov_comb', 0.0):.4f}"
+            print(f"{i+1:<4} | {fmt_short:<14} | {max_ang_str:<6} | {max_open_str:<7} | {p['binning_factor']:<6.2f} | {bins_str:<11} | {p['tolerance']:<4.1f} | {smth:<4} | {sig_str:<4} | {trunc_str:<4} | "
+                  f"{s_g_str:<7} | {b_g_str:<7} | {z_g_str:<9} | {b_p_str:<7} | {z_c_str:<9} | {res['tpr_genie']*100:<7.1f}% | {res['fpr_genie']*100:<7.1f}%")
+        elif is_pairwise:
             print(f"{i+1:<4} | {fmt_short:<14} | {max_ang_str:<6} | {max_open_str:<7} | {p['binning_factor']:<6.2f} | {bins_str:<11} | {p['tolerance']:<4.1f} | {smth:<4} | {sig_str:<4} | {trunc_str:<4} | "
                   f"{res['tpr_genie']*100:<7.1f}% | {res['fpr_genie']*100:<7.1f}% | {res['score_genie_genie']:<9.4f} | "
                   f"{res['tpr_pgun']*100:<8.1f}% | {res['fpr_pmu']*100:<7.1f}% | {res['score_genie_pmu']:<9.4f} | "
@@ -1415,12 +1478,19 @@ def export_results_to_csv(results: List[Dict[str, Any]], csv_path: str) -> None:
             "smooth_full": p.get("smooth_full"),
             "sigma": p.get("sigma"),
             "truncate": p.get("truncate"),
-            # 2. Base Evaluation Rates (TPR on signals, FPR on backgrounds)
+            # 2. Asimov Discovery Significance & Event Counts
+            "s_genie": r.get("s_genie"),
+            "b_genie": r.get("b_genie"),
+            "b_pmu": r.get("b_pmu"),
+            "z_asimov_genie": r.get("z_asimov_genie"),
+            "z_asimov_pmu": r.get("z_asimov_pmu"),
+            "z_asimov_comb": r.get("z_asimov_comb"),
+            # 3. Base Evaluation Rates (TPR on signals, FPR on backgrounds)
             "TPR_genie": r.get("tpr_genie"),
             "TPR_pgun": r.get("tpr_pgun"),
             "FPR_genie": r.get("fpr_genie"),
             "FPR_pmu": r.get("fpr_pmu"),
-            # 3. Four 2x2 Evaluation Scores: (1 - FPR) * (TPR)^2
+            # 4. Four 2x2 Evaluation Scores: (1 - FPR) * (TPR)^2
             "score_genie_genie": r.get("score_genie_genie"),  # Sig: Genie, Bkg: Genie
             "score_genie_pmu":   r.get("score_genie_pmu"),    # Sig: Genie, Bkg: pmu
             "score_pgun_genie":  r.get("score_pgun_genie"),   # Sig: PGun,  Bkg: Genie
@@ -1450,8 +1520,8 @@ def main():
     parser.add_argument("--pgun-sig-cache", default="pgun/tuning_cache_500ev.pkl", help="Particle Gun Signal cache")
     parser.add_argument("--genie-bkg-cache", default="pgun/cache_genie_bkg_500ev.pkl", help="Genie Background cache")
     parser.add_argument("--pmu-bkg-cache", default="pgun/cache_pmu_bkg_500ev.pkl", help="pmu2022 Background cache")
-    parser.add_argument("--sort-by", choices=["genie_genie", "genie_pmu", "pgun_genie", "pgun_pmu", "mean"], default="genie_genie",
-                        help="Metric pair to rank scoreboard by")
+    parser.add_argument("--sort-by", choices=["genie_genie", "genie_pmu", "pgun_genie", "pgun_pmu", "mean", "asimov_z", "z_genie", "z_pmu", "z_comb"], default="asimov_z",
+                        help="Metric to rank scoreboard by (default: asimov_z)")
     parser.add_argument("--hf", "--h-format", "--hough-format", dest="hf",
                         choices=["linearSlopeIntercept", "normal", "all"],
                         default="linearSlopeIntercept",
@@ -1573,6 +1643,10 @@ def main():
         "pgun_genie":  "score_pgun_genie",
         "pgun_pmu":    "score_pgun_pmu",
         "mean":        "score_mean",
+        "asimov_z":    "z_asimov_genie",
+        "z_genie":     "z_asimov_genie",
+        "z_pmu":       "z_asimov_pmu",
+        "z_comb":      "z_asimov_comb",
     }
     target_metric = sort_key_map[args.sort_by]
     results.sort(key=lambda r: -r[target_metric])
@@ -1607,6 +1681,11 @@ def main():
         print(f"  Max Open Angle:  {open_str}")
     print(f"  Target Window:   z={bp['z_target']} cm, x in {bp['target_window_xz']}, y in {bp['target_window_yz']}")
     print("-" * 70)
+    print(f"  Signal s (Genie):       {int(best.get('s_genie', 0))}")
+    print(f"  Background B (Genie):   {int(best.get('b_genie', 0))}")
+    print(f"  Background B (pmu):     {int(best.get('b_pmu', 0))}")
+    print(f"  Asimov Z (Genie vs G):  {best.get('z_asimov_genie', 0.0):.4f}")
+    print(f"  Asimov Z (Genie vs C):  {best.get('z_asimov_comb', 0.0):.4f}")
     print(f"  Genie Signal TPR:       {best['tpr_genie']*100:.2f}%")
     print(f"  Genie Background FPR:   {best['fpr_genie']*100:.2f}% (Rejection: {(1-best['fpr_genie'])*100:.2f}%)")
     print(f"  Score (Genie vs Genie): {best['score_genie_genie']:.4f}")

@@ -666,7 +666,7 @@ def _filter_partition_stream(
             p_v = bool(cut_veto(t_cbm.Digi_MuFilterHits, t_cbm.Digi_ScifiHits))
             p_d = bool(cut_dimuon(t_cbm.Digi_MuFilterHits))
             trks = last_trk_leaf.GetObject() if last_trk_leaf else getattr(t_cbm, "Reco_MuonTracks", None)
-            p_tr = bool(cut_tracks(trks)) if trks is not None else False
+            p_tr = bool(cut_tracks(trks)) if cut_tracks and trks is not None else (True if cut_tracks is None else False)
 
             if p_t:
                 res["cut_counts"][4] += 1
@@ -680,10 +680,13 @@ def _filter_partition_stream(
                         res["cut_counts"][6] += 1
                         res["raw_weights"][6] += rw
                         res["mc_weights"][6] += mw
-                        if p_tr:
-                            res["cut_counts"][7] += 1
-                            res["raw_weights"][7] += rw
-                            res["mc_weights"][7] += mw
+                        if cut_tracks is not None:
+                            if p_tr:
+                                res["cut_counts"][7] += 1
+                                res["raw_weights"][7] += rw
+                                res["mc_weights"][7] += mw
+                                passed_entries.append(iev)
+                        else:
                             passed_entries.append(iev)
 
             if record_failures and not (p_t and p_v and p_d and p_tr):
@@ -764,6 +767,7 @@ def process_single_partition_pipeline(
     ind_input: Optional[str],
     ind_output: Optional[str],
     config_path: str,
+    cutset: Optional[str] = None,
     create_symlinks: bool = True,
     skip_empty: bool = False,
     skip_existing: bool = False,
@@ -803,7 +807,7 @@ def process_single_partition_pipeline(
     )
     load_trident_libraries()
 
-    cutflow_cfg = load_cutflow_config(config_path) if os.path.exists(config_path) else {}
+    cutflow_cfg = load_cutflow_config(config_path, cutset=cutset) if os.path.exists(config_path) else {}
     cuts_list = cutflow_cfg.get("cuts", [])
 
     timing_cfg = next((c for c in cuts_list if c.get("filter") == "pass_scifi_ds_timing_cut" or "timing" in c.get("id", "")), {})
@@ -838,7 +842,7 @@ def process_single_partition_pipeline(
         max_tracks=two_ds_cfg.get("max_tracks", 2),
         track_type=two_ds_cfg.get("track_type", 13),
         reversed=two_ds_cfg.get("reversed", False),
-    )
+    ) if two_ds_cfg.get("enabled", True) else None
 
     # 1. Process Main File
     main_res, _ = _filter_partition_stream(
@@ -993,6 +997,12 @@ def main():
         help="Cuts to enable: 'all', 'fiducial', or comma-separated list of cut IDs. Defaults to enabled flags in config.",
     )
     parser.add_argument(
+        "--cutset",
+        type=str,
+        default=None,
+        help="Name of cutset to activate from config (e.g. 'essentials', 'hough_tuning'). Defaults to config's default_cutset.",
+    )
+    parser.add_argument(
         "--tree-name",
         type=str,
         default=None,
@@ -1105,7 +1115,7 @@ def main():
     # Load cutflow config if available
     cutflow_cfg = {}
     if os.path.exists(args.config):
-        cutflow_cfg = load_cutflow_config(args.config)
+        cutflow_cfg = load_cutflow_config(args.config, cutset=args.cutset)
 
     # Resolve cuts configuration
     if "cuts" in cutflow_cfg and args.enable_cuts:
@@ -1224,6 +1234,7 @@ def main():
     )
 
     active_cut_list = [c["name"] for c in cutflow_cfg.get("cuts", []) if c.get("enabled", True)]
+    active_cset = cutflow_cfg.get("active_cutset", args.cutset or "default")
 
     print("=" * 80)
     print(" SND@LHC Universal Event Prefilter")
@@ -1235,6 +1246,7 @@ def main():
     print(f" RDataFrame Workers:   {thread_info}")
     print(f" Cutflow Output:       {args.cutflow if args.cutflow else 'Disabled (counters only)'}")
     print(f" Config File:          {args.config}")
+    print(f" Active Cutset:        {active_cset}")
     print(f" Active Cuts ({len(active_cut_list)}):")
     for c in cutflow_cfg.get("cuts", []):
         if c.get("enabled", True):
@@ -1299,7 +1311,7 @@ def main():
             elif m_out and ind_in:
                 ind_out = os.path.join(os.path.dirname(m_out), os.path.basename(ind_in))
 
-            tasks.append((p, m_in, m_out, s_in, s_out, ind_in, ind_out, args.config, not args.no_symlinks, args.skip_empty, args.skip_existing))
+            tasks.append((p, m_in, m_out, s_in, s_out, ind_in, ind_out, args.config, args.cutset, not args.no_symlinks, args.skip_empty, args.skip_existing))
 
         print(f"\n[Parallel] Dispatching {len(tasks)} partition tasks across {args.workers} worker processes...\n")
 

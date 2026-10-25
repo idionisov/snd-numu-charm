@@ -28,6 +28,7 @@ INPUT_PATTERN="${DATA_DIR}/%s/sndLHC.Genie-TGeant4_MCEB_dig.root"
 TRACK_PATTERN="${DATA_DIR}/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks.root"
 TRUTH_PATTERN="${DATA_DIR}/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root"
 DISP_PATTERN="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_MCEB/partitions/displays_part%s.root"
+TRUTH_SOURCE_PATTERN="${DATA_DIR}/%s/sndLHC.Genie-TGeant4_dig.root"
 
 mkdir -p "${DATA_DIR}"
 mkdir -p "/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_MCEB/partitions"
@@ -39,10 +40,11 @@ echo " Dataset        : sndlhc_15000fb-1_2022_down_nu14_volume_volTarget (MCEB)"
 echo " Total Jobs     : ${TOTAL_PARTITIONS} partitions (1..1000)"
 echo " Tracking Mode  : All Events (nTracks=0, --all-events)"
 echo " Force Mode     : Enabled (FORCE=1)"
-echo " Flavour        : microcentury (max 1 hours per job)"
+echo " Flavour        : longlunch (max 2 hours per job)"
 echo " Displays Flags : --mc-truth --recoMuons"
 echo " Input Pattern  : ${INPUT_PATTERN}"
 echo " Track Target   : ${TRACK_PATTERN}"
+echo " Truth Source   : ${TRUTH_SOURCE_PATTERN}"
 echo " Truth Target   : ${TRUTH_PATTERN}"
 echo " Displays Target: ${DISP_PATTERN}"
 echo " Extra Args     : $*"
@@ -54,6 +56,7 @@ condor_submit pipeline_mceb.sub \
     track_pattern="${TRACK_PATTERN}" \
     truth_pattern="${TRUTH_PATTERN}" \
     disp_pattern="${DISP_PATTERN}" \
+    truth_source="${TRUTH_SOURCE_PATTERN}" \
     flavour="longlunch" \
     env_vars="FORCE=1 ALL_EVENTS=1" \
     "$@"

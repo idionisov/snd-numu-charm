@@ -171,16 +171,21 @@ def resolve_weight_function(
 
 def _run_worker_task(task_args: tuple) -> dict:
     """Worker task execution function for parallel partition processing."""
-    if len(task_args) >= 9:
+    if len(task_args) >= 10:
+        part_str, in_file, out_file, max_entries, create_symlinks, config_path, truth_tree_name, store_in_cbmsim, sample_type, truth_source = task_args[:10]
+    elif len(task_args) >= 9:
         part_str, in_file, out_file, max_entries, create_symlinks, config_path, truth_tree_name, store_in_cbmsim, sample_type = task_args[:9]
+        truth_source = None
     elif len(task_args) == 8:
         part_str, in_file, out_file, max_entries, create_symlinks, config_path, truth_tree_name, store_in_cbmsim = task_args[:8]
         sample_type = None
+        truth_source = None
     else:
         part_str, in_file, out_file, max_entries, create_symlinks, config_path = task_args[:6]
         truth_tree_name = "mctruth"
         store_in_cbmsim = False
         sample_type = None
+        truth_source = None
     global _worker_processor, _worker_cfg
     if _worker_processor is None:
         _init_worker(config_path)
@@ -201,6 +206,7 @@ def _run_worker_task(task_args: tuple) -> dict:
             weight_fn=weight_fn,
             truth_tree_name=truth_tree_name,
             store_in_cbmsim=store_in_cbmsim,
+            truth_source=truth_source,
         )
         res["elapsed"] = time.time() - t0
         res["partition"] = part_str
@@ -259,6 +265,12 @@ def parse_arguments():
         type=str,
         default=os.path.join(_repo_root, "config", "mctruth_neutrinos_config.yaml"),
         help="Path to YAML configuration file",
+    )
+    parser.add_argument(
+        "--truth-source",
+        type=str,
+        default=None,
+        help="Optional external ROOT file or pattern with '%%s' to extract truth information from (mapped by event number)",
     )
     parser.add_argument(
         "--symlink-input",
@@ -356,12 +368,15 @@ def main():
     selected_partitions = parse_partitions(args.partitions)
     tasks = []
 
+    truth_source_pattern = args.truth_source
+
     if selected_partitions is not None:
         for p in selected_partitions:
             in_file = format_partition_path(file_pattern, p)
             if os.path.exists(in_file):
                 out_file = format_partition_path(out_pattern, p)
-                tasks.append((str(p), in_file, out_file))
+                truth_src = format_partition_path(truth_source_pattern, p) if truth_source_pattern else None
+                tasks.append((str(p), in_file, out_file, truth_src))
             else:
                 print(f"[Warning] Partition {p} input file not found: {in_file}")
     else:
@@ -370,7 +385,8 @@ def main():
             captures = extract_captures(in_file, file_pattern)
             part_str = captures[0] if captures else str(idx)
             out_file = format_partition_path(out_pattern, part_str)
-            tasks.append((part_str, in_file, out_file))
+            truth_src = format_partition_path(truth_source_pattern, part_str) if truth_source_pattern else None
+            tasks.append((part_str, in_file, out_file, truth_src))
 
     if not tasks:
         print(f"[Error] No input files found matching pattern: {file_pattern}")
@@ -379,11 +395,11 @@ def main():
     if args.skip_existing:
         filtered_tasks = []
         skipped_count = 0
-        for p, in_f, out_f in tasks:
+        for p, in_f, out_f, truth_src in tasks:
             if os.path.exists(out_f) and os.path.getsize(out_f) > 1024:
                 skipped_count += 1
             else:
-                filtered_tasks.append((p, in_f, out_f))
+                filtered_tasks.append((p, in_f, out_f, truth_src))
         print(f"[Info] --skip-existing: skipped {skipped_count} existing partition(s), {len(filtered_tasks)} remaining.")
         tasks = filtered_tasks
         if not tasks:
@@ -399,7 +415,7 @@ def main():
         print("=" * 80)
         print(f"Total partitions: {total_tasks}")
         total_linked = 0
-        for idx, (part_str, in_file, out_file) in enumerate(tasks):
+        for idx, (part_str, in_file, out_file, *_) in enumerate(tasks):
             in_dir = os.path.dirname(os.path.abspath(in_file))
             out_dir = os.path.dirname(os.path.abspath(out_file))
             created = symlink_input_root_files(
@@ -430,6 +446,8 @@ def main():
     print(f"Configuration file           : {config_path}")
     print(f"Sample simulation type       : {sample_type}")
     print(f"Input file pattern           : {file_pattern}")
+    if truth_source_pattern:
+        print(f"External truth source        : {truth_source_pattern}")
     print(f"Output file pattern          : {out_pattern}")
     print(f"Channel lookup table         : {ch_mgr.table_path}")
     print(f"Known primary channels       : {len(ch_mgr.primary_channels)}")
@@ -449,8 +467,8 @@ def main():
     if args.jobs > 1 and total_tasks > 1:
         from concurrent.futures import ProcessPoolExecutor, as_completed
         worker_args = [
-            (part_str, in_f, out_f, args.entries, do_symlink, config_path, truth_tree_name, store_in_cbmsim, sample_type)
-            for (part_str, in_f, out_f) in tasks
+            (part_str, in_f, out_f, args.entries, do_symlink, config_path, truth_tree_name, store_in_cbmsim, sample_type, truth_src)
+            for (part_str, in_f, out_f, truth_src) in tasks
         ]
         print(f"\nDispatching {total_tasks} partition tasks to pool of {args.jobs} worker processes...\n")
         with ProcessPoolExecutor(max_workers=args.jobs) as executor:
@@ -474,10 +492,12 @@ def main():
         proc_cfg = cfg.get("processor", {})
         processor = build_processor(proc_cfg)
 
-        for idx, (part_str, in_file, out_file) in enumerate(tasks):
+        for idx, (part_str, in_file, out_file, truth_src) in enumerate(tasks):
             print(f"\n[{idx + 1}/{total_tasks}] Processing Partition: {part_str}")
-            print(f"  Input : {in_file}")
-            print(f"  Output: {out_file}")
+            print(f"  Input        : {in_file}")
+            if truth_src:
+                print(f"  Truth Source : {truth_src}")
+            print(f"  Output       : {out_file}")
 
             t0 = time.time()
             res = process_categorized_neutrino_file(
@@ -490,6 +510,7 @@ def main():
                 weight_fn=weight_fn,
                 truth_tree_name=truth_tree_name,
                 store_in_cbmsim=store_in_cbmsim,
+                truth_source=truth_src,
             )
             res["elapsed"] = time.time() - t0
             res["partition"] = part_str

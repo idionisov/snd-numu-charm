@@ -58,12 +58,14 @@ DEFAULT_INPUT="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_do
 DEFAULT_TRACK="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks.root"
 DEFAULT_TRUTH="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig_2MuTrks_truth.root"
 DEFAULT_DISP="/eos/user/i/idioniso/snd-numu-charm/event_displays/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/partitions/displays_part%s.root"
+DEFAULT_TRUTH_SOURCE="/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_dig.root"
 
 INPUT_PATTERN="${2:-$DEFAULT_INPUT}"
 TRACK_PATTERN="${3:-$DEFAULT_TRACK}"
 TRUTH_PATTERN="${4:-$DEFAULT_TRUTH}"
 DISP_PATTERN="${5:-$DEFAULT_DISP}"
 STORE_EVENTS_ARG="${6:-all}"
+TRUTH_SOURCE_PATTERN="${7:-${TRUTH_SOURCE:-$DEFAULT_TRUTH_SOURCE}}"
 
 # This worker defaults to keeping all events
 if [ "$STORE_EVENTS_ARG" = "two_tracks" ] || [ "$STORE_EVENTS_ARG" = "--two-tracks-only" ]; then
@@ -120,6 +122,7 @@ echo "  Host         : $(hostname)"
 echo "  Partition    : ${PARTITION}"
 echo "  Raw Input    : ${INPUT_PATTERN}"
 echo "  Track Target : ${TRACK_FILE}"
+echo "  Truth Source : ${TRUTH_SOURCE_PATTERN}"
 echo "  Truth Target : ${TRUTH_FILE}"
 echo "  Disp Target  : ${DISP_FILE}"
 echo "  Par File     : ${PAR_FILE}"
@@ -168,6 +171,10 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
 
     # 5. Step 2: Run MCTruth Extraction
     echo " ~ [4/7] Step 2/4: Running MCTruth extraction..."
+    EXTRA_TRUTH_ARGS=()
+    if [ -n "${TRUTH_SOURCE_PATTERN}" ]; then
+        EXTRA_TRUTH_ARGS+=("--truth-source" "${TRUTH_SOURCE_PATTERN}")
+    fi
     "${PYTHON_BIN}" "${TRUTH_SCRIPT}" \
         -i "${TRACK_PATTERN}" \
         -o "${TRUTH_PATTERN}" \
@@ -175,7 +182,8 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
         -j 1 \
         -c "${CONFIG_FILE}" \
         ${SKIP_TRUTH_FLAG} \
-        --no-symlink-input
+        --no-symlink-input \
+        "${EXTRA_TRUTH_ARGS[@]}"
     TRUTH_EXIT=$?
 
     if [ $TRUTH_EXIT -ne 0 ]; then

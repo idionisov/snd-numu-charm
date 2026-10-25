@@ -17,7 +17,7 @@ fi
 
 USER_SNDSW_BUILD="/afs/cern.ch/user/i/idioniso/snd_master/sw-pr330/rhel9_x86-64/sndsw/latest-pr-330-release"
 if [ ! -d "${USER_SNDSW_BUILD}" ]; then
-    USER_SNDSW_BUILD="/afs/cern.ch/user/i/idioniso/snd_master/sw-/slc9_x86-64/sndsw/latest-pr-330-release"
+    USER_SNDSW_BUILD="/afs/cern.ch/user/i/idioniso/snd_master/sw-pr330/slc9_x86-64/sndsw/latest-pr-330-release"
 fi
 USER_SNDSW_SRC="/afs/cern.ch/user/i/idioniso/snd_master/sndsw"
 

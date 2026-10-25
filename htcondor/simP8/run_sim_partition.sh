@@ -68,7 +68,17 @@ else
 fi
 
 mkdir -p "${SCRATCH_DIR}"
-trap 'rm -rf "${SCRATCH_DIR}"' EXIT
+# Clean up trap: on failure, retain scratch directory so logs/outputs are not lost
+cleanup() {
+    local ec=$?
+    if [ ${ec} -ne 0 ]; then
+        echo " ~ [FAILURE] Pipeline aborted with exit code ${ec}." >&2
+        echo "             Scratch workspace retained at: ${SCRATCH_DIR}" >&2
+    else
+        rm -rf "${SCRATCH_DIR}"
+    fi
+}
+trap cleanup EXIT
 
 # Find and copy input GENIE files
 echo " ~ [3/5] Staging input files from EOS..."
@@ -94,7 +104,7 @@ python3 -X faulthandler "${VMCWORKDIR}/shipLHC/run_simSND.py" \
     -f "${LOCAL_GST}" \
     -y 2022 \
     -n "${NEVENTS}" \
-    -o "${SCRATCH_DIR}"
+    -o "${SCRATCH_DIR}" || true
 
 SIM_FILE="${SCRATCH_DIR}/sndLHC.Genie-TGeant4.root"
 GEO_FILE="${SCRATCH_DIR}/geofile_full.Genie-TGeant4.root"
@@ -110,7 +120,7 @@ echo " ~ [4/5] [Step 2/4] Running MCEventBuilder..."
 python3 -X faulthandler "${VMCWORKDIR}/shipLHC/run_MCEventBuilder.py" \
     -f "${SIM_FILE}" \
     -g "${GEO_FILE}" \
-    -o "${MCEB_FILE}"
+    -o "${MCEB_FILE}" || true
 
 if [ ! -s "${MCEB_FILE}" ]; then
     echo "ERROR: MCEventBuilder failed!" >&2
@@ -121,15 +131,25 @@ fi
 echo " ~ [4/5] [Step 3/4] Running Digitization on raw sim..."
 python3 -X faulthandler "${VMCWORKDIR}/shipLHC/run_digiSND.py" \
     -f "${SIM_FILE}" \
-    -g "${GEO_FILE}"
+    -g "${GEO_FILE}" || true
+
+if [ ! -s "${SCRATCH_DIR}/sndLHC.Genie-TGeant4_dig.root" ]; then
+    echo "ERROR: Digitization of raw sim failed!" >&2
+    exit 5
+fi
 
 # Step 4: Digitization (MCEB)
 echo " ~ [4/5] [Step 4/4] Running Digitization on MCEB..."
 python3 -X faulthandler "${VMCWORKDIR}/shipLHC/run_digiSND.py" \
     -f "${MCEB_FILE}" \
-    -g "${GEO_FILE}"
+    -g "${GEO_FILE}" || true
 
-# Verify all expected outputs exist
+if [ ! -s "${SCRATCH_DIR}/sndLHC.Genie-TGeant4_MCEB_dig.root" ]; then
+    echo "ERROR: Digitization of MCEB failed!" >&2
+    exit 6
+fi
+
+# Verify all expected outputs exist in scratch
 REQUIRED_OUTPUTS=(
     "geofile_full.Genie-TGeant4.root"
     "sndLHC.Genie-TGeant4.root"
@@ -141,7 +161,7 @@ REQUIRED_OUTPUTS=(
 for out_name in "${REQUIRED_OUTPUTS[@]}"; do
     if [ ! -s "${SCRATCH_DIR}/${out_name}" ]; then
         echo "ERROR: Expected output ${out_name} is missing or empty!" >&2
-        exit 5
+        exit 7
     fi
 done
 
@@ -149,5 +169,13 @@ done
 echo " ~ [5/5] Exporting outputs to ${DEST_PART_DIR}..."
 mkdir -p "${DEST_PART_DIR}"
 cp -f "${SCRATCH_DIR}"/*.root "${DEST_PART_DIR}/"
+
+# Verify all files exist in destination
+for out_name in "${REQUIRED_OUTPUTS[@]}"; do
+    if [ ! -s "${DEST_PART_DIR}/${out_name}" ]; then
+        echo "ERROR: Destination file ${DEST_PART_DIR}/${out_name} is missing or empty after copy!" >&2
+        exit 8
+    fi
+done
 
 echo " ~ [SUCCESS] Partition ${PARTITION} fully simulated and digitized at $(date)!"

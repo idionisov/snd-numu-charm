@@ -93,19 +93,38 @@ def check_partition(part_id: int, base_dir: str) -> Dict[str, Any]:
                 result["corrupted"].append(f"sim (gst {gst.GetEntries()} != cbmsim {tree.GetEntries()})")
         f_sim.Close()
 
-    for path, name in [
-        (mceb_path, "sndLHC.Genie-TGeant4_MCEB.root"),
-        (digi_path, "sndLHC.Genie-TGeant4_dig.root"),
-        (mceb_digi_path, "sndLHC.Genie-TGeant4_MCEB_dig.root"),
-    ]:
-        f = ROOT.TFile.Open(path)
-        if not f or f.IsZombie():
-            result["corrupted"].append(name)
-        else:
-            t = f.Get("cbmsim")
-            if not t or (result["n_events"] is not None and t.GetEntries() != result["n_events"]):
-                result["corrupted"].append(f"{name} (entry mismatch)")
-            f.Close()
+    # Check digi matches sim entries
+    f_digi = ROOT.TFile.Open(digi_path)
+    if not f_digi or f_digi.IsZombie():
+        result["corrupted"].append("sndLHC.Genie-TGeant4_dig.root")
+    else:
+        t_digi = f_digi.Get("cbmsim")
+        if not t_digi or (result["n_events"] is not None and t_digi.GetEntries() != result["n_events"]):
+            result["corrupted"].append(f"sndLHC.Genie-TGeant4_dig.root (entries {t_digi.GetEntries() if t_digi else None} != sim {result['n_events']})")
+        f_digi.Close()
+
+    # Check MCEB (MCEB splits by 25ns, so entries >= sim)
+    n_mceb = None
+    f_mceb = ROOT.TFile.Open(mceb_path)
+    if not f_mceb or f_mceb.IsZombie():
+        result["corrupted"].append("sndLHC.Genie-TGeant4_MCEB.root")
+    else:
+        t_mceb = f_mceb.Get("cbmsim")
+        if not t_mceb or (result["n_events"] is not None and t_mceb.GetEntries() < result["n_events"]):
+            result["corrupted"].append(f"sndLHC.Genie-TGeant4_MCEB.root (entries {t_mceb.GetEntries() if t_mceb else None} < sim {result['n_events']})")
+        elif t_mceb:
+            n_mceb = t_mceb.GetEntries()
+        f_mceb.Close()
+
+    # Check MCEB digi matches MCEB entries
+    f_mceb_digi = ROOT.TFile.Open(mceb_digi_path)
+    if not f_mceb_digi or f_mceb_digi.IsZombie():
+        result["corrupted"].append("sndLHC.Genie-TGeant4_MCEB_dig.root")
+    else:
+        t_mceb_digi = f_mceb_digi.Get("cbmsim")
+        if not t_mceb_digi or (n_mceb is not None and t_mceb_digi.GetEntries() != n_mceb):
+            result["corrupted"].append(f"sndLHC.Genie-TGeant4_MCEB_dig.root (entries {t_mceb_digi.GetEntries() if t_mceb_digi else None} != mceb {n_mceb})")
+        f_mceb_digi.Close()
 
     if result["corrupted"]:
         result["error"] = f"Corrupted/mismatched: {', '.join(result['corrupted'])}"

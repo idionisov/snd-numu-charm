@@ -93,6 +93,9 @@ if [ "${FORCE:-0}" = "1" ]; then
     SKIP_TRUTH_FLAG=""
     SKIP_SKIM_FLAG=""
 fi
+if [ "${SKIP_TRACK:-0}" = "1" ]; then
+    SKIP_TRACK_FLAG="--skip-existing"
+fi
 
 INPUT_FILE=$(printf "$INPUT_PATTERN" "$PARTITION")
 TRACK_FILE=$(printf "$TRACK_PATTERN" "$PARTITION")

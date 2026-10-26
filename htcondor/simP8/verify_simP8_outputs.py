@@ -20,6 +20,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import ROOT
 ROOT.gROOT.SetBatch(True)
+ROOT.gEnv.SetValue("TFile.Recover", 0)
+ROOT.gErrorIgnoreLevel = ROOT.kError
 
 
 def parse_partitions(part_arg: Optional[str]) -> List[int]:
@@ -39,6 +41,19 @@ def parse_partitions(part_arg: Optional[str]) -> List[int]:
         elif token.isdigit():
             partitions.add(int(token))
     return sorted(partitions)
+
+
+def safe_open_root(fpath: str) -> Optional[ROOT.TFile]:
+    """Safely open ROOT file catching C++ and I/O exceptions."""
+    try:
+        f = ROOT.TFile.Open(fpath, "READ")
+        if not f or f.IsZombie():
+            if f:
+                f.Close()
+            return None
+        return f
+    except (OSError, Exception):
+        return None
 
 
 def check_partition(part_id: int, base_dir: str) -> Dict[str, Any]:
@@ -79,8 +94,8 @@ def check_partition(part_id: int, base_dir: str) -> Dict[str, Any]:
     digi_path = os.path.join(part_dir, "sndLHC.Genie-TGeant4_dig.root")
     mceb_digi_path = os.path.join(part_dir, "sndLHC.Genie-TGeant4_MCEB_dig.root")
 
-    f_sim = ROOT.TFile.Open(sim_path)
-    if not f_sim or f_sim.IsZombie():
+    f_sim = safe_open_root(sim_path)
+    if not f_sim:
         result["corrupted"].append("sndLHC.Genie-TGeant4.root")
     else:
         tree = f_sim.Get("cbmsim")
@@ -94,8 +109,8 @@ def check_partition(part_id: int, base_dir: str) -> Dict[str, Any]:
         f_sim.Close()
 
     # Check digi matches sim entries
-    f_digi = ROOT.TFile.Open(digi_path)
-    if not f_digi or f_digi.IsZombie():
+    f_digi = safe_open_root(digi_path)
+    if not f_digi:
         result["corrupted"].append("sndLHC.Genie-TGeant4_dig.root")
     else:
         t_digi = f_digi.Get("cbmsim")
@@ -105,8 +120,8 @@ def check_partition(part_id: int, base_dir: str) -> Dict[str, Any]:
 
     # Check MCEB (MCEB splits by 25ns, so entries >= sim)
     n_mceb = None
-    f_mceb = ROOT.TFile.Open(mceb_path)
-    if not f_mceb or f_mceb.IsZombie():
+    f_mceb = safe_open_root(mceb_path)
+    if not f_mceb:
         result["corrupted"].append("sndLHC.Genie-TGeant4_MCEB.root")
     else:
         t_mceb = f_mceb.Get("cbmsim")
@@ -117,8 +132,8 @@ def check_partition(part_id: int, base_dir: str) -> Dict[str, Any]:
         f_mceb.Close()
 
     # Check MCEB digi matches MCEB entries
-    f_mceb_digi = ROOT.TFile.Open(mceb_digi_path)
-    if not f_mceb_digi or f_mceb_digi.IsZombie():
+    f_mceb_digi = safe_open_root(mceb_digi_path)
+    if not f_mceb_digi:
         result["corrupted"].append("sndLHC.Genie-TGeant4_MCEB_dig.root")
     else:
         t_mceb_digi = f_mceb_digi.Get("cbmsim")
@@ -139,23 +154,32 @@ def main():
     parser.add_argument("-d", "--data-dir", default="/eos/user/i/idioniso/snd-numu-charm/data/newP8", help="Path to newP8 directory")
     parser.add_argument("-p", "--partitions", default="1-1000", help="Partition range (e.g. 1-5, 1-1000)")
     parser.add_argument("-j", "--jobs", type=int, default=8, help="Number of parallel verification workers")
+    parser.add_argument("-w", "--write-failed", default=None, help="File to write failed partition IDs")
     args = parser.parse_args()
 
     partitions = parse_partitions(args.partitions)
     print(f"Verifying {len(partitions)} partitions in {args.data_dir} with {args.jobs} workers...")
 
     results = []
+    failed_partitions = []
     with ProcessPoolExecutor(max_workers=args.jobs) as executor:
         futures = {executor.submit(check_partition, p, args.data_dir): p for p in partitions}
         for future in as_completed(futures):
             res = future.result()
             results.append(res)
             if not res["valid"]:
+                failed_partitions.append(res["partition"])
                 print(f" [FAIL] Partition {res['partition']:4d}: {res['error']}")
 
     valid_count = sum(1 for r in results if r["valid"])
     total = len(partitions)
     pct = (valid_count / total) * 100 if total else 0.0
+
+    if args.write_failed and failed_partitions:
+        with open(args.write_failed, "w") as f:
+            for p in sorted(failed_partitions):
+                f.write(f"{p}\n")
+        print(f"Wrote {len(failed_partitions)} failed partition IDs to {args.write_failed}")
 
     print("=" * 60)
     print(f" Verification Summary: {valid_count}/{total} valid ({pct:.1f}%)")

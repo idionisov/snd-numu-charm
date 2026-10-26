@@ -33,6 +33,10 @@ POSITIONAL=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -a|--args-file)
+      ARGS_FILE="$2"
+      shift 2
+      ;;
     -n|--nevents)
       NEVENTS="$2"
       shift 2
@@ -55,8 +59,13 @@ while [[ $# -gt 0 ]]; do
       ARGS_FILE="${TMP_ARGS}"
       ;;
     *)
-      POSITIONAL+=("$1")
-      shift
+      if [ -f "$1" ]; then
+          ARGS_FILE="$1"
+          shift
+      else
+          POSITIONAL+=("$1")
+          shift
+      fi
       ;;
   esac
 done

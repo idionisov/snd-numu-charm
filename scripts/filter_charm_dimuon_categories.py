@@ -34,6 +34,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import ROOT
 ROOT.gROOT.SetBatch(True)
+ROOT.gEnv.SetValue("TFile.Recover", 0)
+ROOT.gErrorIgnoreLevel = ROOT.kError
 
 
 def parse_partitions(part_arg: Optional[str]) -> List[int]:
@@ -114,7 +116,10 @@ def process_single_partition(
             }
 
     t0 = time.time()
-    f_in = ROOT.TFile.Open(input_file, "READ")
+    try:
+        f_in = ROOT.TFile.Open(input_file, "READ")
+    except (OSError, Exception):
+        f_in = None
     if not f_in or f_in.IsZombie():
         return {
             "partition": partition,

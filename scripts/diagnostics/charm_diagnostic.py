@@ -61,7 +61,8 @@ _repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
-from snd import resolve_input_files
+from snd import resolve_input_files, is_dimuon_in_ds_acceptance
+from snd.io_utils import extract_captures
 
 DEFAULT_PRESETS: Dict[str, Dict[str, str]] = {
     "nu14_2022": {
@@ -72,7 +73,73 @@ DEFAULT_PRESETS: Dict[str, Dict[str, str]] = {
         "input": "/eos/user/i/idioniso/snd-numu-charm/data/old_sndlhc_100fb-1_2022_down_volTarget/*/sndLHC.Genie-TGeant4_digCPP_2MuTrks_truth.root",
         "description": "2022 100fb-1 volTarget production (400 partitions)",
     },
+    "newP8": {
+        "input": "/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root",
+        "truth_source": "/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4.root",
+        "description": "Pythia8 production with MCEB and raw Geant4 truth source",
+    },
 }
+
+
+def safe_set_branch_status(tree: Any, bpattern: str, status: int = 1):
+    """Safely sets branch status without producing ROOT warnings for non-existent branches."""
+    prefix = bpattern.rstrip("*")
+    if any(b.GetName().startswith(prefix) for b in tree.GetListOfBranches()):
+        try:
+            tree.SetBranchStatus(bpattern, status)
+        except Exception:
+            pass
+
+
+def get_tree_event_id(tree: Any) -> Optional[int]:
+    """Extract event identifier from FairEventHeader or MCEventHeader."""
+    hdr = getattr(tree, "EventHeader", None)
+    if hdr and hasattr(hdr, "GetEventNumber"):
+        try:
+            return int(hdr.GetEventNumber())
+        except Exception:
+            pass
+    mchdr = getattr(tree, "MCEventHeader", None)
+    if mchdr and hasattr(mchdr, "GetEventID"):
+        try:
+            return int(mchdr.GetEventID())
+        except Exception:
+            pass
+    return None
+
+
+def resolve_truth_source_file(
+    input_file: str,
+    input_pattern: Optional[str] = None,
+    truth_source: Optional[str] = None,
+) -> str:
+    """
+    Resolves the truth ROOT file corresponding to an input ROOT file.
+    If truth_source is None, returns input_file.
+    If truth_source contains '%s', formats it using captures from input_pattern,
+    or falls back to the partition directory in input_file.
+    """
+    if not truth_source:
+        return input_file
+
+    if "%s" in truth_source:
+        captures = []
+        if input_pattern:
+            try:
+                captures = extract_captures(input_file, input_pattern)
+            except Exception:
+                captures = []
+
+        if captures and len(captures) == truth_source.count("%s"):
+            return truth_source % tuple(captures)
+        elif captures and len(captures) == 1:
+            return truth_source.replace("%s", captures[0])
+
+        parent_dir = os.path.basename(os.path.dirname(os.path.abspath(input_file)))
+        if parent_dir:
+            return truth_source.replace("%s", parent_dir)
+
+    return truth_source
 
 
 
@@ -1582,11 +1649,17 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
 
     events_analyzed = 0
 
-    for fpath in file_chunk:
+    for item in file_chunk:
+        if isinstance(item, (list, tuple)):
+            fpath, truth_path = item[0], item[1]
+        else:
+            fpath, truth_path = item, item
+
         if max_events_chunk > 0 and events_analyzed >= max_events_chunk:
             break
 
         fin = None
+        ftruth = None
         try:
             fin = ROOT.TFile.Open(fpath, "READ")
         except Exception:
@@ -1617,20 +1690,58 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
         tree_truth = fin.Get("mctruth") or fin.Get("mc_truth") or fin.Get("truth")
         if tree_truth and not tree_truth.IsZombie():
             tree_cbmsim.AddFriend(tree_truth)
+            for tb in ["is_cc*", "has_charm*", "has_prompt_charm_muon*", "mc_weight*", "raw_weight*"]:
+                safe_set_branch_status(tree_truth, tb)
+
+        # Open optional external truth source file if provided and distinct from fpath
+        tree_truth_cbm = None
+        truth_event_map = {}
+        use_external_truth = False
+
+        if truth_path and os.path.abspath(truth_path) != os.path.abspath(fpath) and os.path.isfile(truth_path):
+            try:
+                ftruth = ROOT.TFile.Open(truth_path, "READ")
+                if ftruth and not ftruth.IsZombie():
+                    tree_truth_cbm = ftruth.Get("cbmsim") or ftruth.Get("rawConv") or ftruth.Get("events")
+                    if tree_truth_cbm and not tree_truth_cbm.IsZombie():
+                        tree_truth_cbm.SetBranchStatus("*", 0)
+                        safe_set_branch_status(tree_truth_cbm, "EventHeader*")
+                        safe_set_branch_status(tree_truth_cbm, "MCEventHeader*")
+
+                        for ti in range(tree_truth_cbm.GetEntries()):
+                            tree_truth_cbm.GetEntry(ti)
+                            ev_id = get_tree_event_id(tree_truth_cbm)
+                            if ev_id is not None:
+                                truth_event_map[ev_id] = ti
+                            else:
+                                truth_event_map[ti] = ti
+
+                        tree_truth_cbm.SetBranchStatus("*", 0)
+                        for tbname in [
+                            "MCTrack*", "MuFilterPoint*", "ScifiPoint*",
+                            "mc_weight*", "raw_weight*", "mctruth_weight*",
+                            "is_cc*", "has_charm*", "has_prompt_charm_muon*",
+                        ]:
+                            safe_set_branch_status(tree_truth_cbm, tbname)
+                        use_external_truth = True
+            except Exception:
+                use_external_truth = False
 
         try:
             tree_cbmsim.SetBranchStatus("*", 0)
             for bname in [
-                "MCTrack*", "mc_weight*", "raw_weight*", "mctruth_weight*",
+                "EventHeader*", "MCEventHeader*",
+                "MCTrack*", "MuFilterPoint*", "ScifiPoint*", "mc_weight*", "raw_weight*", "mctruth_weight*",
                 "is_cc*", "has_charm*", "Reco_MuonTracks*",
                 "dimuon_in_ds_acceptance*", "has_candidate*",
                 "has_prompt_charm_muon*",
             ]:
-                tree_cbmsim.SetBranchStatus(bname, 1)
+                safe_set_branch_status(tree_cbmsim, bname)
         except Exception:
             pass
 
         local_data["files_processed"] += 1
+        last_truth_idx = -1
 
         for iev in range(n_entries):
             if max_events_chunk > 0 and events_analyzed >= max_events_chunk:
@@ -1639,10 +1750,28 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
             local_data["total_events"] += 1
 
             tree_cbmsim.GetEntry(iev)
+
+            truth_tree_obj = tree_cbmsim
+            if use_external_truth and tree_truth_cbm:
+                ev_id = get_tree_event_id(tree_cbmsim)
+                if ev_id is None:
+                    ev_id = iev
+                truth_idx = truth_event_map.get(ev_id, None)
+                if truth_idx is not None:
+                    if truth_idx != last_truth_idx:
+                        tree_truth_cbm.GetEntry(truth_idx)
+                        last_truth_idx = truth_idx
+                    truth_tree_obj = tree_truth_cbm
+
             mc_weight = 1.0
             if hasattr(tree_cbmsim, "mc_weight"):
                 try:
                     mc_weight = float(tree_cbmsim.mc_weight)
+                except Exception:
+                    mc_weight = 1.0
+            elif hasattr(truth_tree_obj, "mc_weight"):
+                try:
+                    mc_weight = float(truth_tree_obj.mc_weight)
                 except Exception:
                     mc_weight = 1.0
             elif tree_truth and hasattr(tree_truth, "mc_weight"):
@@ -1651,7 +1780,9 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
                 except Exception:
                     mc_weight = 1.0
 
-            tracks = getattr(tree_cbmsim, "MCTrack", None)
+            tracks = getattr(truth_tree_obj, "MCTrack", None)
+            if not tracks:
+                tracks = getattr(tree_cbmsim, "MCTrack", None)
             if not tracks or len(tracks) < 1:
                 continue
 
@@ -1670,9 +1801,22 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
 
             # Check CC vs NC
             is_cc = False
-            if tree_truth and hasattr(tree_cbmsim, "is_cc"):
-                is_cc = bool(tree_cbmsim.is_cc)
-            else:
+            if hasattr(truth_tree_obj, "is_cc"):
+                try:
+                    is_cc = bool(truth_tree_obj.is_cc)
+                except Exception:
+                    pass
+            if not is_cc and hasattr(tree_cbmsim, "is_cc"):
+                try:
+                    is_cc = bool(tree_cbmsim.is_cc)
+                except Exception:
+                    pass
+            if not is_cc and tree_truth and hasattr(tree_truth, "is_cc"):
+                try:
+                    is_cc = bool(tree_truth.is_cc)
+                except Exception:
+                    pass
+            if not is_cc and tracks:
                 for trk in tracks:
                     if trk.GetMotherId() == 0 and abs(trk.GetPdgCode()) in [11, 13, 15]:
                         is_cc = True
@@ -1709,12 +1853,23 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
 
             # 2. Check if this event produces charm: without exception
             has_charm_event = False
-            if tree_truth and hasattr(tree_cbmsim, "has_charm"):
+            if hasattr(truth_tree_obj, "has_charm"):
+                try:
+                    has_charm_event = bool(truth_tree_obj.has_charm)
+                except Exception:
+                    pass
+            if not has_charm_event and hasattr(tree_cbmsim, "has_charm"):
                 try:
                     has_charm_event = bool(tree_cbmsim.has_charm)
                 except Exception:
-                    has_charm_event = False
-            if not has_charm_event:
+                    pass
+            if not has_charm_event and tree_truth and hasattr(tree_truth, "has_charm"):
+                try:
+                    has_charm_event = bool(tree_truth.has_charm)
+                except Exception:
+                    pass
+
+            if not has_charm_event and tracks:
                 for trk in tracks:
                     p = trk.GetPdgCode()
                     if abs(p) == 4 or is_charm_hadron(p):
@@ -1740,18 +1895,43 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
                         local_data["cc_charm_antinu_per_ebin"][nu_ebin_idx] += 1
                     if n_reco_trks >= 2:
                         local_data["charm_ge2trks_per_ebin"][nu_ebin_idx] += 1
-                    if hasattr(tree_cbmsim, "dimuon_in_ds_acceptance") and bool(tree_cbmsim.dimuon_in_ds_acceptance):
+
+                    in_ds_acc = False
+                    if truth_tree_obj is not None and hasattr(truth_tree_obj, "MuFilterPoint"):
+                        try:
+                            in_ds_acc = is_dimuon_in_ds_acceptance(truth_tree_obj)
+                        except Exception:
+                            in_ds_acc = False
+                    if not in_ds_acc and hasattr(tree_cbmsim, "dimuon_in_ds_acceptance"):
+                        try:
+                            in_ds_acc = bool(tree_cbmsim.dimuon_in_ds_acceptance)
+                        except Exception:
+                            pass
+                    if in_ds_acc:
                         local_data["charm_in_ds_per_ebin"][nu_ebin_idx] += 1
+
                     if hasattr(tree_cbmsim, "has_candidate") and bool(tree_cbmsim.has_candidate):
+                        local_data["charm_candidate_per_ebin"][nu_ebin_idx] += 1
+                    elif hasattr(truth_tree_obj, "has_candidate") and bool(truth_tree_obj.has_candidate):
                         local_data["charm_candidate_per_ebin"][nu_ebin_idx] += 1
             else:
                 continue
 
             # 3. Scan event for charm hadrons (for species fractions and decay channels)
             event_has_dimuon = False
-            if hasattr(tree_cbmsim, "has_prompt_charm_muon"):
+            if hasattr(truth_tree_obj, "has_prompt_charm_muon"):
+                try:
+                    event_has_dimuon = bool(truth_tree_obj.has_prompt_charm_muon)
+                except Exception:
+                    pass
+            if not event_has_dimuon and hasattr(tree_cbmsim, "has_prompt_charm_muon"):
                 try:
                     event_has_dimuon = bool(tree_cbmsim.has_prompt_charm_muon)
+                except Exception:
+                    pass
+            if not event_has_dimuon and tree_truth and hasattr(tree_truth, "has_prompt_charm_muon"):
+                try:
+                    event_has_dimuon = bool(tree_truth.has_prompt_charm_muon)
                 except Exception:
                     pass
 
@@ -1936,6 +2116,11 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
                         local_data["cc_dimuon_antinu_per_ebin"][nu_ebin_idx] += 1
 
         fin.Close()
+        if ftruth:
+            try:
+                ftruth.Close()
+            except Exception:
+                pass
 
     return local_data
 
@@ -5251,6 +5436,12 @@ def main():
         help="Input ROOT file, directory, or pattern (e.g. .../*/sndLHC...root)",
     )
     parser.add_argument(
+        "--truth-source",
+        type=str,
+        default=None,
+        help="Optional external ROOT file or pattern with '%%s' to extract MCTrack and MCPoint truth from (defaults to input file if not provided)",
+    )
+    parser.add_argument(
         "--filelist",
         type=str,
         default=None,
@@ -5360,11 +5551,14 @@ def main():
 
     if args.preset and args.preset in DEFAULT_PRESETS:
         args.input = DEFAULT_PRESETS[args.preset]["input"]
+        if "truth_source" in DEFAULT_PRESETS[args.preset] and args.truth_source is None:
+            args.truth_source = DEFAULT_PRESETS[args.preset]["truth_source"]
 
     print("=" * 86)
     print(" SND@LHC: Charmed Hadron Production, Species Fractions & Decay Diagnostic")
     print("=" * 86)
     print(f" Input Source         : {args.input}")
+    print(f" Truth Source         : {args.truth_source if args.truth_source else '(same as input file)'}")
     if args.filelist:
         print(f" Filelist             : {args.filelist}")
     print(f" Output ROOT File     : {os.path.abspath(args.output)}")
@@ -5396,8 +5590,12 @@ def main():
 
     # 2. Partition files for parallel worker execution
     n_jobs = max(1, min(args.jobs, len(input_files)))
-    chunk_size = int(math.ceil(len(input_files) / float(n_jobs)))
-    file_chunks = [input_files[i:i + chunk_size] for i in range(0, len(input_files), chunk_size)]
+    file_pairs = [
+        (f, resolve_truth_source_file(f, args.input, args.truth_source))
+        for f in input_files
+    ]
+    chunk_size = int(math.ceil(len(file_pairs) / float(n_jobs)))
+    file_chunks = [file_pairs[i:i + chunk_size] for i in range(0, len(file_pairs), chunk_size)]
 
     max_events_per_worker = -1
     if args.max_events > 0:

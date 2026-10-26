@@ -112,7 +112,7 @@ def transplant_single_file(
         res["error"] = f"Input MCEB file not found: {input_mceb_path}"
         return res
 
-    if not force and os.path.abspath(output_path) != os.path.abspath(input_mceb_path) and os.path.isfile(output_path) and os.path.getsize(output_path) > 100000:
+    if not force and os.path.abspath(output_path) != os.path.abspath(input_mceb_path) and os.path.isfile(output_path) and os.path.getsize(output_path) > 1000:
         res["status"] = "exists"
         res["error"] = f"Output file already exists: {output_path}"
         return res

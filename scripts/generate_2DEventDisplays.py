@@ -89,6 +89,7 @@ def copy_tcanvases_recursive(src_dir, dest_dir) -> None:
     Recursively copies all TCanvases and directory structures from src_dir to dest_dir.
     """
     import ROOT
+    ROOT.gErrorIgnoreLevel = ROOT.kBreak
 
     for key in src_dir.GetListOfKeys():
         cls_name = key.GetClassName()
@@ -149,6 +150,7 @@ def process_single_file_worker(args_tuple):
     import ROOT
     ROOT.gROOT.SetBatch(True)
     ROOT.gStyle.SetPalette(ROOT.kViridis)
+    ROOT.gErrorIgnoreLevel = ROOT.kBreak
     from snd import (
         Snd2DEventDisplay,
         get_event_header_number,
@@ -199,6 +201,10 @@ def process_single_file_worker(args_tuple):
             result["error"] = f"No suitable TTree found in {input_path}"
             fin.Close()
             return result
+
+        # Deactivate unused linker map branches to avoid deserialization errors and speed up reading
+        tree.SetBranchStatus("Digi_ScifiHits2MCPoints*", 0)
+        tree.SetBranchStatus("Digi_MuFilterHits2MCPoints*", 0)
 
         # Friend truth tree if available and not already containing truth branches
         truth_tree = fin.Get("mctruth") or fin.Get("mc_truth") or fin.Get("truth")
@@ -329,6 +335,8 @@ def process_single_file_worker(args_tuple):
                             else:
                                 truth_event_map[ti] = ti
                         t_truth.SetBranchStatus("*", 1)
+                        t_truth.SetBranchStatus("Digi_ScifiHits2MCPoints*", 0)
+                        t_truth.SetBranchStatus("Digi_MuFilterHits2MCPoints*", 0)
 
         # Build fallback truth processor if running in MC truth mode without pre-extracted truth branches
         truth_processor = None
@@ -787,6 +795,7 @@ def main():
         # Merge worker outputs into single final ROOT file after all workers finish
         import ROOT
         ROOT.gROOT.SetBatch(True)
+        ROOT.gErrorIgnoreLevel = ROOT.kBreak
 
         out_root_abs = os.path.abspath(output_file)
         os.makedirs(os.path.dirname(out_root_abs), exist_ok=True)

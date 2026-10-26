@@ -36,6 +36,14 @@ import ROOT
 ROOT.gROOT.SetBatch(True)
 ROOT.gEnv.SetValue("TFile.Recover", 0)
 ROOT.gErrorIgnoreLevel = ROOT.kError
+try:
+    ROOT.gSystem.Load("libShipData.so")
+    ROOT.gSystem.Load("libshipLHC.so")
+    ROOT.gInterpreter.ProcessLine("#include <unordered_map>")
+    ROOT.gInterpreter.ProcessLine("#include <utility>")
+    ROOT.gInterpreter.GenerateDictionary("pair<int,unordered_map<int,float> >", "utility;unordered_map")
+except Exception:
+    pass
 
 
 def parse_partitions(part_arg: Optional[str]) -> List[int]:
@@ -303,8 +311,9 @@ def main():
     print(f" Parallel Workers     : {args.jobs}")
     print(f" Skip Existing        : {args.skip_existing}")
     print(f" Write Empty Files    : {write_empty}")
-    print(" Output 1 (Direct)    : sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonDirect.root")
-    print(" Output 2 (Indirect)  : sndLHC.Genie-TGeant4_dig_2MuTrks_truth_charmDimuonIndirect.root")
+    sample_prefix = "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth" if (args.input and "MCEB" in args.input) else "sndLHC.Genie-TGeant4_dig_2MuTrks_truth"
+    print(f" Output 1 (Direct)    : {sample_prefix}_charmDimuonDirect.root")
+    print(f" Output 2 (Indirect)  : {sample_prefix}_charmDimuonIndirect.root")
     print("=" * 80)
 
     t_start = time.time()

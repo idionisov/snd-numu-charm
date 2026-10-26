@@ -217,11 +217,15 @@ def main():
         help="Path to write failed partition IDs (one per line) for re-submission or retry.",
     )
     parser.add_argument("--mceb", action="store_true", help="Check MCEB output files instead of standard files.")
+    parser.add_argument("--newp8", action="store_true", help="Use newP8 dataset base directory (/eos/user/i/idioniso/snd-numu-charm/data/newP8).")
     parser.add_argument("--tracking-only", action="store_true", help="Only verify raw input and tracking output consistency.")
     parser.add_argument("--prefix", default=None, help="Custom prefix for tracked files.")
 
     args = parser.parse_args()
     partitions = parse_partitions(args.partitions)
+
+    if args.newp8:
+        args.base_dir = "/eos/user/i/idioniso/snd-numu-charm/data/newP8"
 
     if args.prefix:
         prefix = args.prefix

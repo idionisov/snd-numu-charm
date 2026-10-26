@@ -13,7 +13,7 @@
 base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/mceb
 initialdir              = $(base_dir)
 
-flavour                 = $(flavour:longlunch)
+flavour                 = $(flavour:microcentury)
 args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
 
 data_pattern            = $(data_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s)

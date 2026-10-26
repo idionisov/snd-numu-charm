@@ -27,8 +27,7 @@ from __future__ import annotations
 import os
 import sys
 import argparse
-from typing import List, Optional, Tuple, Dict
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import ROOT
 ROOT.gROOT.SetBatch(True)
@@ -74,27 +73,28 @@ def verify_partition(
         return partition, False, f"Tracking file too small ({os.path.getsize(track_file)} B)", {}
 
     tf = ROOT.TFile.Open(track_file, "READ")
-    if not tf or tf.IsZombie():
-        if tf:
+    if tf is None or tf.IsZombie():
+        if tf is not None:
             tf.Close()
         return partition, False, "Corrupt tracking ROOT file", {}
 
     cbm = tf.Get("cbmsim")
-    if not cbm:
+    if cbm is None:
         tf.Close()
         return partition, False, "Missing 'cbmsim' tree in tracking file", {}
 
     n_cbm = cbm.GetEntries()
-    has_tracks_branch = bool(cbm.GetBranch("Reco_MuonTracks"))
+    branches = cbm.GetListOfBranches()
+    has_tracks_branch = (branches.FindObject("Reco_MuonTracks") is not None) if branches else False
     if not has_tracks_branch:
         tf.Close()
         return partition, False, "Missing 'Reco_MuonTracks' branch in 'cbmsim'", {}
 
     mc = tf.Get("mctruth")
-    n_mc = mc.GetEntries() if mc else 0
+    n_mc = mc.GetEntries() if mc is not None else 0
     tf.Close()
 
-    if not mc:
+    if mc is None:
         return partition, False, "Missing 'mctruth' tree in tracking file", {}
     if n_cbm != n_mc:
         return partition, False, f"Entry count mismatch: cbmsim={n_cbm} != mctruth={n_mc}", {}
@@ -104,16 +104,16 @@ def verify_partition(
     n_indirect = 0
     if os.path.isfile(direct_file) and os.path.getsize(direct_file) >= 500:
         df = ROOT.TFile.Open(direct_file, "READ")
-        if df and not df.IsZombie():
+        if df is not None and not df.IsZombie():
             dt = df.Get("cbmsim")
-            n_direct = dt.GetEntries() if dt else 0
+            n_direct = dt.GetEntries() if dt is not None else 0
             df.Close()
 
     if os.path.isfile(indirect_file) and os.path.getsize(indirect_file) >= 500:
         indf = ROOT.TFile.Open(indirect_file, "READ")
-        if indf and not indf.IsZombie():
+        if indf is not None and not indf.IsZombie():
             indt = indf.Get("cbmsim")
-            n_indirect = indt.GetEntries() if indt else 0
+            n_indirect = indt.GetEntries() if indt is not None else 0
             indf.Close()
 
     counts = {
@@ -141,7 +141,7 @@ def main():
     passed = 0
     failed = []
 
-    with ProcessPoolExecutor(max_workers=args.jobs) as executor:
+    with ThreadPoolExecutor(max_workers=args.jobs) as executor:
         futures = {executor.submit(verify_partition, p, args.data_dir): p for p in partitions}
         for fut in as_completed(futures):
             p, ok, msg, counts = fut.result()

@@ -189,7 +189,7 @@ else
     DISP_INDIRECT_FILE="${DISP_INDIRECT_DIR}/displays_part${PARTITION}.root"
 
     # Direct Signal Displays
-    N_DIRECT=$("${PYTHON_BIN}" -c "import ROOT; f=ROOT.TFile.Open('${DIRECT_FILE}'); t=f.Get('cbmsim') if f and not f.IsZombie() else None; print(t.GetEntries() if t else 0)")
+    N_DIRECT=$("${PYTHON_BIN}" -c "import ROOT; ROOT.gErrorIgnoreLevel=ROOT.kFatal; f=ROOT.TFile.Open('${DIRECT_FILE}'); t=f.Get('cbmsim') if f and not f.IsZombie() else None; print(t.GetEntries() if t else 0)")
     if [ "$N_DIRECT" -gt 0 ]; then
         if [ "${FORCE:-0}" != "1" ] && [ -f "${DISP_DIRECT_FILE}" ] && [ $(stat -c%s "${DISP_DIRECT_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
             echo " ~ [4/5] Direct display file already exists: ${DISP_DIRECT_FILE} (skipping)"
@@ -213,7 +213,7 @@ else
     fi
 
     # Indirect Signal-like Displays
-    N_INDIRECT=$("${PYTHON_BIN}" -c "import ROOT; f=ROOT.TFile.Open('${INDIRECT_FILE}'); t=f.Get('cbmsim') if f and not f.IsZombie() else None; print(t.GetEntries() if t else 0)")
+    N_INDIRECT=$("${PYTHON_BIN}" -c "import ROOT; ROOT.gErrorIgnoreLevel=ROOT.kFatal; f=ROOT.TFile.Open('${INDIRECT_FILE}'); t=f.Get('cbmsim') if f and not f.IsZombie() else None; print(t.GetEntries() if t else 0)")
     if [ "$N_INDIRECT" -gt 0 ]; then
         if [ "${FORCE:-0}" != "1" ] && [ -f "${DISP_INDIRECT_FILE}" ] && [ $(stat -c%s "${DISP_INDIRECT_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
             echo " ~ [5/5] Indirect display file already exists: ${DISP_INDIRECT_FILE} (skipping)"

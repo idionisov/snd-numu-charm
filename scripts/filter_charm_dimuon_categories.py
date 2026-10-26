@@ -41,7 +41,8 @@ try:
     ROOT.gSystem.Load("libshipLHC.so")
     ROOT.gInterpreter.ProcessLine("#include <unordered_map>")
     ROOT.gInterpreter.ProcessLine("#include <utility>")
-    ROOT.gInterpreter.GenerateDictionary("pair<int,unordered_map<int,float> >", "utility;unordered_map")
+    if not ROOT.TClass.GetClass("pair<int,unordered_map<int,float> >"):
+        ROOT.gInterpreter.GenerateDictionary("pair<int,unordered_map<int,float> >", "utility;unordered_map")
 except Exception:
     pass
 

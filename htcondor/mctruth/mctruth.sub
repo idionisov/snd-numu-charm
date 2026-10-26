@@ -1,0 +1,49 @@
+# ==============================================================================
+# HTCondor Submit File: SND@LHC Stage 3 - MC Truth Extraction & Transplantation
+#
+# Process per partition:
+#   Truth Source : sndLHC.Genie-TGeant4.root (non-MCEB unpruned truth)
+#   Input MCEB   : sndLHC.Genie-TGeant4_MCEB.root (MCEB events)
+#   Output File  : sndLHC.Genie-TGeant4_MCEB.root (contains cbmsim;1, cbmsim;2, mctruth)
+#
+# Usage:
+#   condor_submit mctruth.sub
+#   ./submit_mctruth.sh
+# ==============================================================================
+
+base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/mctruth
+initialdir              = $(base_dir)
+
+flavour                 = $(flavour:longlunch)
+args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
+
+truth_pattern           = $(truth_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4.root)
+mceb_pattern            = $(mceb_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_MCEB.root)
+output_pattern          = $(output_pattern:$(mceb_pattern))
+
+executable              = $(base_dir)/run_mctruth_partition.sh
+arguments               = $(partition) $(truth_pattern) $(mceb_pattern) $(output_pattern)
+environment             = "FORCE=$(force:0)"
+
+output                  = $(base_dir)/out/mctruth_part$(partition)_$(ClusterId)_$(ProcId).out
+error                   = $(base_dir)/err/mctruth_part$(partition)_$(ClusterId)_$(ProcId).err
+log                     = $(base_dir)/log/mctruth_$(ClusterId).log
+
+getenv                  = False
+notification            = Never
+requirements            = (OpSysAndVer =?= "AlmaLinux9")
+
++JobFlavour             = "$(flavour)"
++AccountingGroup        = "group_u_SNDLHC.users"
+MY.JobRequiresAFS       = True
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = $(base_dir)/sndswEnv.sh, /afs/cern.ch/user/i/idioniso/ddfUtils
+
+request_cpus            = 1
+request_memory          = 4GB
+request_disk            = 4GB
+max_retries             = 2
+
+queue partition from $(args_file)

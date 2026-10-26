@@ -75,9 +75,18 @@ ROOT.gROOT.SetBatch(True)
 
 
 def parse_partitions(part_arg: Optional[str]) -> Optional[List[int]]:
-    """Parse partition specification string (e.g. '0-400', '0,1,2', 'all')."""
+    """Parse partition specification string (e.g. '0-400', '0,1,2', 'all', or path to file)."""
     if not part_arg or part_arg.strip().lower() == "all":
         return None
+
+    if os.path.isfile(part_arg):
+        partitions = set()
+        with open(part_arg, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.isdigit():
+                    partitions.add(int(line))
+        return sorted(list(partitions))
 
     partitions = set()
     for token in part_arg.split(","):

@@ -39,9 +39,18 @@ ROOT.gErrorIgnoreLevel = ROOT.kError
 
 
 def parse_partitions(part_arg: Optional[str]) -> List[int]:
-    """Parse partition string e.g. '1-1000', '1,2,3', or 'all'."""
+    """Parse partition string e.g. '1-1000', '1,2,3', 'all', or path to file."""
     if not part_arg or part_arg.strip().lower() == "all":
         return list(range(1, 1001))
+
+    if os.path.isfile(part_arg):
+        partitions = set()
+        with open(part_arg, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and line.isdigit():
+                    partitions.add(int(line))
+        return sorted(list(partitions))
 
     partitions = set()
     for token in part_arg.split(","):

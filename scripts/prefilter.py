@@ -43,6 +43,9 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 import ROOT
+ROOT.gROOT.SetBatch(True)
+ROOT.gEnv.SetValue("TFile.Recover", 0)
+ROOT.gErrorIgnoreLevel = ROOT.kError
 from snd import (
     DataManager,
     AvgScifiFiducialCut,
@@ -588,6 +591,7 @@ def _filter_partition_stream(
     skip_empty: bool = False,
     record_failures: bool = False,
     partition_id: int = 0,
+    default_category: str = "other",
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     import ROOT
     res = {
@@ -604,8 +608,20 @@ def _filter_partition_stream(
         res["status"] = "MISSING_INPUT"
         return res, failed_records
 
-    f_in = ROOT.TFile.Open(input_path, "READ")
+    try:
+        f_in = ROOT.TFile.Open(input_path, "READ")
+    except (OSError, Exception) as e:
+        print(f" [Warning] Partition {partition_id}: Failed to open {input_path} ({e}), skipping.")
+        res["status"] = "ERROR_OPENING"
+        return res, failed_records
+
     if not f_in or f_in.IsZombie():
+        if f_in:
+            try:
+                f_in.Close()
+            except Exception:
+                pass
+        print(f" [Warning] Partition {partition_id}: File {input_path} is zombie/corrupted, skipping.")
         res["status"] = "ERROR_OPENING"
         return res, failed_records
 
@@ -707,9 +723,27 @@ def _filter_partition_stream(
                 if not p_d: all_f.append("DS_Dimuon_Activity")
                 if not p_tr: all_f.append("Two_DS_Tracks")
 
+                # Resolve category: charm_direct, charm_indirect, or other
+                category = default_category
+                if has_truth:
+                    try:
+                        is_cc = int(getattr(t_truth, "is_cc", 0))
+                        has_charm = int(getattr(t_truth, "has_charm", 0))
+                        c_dir = int(getattr(t_truth, "charm_has_direct_muon", 0))
+                        c_ind = int(getattr(t_truth, "has_charm_hadronic_downstream_muon", 0))
+                        if is_cc == 1 and has_charm == 1 and c_dir == 1:
+                            category = "charm_direct"
+                        elif is_cc == 1 and has_charm == 1 and c_ind == 1:
+                            category = "charm_indirect"
+                        else:
+                            category = "other"
+                    except Exception:
+                        pass
+
                 failed_records.append({
                     "partition": partition_id,
                     "event_number": ev_num,
+                    "category": category,
                     "failed_cut_stage": failed_stage,
                     "entry": iev,
                     "failed_cuts": ";".join(all_f),
@@ -844,8 +878,10 @@ def process_single_partition_pipeline(
         reversed=two_ds_cfg.get("reversed", False),
     ) if two_ds_cfg.get("enabled", True) else None
 
+    all_failed_records: List[Dict[str, Any]] = []
+
     # 1. Process Main File
-    main_res, _ = _filter_partition_stream(
+    main_res, main_failed = _filter_partition_stream(
         input_path=main_input,
         output_path=main_output,
         cut_timing=cut_timing,
@@ -853,13 +889,16 @@ def process_single_partition_pipeline(
         cut_dimuon=cut_dimuon,
         cut_tracks=cut_tracks,
         skip_empty=skip_empty,
-        record_failures=False,
+        record_failures=(main_input is not None),
         partition_id=partition,
+        default_category="other",
     )
     main_res["partition"] = partition
+    if main_input is not None:
+        all_failed_records.extend(main_failed)
 
     # 2. Process Direct Signal File
-    sig_res, sig_failed_records = _filter_partition_stream(
+    sig_res, sig_failed = _filter_partition_stream(
         input_path=sig_input,
         output_path=sig_output,
         cut_timing=cut_timing,
@@ -867,13 +906,16 @@ def process_single_partition_pipeline(
         cut_dimuon=cut_dimuon,
         cut_tracks=cut_tracks,
         skip_empty=skip_empty,
-        record_failures=True,
+        record_failures=(main_input is None and sig_input is not None),
         partition_id=partition,
+        default_category="charm_direct",
     )
     sig_res["partition"] = partition
+    if main_input is None and sig_input is not None:
+        all_failed_records.extend(sig_failed)
 
     # 3. Process Indirect Signal File
-    ind_res, _ = _filter_partition_stream(
+    ind_res, ind_failed = _filter_partition_stream(
         input_path=ind_input,
         output_path=ind_output,
         cut_timing=cut_timing,
@@ -881,10 +923,13 @@ def process_single_partition_pipeline(
         cut_dimuon=cut_dimuon,
         cut_tracks=cut_tracks,
         skip_empty=skip_empty,
-        record_failures=False,
+        record_failures=(main_input is None and ind_input is not None),
         partition_id=partition,
+        default_category="charm_indirect",
     )
     ind_res["partition"] = partition
+    if main_input is None and ind_input is not None:
+        all_failed_records.extend(ind_failed)
 
     # 4. Create Symlinks for auxiliary files
     if create_symlinks and main_output and os.path.isfile(main_input):
@@ -907,11 +952,23 @@ def process_single_partition_pipeline(
         "main": main_res,
         "sig": sig_res,
         "ind": ind_res,
-    }, sig_failed_records
+    }, all_failed_records
 
 
 def _pipeline_task_runner(args_tuple):
-    return process_single_partition_pipeline(*args_tuple)
+    try:
+        return process_single_partition_pipeline(*args_tuple)
+    except Exception as e:
+        part = args_tuple[0]
+        print(f" [ERROR] Partition {part} crashed: {e}")
+        return {
+            "partition": part,
+            "status": "ERROR",
+            "time": 0.0,
+            "main": {"total": 0, "passed": 0, "cut_counts": [0]*8, "raw_weights": [0.0]*8, "mc_weights": [0.0]*8},
+            "sig": {"total": 0, "passed": 0, "cut_counts": [0]*8, "raw_weights": [0.0]*8, "mc_weights": [0.0]*8},
+            "ind": {"total": 0, "passed": 0, "cut_counts": [0]*8, "raw_weights": [0.0]*8, "mc_weights": [0.0]*8},
+        }, []
 
 
 def load_cutflow_stats_from_root(filepath: str) -> List[Dict[str, Any]]:
@@ -1274,7 +1331,7 @@ def main():
             os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
             if not os.path.isfile(csv_path) or not args.skip_existing:
                 with open(csv_path, "w") as f_csv:
-                    f_csv.write("partition,event_number,failed_cut_stage,entry,failed_cuts\n")
+                    f_csv.write("partition,event_number,category,failed_cut_stage,entry,failed_cuts\n")
 
         # Build task list
         tasks = []
@@ -1368,7 +1425,7 @@ def main():
             if failed_records and args.failed_cuts_csv:
                 with open(args.failed_cuts_csv, "a") as f_csv:
                     for r in failed_records:
-                        f_csv.write(f"{r['partition']},{r['event_number']},{r['failed_cut_stage']},{r['entry']},{r['failed_cuts']}\n")
+                        f_csv.write(f"{r['partition']},{r['event_number']},{r.get('category', 'other')},{r['failed_cut_stage']},{r['entry']},{r['failed_cuts']}\n")
                     f_csv.flush()
 
         if args.workers > 1 or len(tasks) > 1:

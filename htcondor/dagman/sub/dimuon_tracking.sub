@@ -1,0 +1,39 @@
+# ==============================================================================
+# HTCondor Submit File: DAGMan Single Job - Stage 5 (Dimuon Tracking & Skimming)
+# ==============================================================================
+
+base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/dimuon_tracking
+dag_dir                 = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/dagman
+initialdir              = $(dag_dir)
+
+flavour                 = $(flavour:longlunch)
+input_pattern           = $(input_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_MCEB_dig.root)
+output_pattern          = $(output_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root)
+disp_pattern            = $(disp_pattern:/eos/user/i/idioniso/snd-numu-charm/event_displays/newP8_MCEB/partitions/displays_part%s.root)
+store_events            = $(store_events:all)
+
+executable              = $(base_dir)/run_dimuon_tracking_partition.sh
+arguments               = $(partition) $(input_pattern) $(output_pattern) $(disp_pattern) $(store_events)
+environment             = "FORCE=$(force:0) SKIP_DISPLAYS=$(skip_displays:0)"
+
+output                  = $(dag_dir)/out/tracking_part$(partition)_$(ClusterId)_$(ProcId).out
+error                   = $(dag_dir)/err/tracking_part$(partition)_$(ClusterId)_$(ProcId).err
+log                     = $(dag_dir)/log/dag_jobs.log
+
+getenv                  = False
+notification            = Never
+requirements            = (OpSysAndVer =?= "AlmaLinux9")
+
++JobFlavour             = "$(flavour)"
++AccountingGroup        = "group_u_SNDLHC.users"
+MY.JobRequiresAFS       = True
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = $(base_dir)/sndswEnv.sh, /afs/cern.ch/user/i/idioniso/ddfUtils
+
+request_cpus            = 1
+request_memory          = 3GB
+request_disk            = 3GB
+
+queue 1

@@ -1,0 +1,36 @@
+# ==============================================================================
+# HTCondor Submit File: DAGMan Single Job - Stage 4 (Digitization)
+# ==============================================================================
+
+base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/digi
+dag_dir                 = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/dagman
+initialdir              = $(dag_dir)
+
+flavour                 = $(flavour:longlunch)
+data_pattern            = $(data_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s)
+
+executable              = $(base_dir)/run_digi_partition.sh
+arguments               = $(partition) $(data_pattern)
+environment             = "FORCE=$(force:0)"
+
+output                  = $(dag_dir)/out/digi_part$(partition)_$(ClusterId)_$(ProcId).out
+error                   = $(dag_dir)/err/digi_part$(partition)_$(ClusterId)_$(ProcId).err
+log                     = $(dag_dir)/log/dag_jobs.log
+
+getenv                  = False
+notification            = Never
+requirements            = (OpSysAndVer =?= "AlmaLinux9")
+
++JobFlavour             = "$(flavour)"
++AccountingGroup        = "group_u_SNDLHC.users"
+MY.JobRequiresAFS       = True
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = $(base_dir)/sndswEnv.sh, /afs/cern.ch/user/i/idioniso/ddfUtils
+
+request_cpus            = 1
+request_memory          = 4GB
+request_disk            = 4GB
+
+queue 1

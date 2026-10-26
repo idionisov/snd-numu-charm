@@ -608,7 +608,7 @@ def _filter_partition_stream(
     record_failures: bool = False,
     partition_id: int = 0,
     default_category: str = "other",
-    csv_all_events: bool = False,
+    csv_all_events: bool = True,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     import ROOT
     res = {
@@ -812,7 +812,7 @@ def process_single_partition_pipeline(
     create_symlinks: bool = True,
     skip_empty: bool = False,
     skip_existing: bool = False,
-    csv_all_events: bool = False,
+    csv_all_events: bool = True,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """
     Process a single partition for main, direct signal, and indirect signal datasets:
@@ -1133,13 +1133,19 @@ def main():
         dest="failed_cuts_csv",
         type=str,
         default=None,
-        help="Output CSV file path to record partitions, event numbers, categories, and binary 1/0 decisions for each cut",
+        help="Output CSV file path to record partitions, event numbers, categories, and binary 1/0 decisions for each cut for all events",
     )
     parser.add_argument(
-        "--csv-all-events",
+        "--csv-failed-only",
         action="store_true",
         default=False,
-        help="Record cut decisions (1/0) for all events in the CSV, not only events that failed at least one cut",
+        help="Only record events that failed at least one cut in the CSV (default: record all events 1-to-1)",
+    )
+    parser.add_argument(
+        "--csv-only",
+        action="store_true",
+        default=False,
+        help="Only generate the cuts CSV without rewriting output ROOT files",
     )
     parser.add_argument(
         "-w", "--workers",
@@ -1205,8 +1211,8 @@ def main():
             for c in cutflow_cfg["cuts"]:
                 c["enabled"] = (c.get("id") in selected_ids or c.get("id") == "step0_raw")
 
-    if not args.output and not args.cutflow:
-        print("[Error] Must specify either -o/--output to write preselected files or --cutflow to produce cutflow histograms.")
+    if not args.output and not args.cutflow and not args.failed_cuts_csv:
+        print("[Error] Must specify -o/--output, --cutflow, or --cuts-csv.")
         sys.exit(1)
 
     # Resolve input files
@@ -1343,6 +1349,8 @@ def main():
         if selected_partitions is None:
             selected_partitions = list(range(1, 1001))
 
+        csv_all = not args.csv_failed_only
+
         # Check if CSV output requested
         if args.failed_cuts_csv:
             csv_path = args.failed_cuts_csv
@@ -1358,7 +1366,7 @@ def main():
             c_p_in = args.input.count("%s")
             m_in = args.input % tuple(p_str for _ in range(c_p_in)) if c_p_in > 0 else args.input
             m_out = None
-            if args.output:
+            if args.output and not args.csv_only:
                 c_p_out = args.output.count("%s")
                 m_out = args.output % tuple(p_str for _ in range(c_p_out)) if c_p_out > 0 else args.output
 
@@ -1368,7 +1376,7 @@ def main():
                 s_in = args.signal_input % tuple(p_str for _ in range(c_p_sig)) if c_p_sig > 0 else args.signal_input
 
             s_out = None
-            if args.signal_output:
+            if args.signal_output and not args.csv_only:
                 c_p_sout = args.signal_output.count("%s")
                 s_out = args.signal_output % tuple(p_str for _ in range(c_p_sout)) if c_p_sout > 0 else args.signal_output
             elif m_out and s_in:
@@ -1380,13 +1388,14 @@ def main():
                 ind_in = args.indirect_input % tuple(p_str for _ in range(c_p_ind)) if c_p_ind > 0 else args.indirect_input
 
             ind_out = None
-            if args.indirect_output:
+            if args.indirect_output and not args.csv_only:
                 c_p_iout = args.indirect_output.count("%s")
                 ind_out = args.indirect_output % tuple(p_str for _ in range(c_p_iout)) if c_p_iout > 0 else args.indirect_output
             elif m_out and ind_in:
                 ind_out = os.path.join(os.path.dirname(m_out), os.path.basename(ind_in))
 
-            tasks.append((p, m_in, m_out, s_in, s_out, ind_in, ind_out, args.config, args.cutset, not args.no_symlinks, args.skip_empty, args.skip_existing, args.csv_all_events))
+            skip_p = args.skip_existing and not args.csv_only
+            tasks.append((p, m_in, m_out, s_in, s_out, ind_in, ind_out, args.config, args.cutset, not args.no_symlinks, args.skip_empty, skip_p, csv_all))
 
         print(f"\n[Parallel] Dispatching {len(tasks)} partition tasks across {args.workers} worker processes...\n")
 

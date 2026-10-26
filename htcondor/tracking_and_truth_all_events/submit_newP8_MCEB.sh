@@ -64,7 +64,7 @@ condor_submit pipeline_newP8_mceb.sub \
     disp_pattern="${DISP_PATTERN}" \
     truth_source="${TRUTH_SOURCE_PATTERN}" \
     flavour="${FLAVOUR}" \
-    env_vars="FORCE=1 ALL_EVENTS=1 SND_CHANNELS_READONLY=1 SKIP_TRACK=1" \
+    env_vars="FORCE=${FORCE:-0} ALL_EVENTS=1 SND_CHANNELS_READONLY=1 SKIP_TRACK=1" \
     "$@"
 
 echo ""

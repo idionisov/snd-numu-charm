@@ -1,0 +1,47 @@
+# ==============================================================================
+# HTCondor Submit File: SND@LHC Stage 1 - Geant4 Neutrino Simulation (Pythia8)
+#
+# Process per partition:
+#   Input : gst.root (+ ghep.root) from GENIE volume_volTarget
+#   Output: sndLHC.Genie-TGeant4.root + geofile_full.Genie-TGeant4.root
+#
+# Usage:
+#   condor_submit simulate.sub
+#   ./submit_simulate.sh
+# ==============================================================================
+
+base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/simulate
+initialdir              = $(base_dir)
+
+flavour                 = $(flavour:workday)
+args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
+
+src_pattern             = $(src_pattern:/eos/experiment/sndlhc/MonteCarlo/Neutrinos/Genie/2mmRangeCut/sndlhc_15000fb-1_2022_down/nu14/volume_volTarget/%s)
+dest_pattern            = $(dest_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s)
+
+executable              = $(base_dir)/run_simulate_partition.sh
+arguments               = $(partition) $(src_pattern) $(dest_pattern)
+environment             = "FORCE=$(force:0) NEVENTS=$(nevents:1000)"
+
+output                  = $(base_dir)/out/simulate_part$(partition)_$(ClusterId)_$(ProcId).out
+error                   = $(base_dir)/err/simulate_part$(partition)_$(ClusterId)_$(ProcId).err
+log                     = $(base_dir)/log/simulate_$(ClusterId).log
+
+getenv                  = False
+notification            = Never
+requirements            = (OpSysAndVer =?= "AlmaLinux9")
+
++JobFlavour             = "$(flavour)"
++AccountingGroup        = "group_u_SNDLHC.users"
+MY.JobRequiresAFS       = True
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = $(base_dir)/sndswEnv.sh, /afs/cern.ch/user/i/idioniso/ddfUtils
+
+request_cpus            = 1
+request_memory          = 4GB
+request_disk            = 4GB
+max_retries             = 2
+
+queue partition from $(args_file)

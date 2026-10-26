@@ -1441,6 +1441,9 @@ def main():
         df_truth = safe_def(df_truth, "ds3_mcpoint_dx", "(sec_mu_track_id >= 0) ? TruthExt::get_ds_plane_dx(mu1_track_id, sec_mu_track_id, MuFilterPoint, 2) : -9999.0")
         df_truth = safe_def(df_truth, "ds3_mcpoint_dy", "(sec_mu_track_id >= 0) ? TruthExt::get_ds_plane_dy(mu1_track_id, sec_mu_track_id, MuFilterPoint, 2) : -9999.0")
         df_truth = safe_def(df_truth, "has_both_muons_in_ds3", "(ds3_mcpoint_dx > -9000.0 && ds3_mcpoint_dy > -9000.0) ? 1 : 0")
+        df_truth = safe_def(df_truth, "ds3_mcpoint_abs_dx", "(has_both_muons_in_ds3 == 1) ? std::abs(ds3_mcpoint_dx) : -9999.0")
+        df_truth = safe_def(df_truth, "ds3_mcpoint_abs_dy", "(has_both_muons_in_ds3 == 1) ? std::abs(ds3_mcpoint_dy) : -9999.0")
+        df_truth = safe_def(df_truth, "ds3_mcpoint_dist_2d", "(has_both_muons_in_ds3 == 1) ? std::sqrt(ds3_mcpoint_dx * ds3_mcpoint_dx + ds3_mcpoint_dy * ds3_mcpoint_dy) : -9999.0")
     else:
         for c in [
             "mu1_ds_avg_theta_xz_mrad", "mu1_ds_std_theta_xz_mrad",
@@ -1455,6 +1458,7 @@ def main():
             "ds_mcpoint_fit_opening_angle_xz_mrad", "ds_mcpoint_fit_opening_angle_yz_mrad",
             "ds_mcpoint_fit_delta_z_cross_xz", "ds_mcpoint_fit_delta_z_cross_yz",
             "ds3_mcpoint_dx", "ds3_mcpoint_dy", "has_both_muons_in_ds3",
+            "ds3_mcpoint_abs_dx", "ds3_mcpoint_abs_dy", "ds3_mcpoint_dist_2d",
         ]:
             df_truth = safe_def(df_truth, c, "-9999.0")
 
@@ -1664,6 +1668,10 @@ def main():
     df_indirect_in_acc_ds3 = df_indirect_in_acc.Filter("has_both_muons_in_ds3 == 1", "Indirect Signal Both Muons in DS3")
     df_non_charm_in_acc_ds3 = df_non_charm_in_acc.Filter("has_both_muons_in_ds3 == 1", "Non-Charm Both Muons in DS3")
     df_signal_like_in_acc_ds3 = df_signal_like_in_acc.Filter("has_both_muons_in_ds3 == 1", "All Signal-Like Both Muons in DS3")
+
+    # Unconditional DS3 plane (both muons in DS3, without requiring full DS acceptance)
+    df_direct_ds3 = df_direct.Filter("has_both_muons_in_ds3 == 1", "Direct Signal Both Muons in DS3 (All)")
+    df_indirect_ds3 = df_indirect.Filter("has_both_muons_in_ds3 == 1", "Indirect Signal Both Muons in DS3 (All)")
 
     # Register filter nodes for booking
     filter_nodes = {
@@ -2251,11 +2259,17 @@ def main():
         ("indirect_in_acc", df_indirect_in_acc_ds3, "Indirect Fake in DS Acc (Both in DS3)"),
         ("non_charm_in_acc", df_non_charm_in_acc_ds3, "Non-Charm in DS Acc (Both in DS3)"),
         ("signal_like_in_acc", df_signal_like_in_acc_ds3, "All Signal-Like in DS Acc (Both in DS3)"),
+        ("direct", df_direct_ds3, "Direct Signal (Both in DS3)"),
+        ("indirect", df_indirect_ds3, "Indirect Fake (Both in DS3)"),
     ]
     for pref, node, lbl in ds3_samples:
+        book_1d(f"h_{pref}_ds3_mcpoint_abs_dx", f"Dimuon Absolute Distance |#Delta x| at 3rd DS Plane ({lbl});|X_{{#mu1}} - X_{{#mu2}}| [cm];Events", "ds3_mcpoint_abs_dx", node, 60, 0.0, 60.0)
+        book_1d(f"h_{pref}_ds3_mcpoint_abs_dy", f"Dimuon Absolute Distance |#Delta y| at 3rd DS Plane ({lbl});|Y_{{#mu1}} - Y_{{#mu2}}| [cm];Events", "ds3_mcpoint_abs_dy", node, 60, 0.0, 60.0)
+        book_1d(f"h_{pref}_ds3_mcpoint_dist_2d", f"Dimuon 2D Transverse Distance at 3rd DS Plane ({lbl});#sqrt{{(#Delta x)^{{2}} + (#Delta y)^{{2}}}} [cm];Events", "ds3_mcpoint_dist_2d", node, 60, 0.0, 80.0)
         book_1d(f"h_{pref}_ds3_mcpoint_dx", f"Dimuon Distance #Delta x at 3rd DS Plane ({lbl});X_{{#mu1}} - X_{{#mu2}} [cm];Events", "ds3_mcpoint_dx", node, 60, -60.0, 60.0)
         book_1d(f"h_{pref}_ds3_mcpoint_dy", f"Dimuon Distance #Delta y at 3rd DS Plane ({lbl});Y_{{#mu1}} - Y_{{#mu2}} [cm];Events", "ds3_mcpoint_dy", node, 60, -60.0, 60.0)
         book_2d(f"h2_{pref}_ds3_mcpoint_dy_vs_dx", f"Dimuon #Delta y vs #Delta x at 3rd DS Plane ({lbl});X_{{#mu1}} - X_{{#mu2}} [cm];Y_{{#mu1}} - Y_{{#mu2}} [cm]", "ds3_mcpoint_dx", "ds3_mcpoint_dy", node, 50, -60.0, 60.0, 50, -60.0, 60.0)
+        book_2d(f"h2_{pref}_ds3_mcpoint_abs_dy_vs_abs_dx", f"Dimuon |#Delta y| vs |#Delta x| at 3rd DS Plane ({lbl});|X_{{#mu1}} - X_{{#mu2}}| [cm];|Y_{{#mu1}} - Y_{{#mu2}}| [cm]", "ds3_mcpoint_abs_dx", "ds3_mcpoint_abs_dy", node, 50, 0.0, 60.0, 50, 0.0, 60.0)
 
     # --------------------------------------------------------------------------
     # 8c. TProfiles: Kinematic Means & Acceptance Probability Profiles

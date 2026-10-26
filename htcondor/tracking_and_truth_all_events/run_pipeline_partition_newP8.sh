@@ -6,8 +6,8 @@ set -eo pipefail
 # Tracking (All Events) -> MCTruth Extraction -> Charm Skims -> 2D Event Displays
 #
 # Pipeline per partition:
-#   1) Tracking (All Events, nTracks=0): in.root -> *_2MuTrks.root
-#   2) MCTruth Extraction:               *_2MuTrks.root -> *_2MuTrks_truth.root
+#   1) Truth Mapping & Transplantation: in.root + truth_source -> in.root (cbmsim;2 + mctruth)
+#   2) Tracking (All Events, nTracks=0): in.root -> *_2MuTrks_truth.root
 #   3) Charm Dimuon Skims:               *_2MuTrks_truth.root -> *_charmDimuon{Direct,Indirect}.root
 #   4) Event Displays:                   *_charmDimuon*.root -> displays_part<p>.root
 #      (--mc-truth and --recoMuons enabled)
@@ -121,21 +121,21 @@ if [ -d "$INPUT_DIR" ] && [ "$INPUT_DIR" != "$OUTPUT_DIR" ]; then
 fi
 
 PYTHON_BIN="$(command -v python3)"
+MAP_TRUTH_SCRIPT="${REPO_DIR}/scripts/map_mctruth_to_mceb.py"
 TRACK_SCRIPT="${REPO_DIR}/scripts/run_dimuon_reco.py"
-TRUTH_SCRIPT="${REPO_DIR}/scripts/mctruth_neutrinos.py"
 SKIM_SCRIPT="${REPO_DIR}/scripts/filter_charm_dimuon_categories.py"
 DISP_SCRIPT="${REPO_DIR}/scripts/generate_2DEventDisplays.py"
 CONFIG_FILE="${REPO_DIR}/config/mctruth_neutrinos_config.yaml"
 PAR_FILE="${PAR_FILE:-${REPO_DIR}/config/TrackingParams.xml}"
 
 echo "======================================================================"
-echo "SND@LHC Chained Pipeline: Tracking -> MCTruth -> Charm Skims -> Displays"
+echo "SND@LHC Inverted Pipeline: MCTruth/Transplantation -> Tracking -> Skims -> Displays"
 echo "  Date         : $(date)"
 echo "  Host         : $(hostname)"
 echo "  Partition    : ${PARTITION}"
 echo "  Raw Input    : ${INPUT_PATTERN}"
-echo "  Track Target : ${TRACK_FILE}"
 echo "  Truth Source : ${TRUTH_SOURCE_PATTERN}"
+echo "  Track Target : ${TRACK_FILE}"
 echo "  Truth Target : ${TRUTH_FILE}"
 echo "  Disp Target  : ${DISP_FILE}"
 echo "  Par File     : ${PAR_FILE}"
@@ -147,12 +147,36 @@ echo "======================================================================"
 cd "${REPO_DIR}"
 
 if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
-    # 4. Step 1: Run Tracking (All Events, nTracks=0)
-    echo " ~ [3/7] Step 1/4: Running tracking for partition ${PARTITION} (${STORE_EVENTS_FLAG})..."
+    # 4. Step 1: Run Truth Extraction & cbmsim truth transfer (non-MCEB -> MCEB)
+    echo " ~ [3/7] Step 1/4: Running truth mapping & branch transplantation into MCEB..."
+    TRUTH_SRC_FILE=$(printf "$TRUTH_SOURCE_PATTERN" "$PARTITION")
+    if [ -n "$TRUTH_SRC_FILE" ] && [ -f "$TRUTH_SRC_FILE" ]; then
+        FORCE_MAP_FLAG=""
+        if [ "${FORCE:-0}" = "1" ]; then
+            FORCE_MAP_FLAG="-f"
+        fi
+        "${PYTHON_BIN}" "${MAP_TRUTH_SCRIPT}" \
+            -t "${TRUTH_SRC_FILE}" \
+            -i "${INPUT_FILE}" \
+            -o "${INPUT_FILE}" \
+            -c "${CONFIG_FILE}" \
+            ${FORCE_MAP_FLAG}
+        MAP_EXIT=$?
+        if [ $MAP_EXIT -ne 0 ]; then
+            echo "ERROR: Truth mapping/transplantation failed for partition ${PARTITION} with exit code ${MAP_EXIT}." >&2
+            exit $MAP_EXIT
+        fi
+        echo " ~ Truth mapping & branch transplantation verified in ${INPUT_FILE}"
+    else
+        echo " ~ [Note] Truth source file not found (${TRUTH_SRC_FILE}), proceeding with existing input."
+    fi
+
+    # 5. Step 2: Run Tracking (All Events, nTracks=0) directly to produce truth-enriched reconstructed output
+    echo " ~ [4/7] Step 2/4: Running tracking from truth-enriched MCEB (${STORE_EVENTS_FLAG})..."
     set +e
     "${PYTHON_BIN}" "${TRACK_SCRIPT}" \
         -i "${INPUT_PATTERN}" \
-        -o "${TRACK_PATTERN}" \
+        -o "${TRUTH_PATTERN}" \
         -p "${PARTITION}" \
         -j 1 \
         -t "dimuon_DS" \
@@ -168,40 +192,23 @@ if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
         exit $TRACK_EXIT
     fi
 
-    if [ ! -f "${TRACK_FILE}" ]; then
-        echo "ERROR: Expected tracking output file does not exist: ${TRACK_FILE}" >&2
+    if [ ! -f "${TRUTH_FILE}" ]; then
+        echo "ERROR: Expected truth-tracking output file does not exist: ${TRUTH_FILE}" >&2
         exit 3
     fi
-    echo " ~ Tracking output verified: ${TRACK_FILE}"
+    echo " ~ Tracking output verified: ${TRUTH_FILE}"
+
+    # Maintain backward compatibility: link TRACK_FILE -> TRUTH_FILE if distinct
+    if [ "${TRACK_FILE}" != "${TRUTH_FILE}" ] && [ ! -e "${TRACK_FILE}" ]; then
+        ln -sf "${TRUTH_FILE}" "${TRACK_FILE}" 2>/dev/null || true
+    fi
 
     if [ "${TRACKING_ONLY:-0}" = "1" ]; then
         echo "======================================================================"
         echo " ~ [Tracking-Only Mode] Successfully completed tracking for partition ${PARTITION} at $(date)!"
-        echo "   Reconstructed ROOT file: ${TRACK_FILE}"
+        echo "   Reconstructed ROOT file: ${TRUTH_FILE}"
         echo "======================================================================"
         exit 0
-    fi
-
-    # 5. Step 2: Run MCTruth Extraction
-    echo " ~ [4/7] Step 2/4: Running MCTruth extraction..."
-    EXTRA_TRUTH_ARGS=()
-    if [ -n "${TRUTH_SOURCE_PATTERN}" ]; then
-        EXTRA_TRUTH_ARGS+=("--truth-source" "${TRUTH_SOURCE_PATTERN}")
-    fi
-    "${PYTHON_BIN}" "${TRUTH_SCRIPT}" \
-        -i "${TRACK_PATTERN}" \
-        -o "${TRUTH_PATTERN}" \
-        -p "${PARTITION}" \
-        -j 1 \
-        -c "${CONFIG_FILE}" \
-        ${SKIP_TRUTH_FLAG} \
-        --no-symlink-input \
-        "${EXTRA_TRUTH_ARGS[@]}"
-    TRUTH_EXIT=$?
-
-    if [ $TRUTH_EXIT -ne 0 ]; then
-        echo "ERROR: MCTruth extraction failed for partition ${PARTITION} with exit code ${TRUTH_EXIT}." >&2
-        exit $TRUTH_EXIT
     fi
 
     # 6. Step 3: Run Charm Dimuon Categories Skims (Direct and Indirect)

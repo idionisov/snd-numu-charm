@@ -147,9 +147,11 @@ def transplant_single_file(
             event_map[i] = i
 
     # 2. Setup working output file preserving all original content (cycle 1)
+    # Stage in local /tmp rather than directly on EOS/network filesystems to avoid
+    # XRootD TNetXNGFile UPDATE crashes and spurious TTree::ChangeFile rollovers
     out_dir = os.path.dirname(os.path.abspath(output_path))
     os.makedirs(out_dir, exist_ok=True)
-    temp_fd, temp_out = tempfile.mkstemp(suffix=".root", prefix="transplant_", dir=out_dir)
+    temp_fd, temp_out = tempfile.mkstemp(suffix=".root", prefix="transplant_")
     os.close(temp_fd)
 
     # Copy input MCEB file to temp_out to retain full content & cycle 1
@@ -184,7 +186,8 @@ def transplant_single_file(
 
     f_up.cd()
     t_new = t_old.CloneTree(0)
-    # Disable intermediate autosave cycles so exactly cbmsim;2 is written
+    # Prevent TTree::ChangeFile rollover and disable intermediate autosave cycles so exactly cbmsim;2 is written
+    t_new.SetMaxTreeSize(1000000000000)
     t_new.SetAutoSave(0)
 
     # Setup unpruned branches from truth tree

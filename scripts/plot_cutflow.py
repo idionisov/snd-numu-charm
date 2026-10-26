@@ -275,6 +275,7 @@ def plot_cutflow_comparison(
     sig_label: str = "Direct Signal (Charm #rightarrow #mu_{2})",
     indirect_label: str = "Indirect Fake Signal (Charm #rightarrow hadrons #rightarrow #mu_{2})",
     pmu_label: str = "Passing Muons (pmu2022)",
+    save_images: bool = False,
 ) -> None:
     """
     Main orchestration function to load, scale, normalize, and draw comparison cutflows.
@@ -441,13 +442,14 @@ def plot_cutflow_comparison(
         f_out.Close()
         print(f"[Done] Cutflow comparison canvases and histograms saved to ROOT file: {output_filepath}")
 
-        # Save companion images (.png, .pdf)
-        base_img = output_filepath[:-5]
-        for cname in ["c_cutflow_mc_weight", "c_cutflow_mc_weight_norm", "c_cutflow_raw_weight", "c_cutflow_unweighted"]:
-            if cname in canvases:
-                canvases[cname].Print(f"{base_img}_{cname}.png")
-                canvases[cname].Print(f"{base_img}_{cname}.pdf")
-        print(f"[Done] Cutflow companion images (.png, .pdf) saved to: {base_img}_*.png / .pdf")
+        # Save companion images (.png, .pdf) only if requested
+        if save_images:
+            base_img = output_filepath[:-5]
+            for cname in ["c_cutflow_mc_weight", "c_cutflow_mc_weight_norm", "c_cutflow_raw_weight", "c_cutflow_unweighted"]:
+                if cname in canvases:
+                    canvases[cname].Print(f"{base_img}_{cname}.png")
+                    canvases[cname].Print(f"{base_img}_{cname}.pdf")
+            print(f"[Done] Cutflow companion images (.png, .pdf) saved to: {base_img}_*.png / .pdf")
     else:
         # Save images
         base, ext = os.path.splitext(output_filepath)
@@ -478,6 +480,7 @@ def main():
     parser.add_argument("--sig-label", default="Direct Signal (Charm #rightarrow #mu_{2})", help="Legend label for direct signal")
     parser.add_argument("--indirect-label", default="Indirect Fake Signal (Charm #rightarrow hadrons #rightarrow #mu_{2})", help="Legend label for indirect fake signal")
     parser.add_argument("--pmu-label", default="Passing Muons (pmu2022)", help="Legend label for passing muons")
+    parser.add_argument("--save-images", action="store_true", default=False, help="Save companion .png and .pdf images alongside the ROOT file")
 
     args = parser.parse_args()
 
@@ -498,6 +501,7 @@ def main():
         sig_label=args.sig_label,
         indirect_label=args.indirect_label,
         pmu_label=args.pmu_label,
+        save_images=args.save_images,
     )
 
 

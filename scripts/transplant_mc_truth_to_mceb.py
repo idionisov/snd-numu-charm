@@ -82,11 +82,13 @@ def transplant_single_file(
     force: bool = False,
 ) -> Dict[str, Any]:
     """
-    Transplants MC branches from truth_source_path to input_mceb_path mapped by EventNumber.
-    Writes result atomically to output_path.
+    Transplants MC branches (MCTrack, ScifiPoint, MuFilterPoint) from truth_source_path
+    into input_mceb_path mapped by EventNumber.
+    Writes a new cycle (cbmsim;2) so the original cbmsim;1 is completely preserved.
+    All other branches, hits, and metadata from input_mceb_path are preserved as they are.
     """
     if branches_to_transplant is None:
-        branches_to_transplant = ["MCTrack", "MuFilterPoint", "ScifiPoint", "MCEventHeader"]
+        branches_to_transplant = ["MCTrack", "ScifiPoint", "MuFilterPoint"]
 
     t0 = time.time()
     res = {
@@ -110,7 +112,7 @@ def transplant_single_file(
         res["error"] = f"Input MCEB file not found: {input_mceb_path}"
         return res
 
-    if not force and os.path.isfile(output_path) and os.path.getsize(output_path) > 100000:
+    if not force and os.path.abspath(output_path) != os.path.abspath(input_mceb_path) and os.path.isfile(output_path) and os.path.getsize(output_path) > 100000:
         res["status"] = "exists"
         res["error"] = f"Output file already exists: {output_path}"
         return res
@@ -144,102 +146,77 @@ def transplant_single_file(
         else:
             event_map[i] = i
 
-    # 2. Open input MCEB file
-    f_mceb = ROOT.TFile.Open(input_mceb_path, "READ")
-    if not f_mceb or f_mceb.IsZombie():
-        f_truth.Close()
-        if f_mceb:
-            f_mceb.Close()
-        res["status"] = "error"
-        res["error"] = f"Could not open input MCEB file: {input_mceb_path}"
-        return res
-
-    t_mceb = f_mceb.Get(tree_name) or f_mceb.Get("cbmsim")
-    if not t_mceb:
-        f_truth.Close()
-        f_mceb.Close()
-        res["status"] = "error"
-        res["error"] = f"Tree '{tree_name}' not found in MCEB file {input_mceb_path}"
-        return res
-
-    n_mceb = t_mceb.GetEntries()
-    res["total_mceb"] = n_mceb
-
-    # Prepare atomic temporary output file in same directory or /tmp
+    # 2. Setup working output file preserving all original content (cycle 1)
     out_dir = os.path.dirname(os.path.abspath(output_path))
     os.makedirs(out_dir, exist_ok=True)
     temp_fd, temp_out = tempfile.mkstemp(suffix=".root", prefix="transplant_", dir=out_dir)
     os.close(temp_fd)
 
-    f_out = ROOT.TFile.Open(temp_out, "RECREATE")
-    if not f_out or f_out.IsZombie():
+    # Copy input MCEB file to temp_out to retain full content & cycle 1
+    shutil.copyfile(input_mceb_path, temp_out)
+
+    f_up = ROOT.TFile.Open(temp_out, "UPDATE")
+    if not f_up or f_up.IsZombie():
         f_truth.Close()
-        f_mceb.Close()
         if os.path.exists(temp_out):
             os.remove(temp_out)
         res["status"] = "error"
-        res["error"] = f"Could not create temporary output file {temp_out}"
+        res["error"] = f"Could not open temp file {temp_out} in UPDATE mode"
         return res
 
-    # Copy all auxiliary metadata objects (FileHeader, BranchList, etc.)
-    for key in f_mceb.GetListOfKeys():
-        kname = key.GetName()
-        kclass = key.GetClassName()
-        if kname == t_mceb.GetName() or kclass == "TTree":
-            continue
-        obj = key.ReadObj()
-        if obj:
-            f_out.cd()
-            obj.Write(kname, ROOT.TObject.kOverwrite)
+    t_old = f_up.Get(f"{tree_name};1") or f_up.Get(tree_name)
+    if not t_old:
+        f_up.Close()
+        f_truth.Close()
+        if os.path.exists(temp_out):
+            os.remove(temp_out)
+        res["status"] = "error"
+        res["error"] = f"Tree '{tree_name}' not found in MCEB file"
+        return res
 
-    # Disable old pruned MC branches in MCEB tree before cloning structure
-    t_mceb.SetBranchStatus("*", 1)
-    # Deactivate heavy linker maps and old pruned branches
-    deactivate_list = ["Digi_ScifiHits2MCPoints", "Digi_MuFilterHits2MCPoints"] + branches_to_transplant
-    for bname in deactivate_list:
-        t_mceb.SetBranchStatus(bname + "*", 0)
+    n_mceb = t_old.GetEntries()
+    res["total_mceb"] = n_mceb
 
-    f_out.cd()
-    t_out = t_mceb.CloneTree(0)
+    # Keep everything from input file as is, except the branches to be replaced
+    t_old.SetBranchStatus("*", 1)
+    for bname in branches_to_transplant:
+        t_old.SetBranchStatus(bname + "*", 0)
+
+    f_up.cd()
+    t_new = t_old.CloneTree(0)
+    # Disable intermediate autosave cycles so exactly cbmsim;2 is written
+    t_new.SetAutoSave(0)
 
     # Setup unpruned branches from truth tree
     t_truth.SetBranchStatus("*", 0)
 
-    # Branch storage pointers
-    has_mctrack = "MCTrack" in branches_to_transplant and t_truth.GetBranch("MCTrack")
-    has_mufilter = "MuFilterPoint" in branches_to_transplant and t_truth.GetBranch("MuFilterPoint")
-    has_scifi = "ScifiPoint" in branches_to_transplant and t_truth.GetBranch("ScifiPoint")
-    has_mchdr = "MCEventHeader" in branches_to_transplant and (t_truth.GetBranch("MCEventHeader") or t_truth.GetBranch("MCEventHeader."))
+    has_mctrack = "MCTrack" in branches_to_transplant and bool(t_truth.GetBranch("MCTrack"))
+    has_scifi = "ScifiPoint" in branches_to_transplant and bool(t_truth.GetBranch("ScifiPoint"))
+    has_mufilter = "MuFilterPoint" in branches_to_transplant and bool(t_truth.GetBranch("MuFilterPoint"))
 
     mc_tracks = ROOT.TClonesArray("ShipMCTrack") if has_mctrack else None
-    mufilter_pts = ROOT.TClonesArray("FairMCPoint") if has_mufilter else None
     scifi_pts = ROOT.TClonesArray("FairMCPoint") if has_scifi else None
-    mc_header = ROOT.FairMCEventHeader() if has_mchdr else None
+    mufilter_pts = ROOT.TClonesArray("FairMCPoint") if has_mufilter else None
 
     if has_mctrack:
         t_truth.SetBranchStatus("MCTrack*", 1)
         t_truth.SetBranchAddress("MCTrack", mc_tracks)
-        t_out.Branch("MCTrack", mc_tracks)
-
-    if has_mufilter:
-        t_truth.SetBranchStatus("MuFilterPoint*", 1)
-        t_truth.SetBranchAddress("MuFilterPoint", mufilter_pts)
-        t_out.Branch("MuFilterPoint", mufilter_pts)
+        t_new.Branch("MCTrack", mc_tracks)
 
     if has_scifi:
         t_truth.SetBranchStatus("ScifiPoint*", 1)
         t_truth.SetBranchAddress("ScifiPoint", scifi_pts)
-        t_out.Branch("ScifiPoint", scifi_pts)
+        t_new.Branch("ScifiPoint", scifi_pts)
 
-    if has_mchdr:
-        t_truth.SetBranchStatus("MCEventHeader*", 1)
-        t_truth.SetBranchAddress("MCEventHeader.", mc_header)
-        t_out.Branch("MCEventHeader.", mc_header)
+    if has_mufilter:
+        t_truth.SetBranchStatus("MuFilterPoint*", 1)
+        t_truth.SetBranchAddress("MuFilterPoint", mufilter_pts)
+        t_new.Branch("MuFilterPoint", mufilter_pts)
 
     # 3. Main event loop: Fill MCEB events with mapped truth branches
     for i in range(n_mceb):
-        t_mceb.GetEntry(i)
-        ev_hdr = getattr(t_mceb, "EventHeader", None)
+        t_old.GetEntry(i)
+        ev_hdr = getattr(t_old, "EventHeader", None)
         ev_num = int(ev_hdr.GetEventNumber()) if ev_hdr and hasattr(ev_hdr, "GetEventNumber") else i
 
         truth_idx = event_map.get(ev_num, None)
@@ -248,17 +225,17 @@ def transplant_single_file(
         else:
             if has_mctrack:
                 mc_tracks.Clear()
-            if has_mufilter:
-                mufilter_pts.Clear()
             if has_scifi:
                 scifi_pts.Clear()
+            if has_mufilter:
+                mufilter_pts.Clear()
 
-        t_out.Fill()
+        t_new.Fill()
 
-    f_out.cd()
-    t_out.Write("", ROOT.TObject.kOverwrite)
-    f_out.Close()
-    f_mceb.Close()
+    f_up.cd()
+    # Write without kOverwrite: creates cycle +1 (e.g. cbmsim;2) while preserving cbmsim;1
+    t_new.Write(tree_name)
+    f_up.Close()
     f_truth.Close()
 
     # Move temporary file to final destination atomically

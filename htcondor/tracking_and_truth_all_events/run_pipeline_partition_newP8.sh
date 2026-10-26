@@ -1,0 +1,318 @@
+#!/bin/bash
+set -eo pipefail
+
+# ==============================================================================
+# SND@LHC: HTCondor Chained Worker Script (All Events - newP8 MCEB)
+# Tracking (All Events) -> MCTruth Extraction -> Charm Skims -> 2D Event Displays
+#
+# Pipeline per partition:
+#   1) Tracking (All Events, nTracks=0): in.root -> *_2MuTrks.root
+#   2) MCTruth Extraction:               *_2MuTrks.root -> *_2MuTrks_truth.root
+#   3) Charm Dimuon Skims:               *_2MuTrks_truth.root -> *_charmDimuon{Direct,Indirect}.root
+#   4) Event Displays:                   *_charmDimuon*.root -> displays_part<p>.root
+#      (--mc-truth and --recoMuons enabled)
+#
+# Usage:
+#   run_pipeline_partition_newP8.sh <partition_id> [input_pattern] [track_pattern] [truth_pattern] [disp_pattern] [store_events] [truth_source]
+# ==============================================================================
+
+PARTITION="$1"
+
+if [ -z "$PARTITION" ]; then
+    echo "ERROR: Missing required partition ID argument." >&2
+    echo "Usage: $0 <partition_id> [input_pattern] [track_pattern] [truth_pattern] [disp_pattern] [store_events] [truth_source]" >&2
+    exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="/afs/cern.ch/work/i/idioniso/snd-numu-charm"
+if [ ! -d "$REPO_DIR" ]; then
+    REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+fi
+
+if [ -f "${SCRIPT_DIR}/sndswEnv.sh" ]; then
+    echo " ~ [1/6] Sourcing local static environment: ${SCRIPT_DIR}/sndswEnv.sh"
+    source "${SCRIPT_DIR}/sndswEnv.sh"
+elif [ -f "${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh" ]; then
+    echo " ~ [1/6] Sourcing repository environment: ${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh"
+    source "${REPO_DIR}/htcondor/tracking_and_truth_all_events/sndswEnv.sh"
+elif [ -f "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh" ]; then
+    echo " ~ [1/6] Sourcing CVMFS stack fallback: /cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
+    source "/cvmfs/sndlhc.cern.ch/SNDLHC-2025/Oct7/setUp.sh"
+fi
+
+if [ -d "${SCRIPT_DIR}/ddfUtils" ]; then
+    export ddfUtils="${SCRIPT_DIR}/ddfUtils"
+else
+    export ddfUtils="${DDFUTILS:-/afs/cern.ch/user/i/idioniso/ddfUtils}"
+fi
+
+echo " ~ [2/6] Environment configured (SNDSW_ROOT=${SNDSW_ROOT})"
+echo "         Repository root: ${REPO_DIR}"
+echo "         ddfUtils path  : ${ddfUtils}"
+export PYTHONPATH="${SCRIPT_DIR}:${REPO_DIR}:${SNDSW_SRC}/python:${SNDSW_SRC}/shipLHC/scripts:${SNDSW_ROOT}/python:${ddfUtils}:${PYTHONPATH}"
+export LD_LIBRARY_PATH="${REPO_DIR}/build/lib:${SNDSW_ROOT}/lib:${LD_LIBRARY_PATH}"
+
+# 3. Path patterns (defaults configured for newP8 MCEB production)
+DEFAULT_INPUT="/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_MCEB_dig.root"
+DEFAULT_TRACK="/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks.root"
+DEFAULT_TRUTH="/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root"
+DEFAULT_DISP="/eos/user/i/idioniso/snd-numu-charm/event_displays/newP8_MCEB/partitions/displays_part%s.root"
+DEFAULT_TRUTH_SOURCE="/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_dig.root"
+
+sanitize_pattern() {
+    local val="$1"
+    local fallback="$2"
+    if [ -z "$val" ] || [[ "$val" == *'$('* ]]; then
+        echo "$fallback"
+    else
+        echo "$val"
+    fi
+}
+
+INPUT_PATTERN=$(sanitize_pattern "$2" "$DEFAULT_INPUT")
+TRACK_PATTERN=$(sanitize_pattern "$3" "$DEFAULT_TRACK")
+TRUTH_PATTERN=$(sanitize_pattern "$4" "$DEFAULT_TRUTH")
+DISP_PATTERN=$(sanitize_pattern "$5" "$DEFAULT_DISP")
+STORE_EVENTS_ARG="${6:-all}"
+TRUTH_SOURCE_PATTERN=$(sanitize_pattern "$7" "${TRUTH_SOURCE:-$DEFAULT_TRUTH_SOURCE}")
+
+# This worker defaults to keeping all events
+if [ "$STORE_EVENTS_ARG" = "two_tracks" ] || [ "$STORE_EVENTS_ARG" = "--two-tracks-only" ]; then
+    STORE_EVENTS_FLAG="--two-tracks-only"
+else
+    STORE_EVENTS_FLAG="--all-events"
+fi
+
+# Determine skip flag based on FORCE
+SKIP_TRACK_FLAG="--skip-existing"
+SKIP_TRUTH_FLAG="--skip-existing"
+SKIP_SKIM_FLAG="--skip-existing"
+if [ "${FORCE:-0}" = "1" ]; then
+    SKIP_TRACK_FLAG=""
+    SKIP_TRUTH_FLAG=""
+    SKIP_SKIM_FLAG=""
+fi
+if [ "${SKIP_TRACK:-0}" = "1" ]; then
+    SKIP_TRACK_FLAG="--skip-existing"
+fi
+
+INPUT_FILE=$(printf "$INPUT_PATTERN" "$PARTITION")
+TRACK_FILE=$(printf "$TRACK_PATTERN" "$PARTITION")
+TRUTH_FILE=$(printf "$TRUTH_PATTERN" "$PARTITION")
+DISP_FILE=$(printf "$DISP_PATTERN" "$PARTITION")
+
+OUTPUT_DIR="$(dirname "$TRACK_FILE")"
+mkdir -p "${OUTPUT_DIR}"
+mkdir -p "$(dirname "$TRUTH_FILE")"
+mkdir -p "$(dirname "$DISP_FILE")"
+
+# Symlink original ROOT files from input partition directory to output directory
+INPUT_DIR="$(dirname "$INPUT_FILE")"
+if [ -d "$INPUT_DIR" ] && [ "$INPUT_DIR" != "$OUTPUT_DIR" ]; then
+    for rf in "$INPUT_DIR"/*.root; do
+        if [ -f "$rf" ]; then
+            rbname=$(basename "$rf")
+            if [ ! -e "${OUTPUT_DIR}/${rbname}" ]; then
+                ln -sf "$rf" "${OUTPUT_DIR}/${rbname}" 2>/dev/null || true
+            fi
+        fi
+    done
+fi
+
+PYTHON_BIN="$(command -v python3)"
+TRACK_SCRIPT="${REPO_DIR}/scripts/run_dimuon_reco.py"
+TRUTH_SCRIPT="${REPO_DIR}/scripts/mctruth_neutrinos.py"
+SKIM_SCRIPT="${REPO_DIR}/scripts/filter_charm_dimuon_categories.py"
+DISP_SCRIPT="${REPO_DIR}/scripts/generate_2DEventDisplays.py"
+CONFIG_FILE="${REPO_DIR}/config/mctruth_neutrinos_config.yaml"
+PAR_FILE="${PAR_FILE:-${REPO_DIR}/config/TrackingParams.xml}"
+
+echo "======================================================================"
+echo "SND@LHC Chained Pipeline: Tracking -> MCTruth -> Charm Skims -> Displays"
+echo "  Date         : $(date)"
+echo "  Host         : $(hostname)"
+echo "  Partition    : ${PARTITION}"
+echo "  Raw Input    : ${INPUT_PATTERN}"
+echo "  Track Target : ${TRACK_FILE}"
+echo "  Truth Source : ${TRUTH_SOURCE_PATTERN}"
+echo "  Truth Target : ${TRUTH_FILE}"
+echo "  Disp Target  : ${DISP_FILE}"
+echo "  Par File     : ${PAR_FILE}"
+echo "  Storage Mode : ${STORE_EVENTS_FLAG}"
+echo "  Force Mode   : ${FORCE:-0}"
+echo "  Python       : ${PYTHON_BIN}"
+echo "======================================================================"
+
+cd "${REPO_DIR}"
+
+if [ "${DISPLAYS_ONLY:-0}" != "1" ]; then
+    # 4. Step 1: Run Tracking (All Events, nTracks=0)
+    echo " ~ [3/7] Step 1/4: Running tracking for partition ${PARTITION} (${STORE_EVENTS_FLAG})..."
+    set +e
+    "${PYTHON_BIN}" "${TRACK_SCRIPT}" \
+        -i "${INPUT_PATTERN}" \
+        -o "${TRACK_PATTERN}" \
+        -p "${PARTITION}" \
+        -j 1 \
+        -t "dimuon_DS" \
+        -par "${PAR_FILE}" \
+        ${STORE_EVENTS_FLAG} \
+        ${SKIP_TRACK_FLAG}
+    TRACK_EXIT=$?
+    set -e
+
+    # 0 or 143 (SIGTERM atexit handler in FairRoot) is considered normal success
+    if [ $TRACK_EXIT -ne 0 ] && [ $TRACK_EXIT -ne 143 ]; then
+        echo "ERROR: Tracking failed for partition ${PARTITION} with exit code ${TRACK_EXIT}." >&2
+        exit $TRACK_EXIT
+    fi
+
+    if [ ! -f "${TRACK_FILE}" ]; then
+        echo "ERROR: Expected tracking output file does not exist: ${TRACK_FILE}" >&2
+        exit 3
+    fi
+    echo " ~ Tracking output verified: ${TRACK_FILE}"
+
+    if [ "${TRACKING_ONLY:-0}" = "1" ]; then
+        echo "======================================================================"
+        echo " ~ [Tracking-Only Mode] Successfully completed tracking for partition ${PARTITION} at $(date)!"
+        echo "   Reconstructed ROOT file: ${TRACK_FILE}"
+        echo "======================================================================"
+        exit 0
+    fi
+
+    # 5. Step 2: Run MCTruth Extraction
+    echo " ~ [4/7] Step 2/4: Running MCTruth extraction..."
+    EXTRA_TRUTH_ARGS=()
+    if [ -n "${TRUTH_SOURCE_PATTERN}" ]; then
+        EXTRA_TRUTH_ARGS+=("--truth-source" "${TRUTH_SOURCE_PATTERN}")
+    fi
+    "${PYTHON_BIN}" "${TRUTH_SCRIPT}" \
+        -i "${TRACK_PATTERN}" \
+        -o "${TRUTH_PATTERN}" \
+        -p "${PARTITION}" \
+        -j 1 \
+        -c "${CONFIG_FILE}" \
+        ${SKIP_TRUTH_FLAG} \
+        --no-symlink-input \
+        "${EXTRA_TRUTH_ARGS[@]}"
+    TRUTH_EXIT=$?
+
+    if [ $TRUTH_EXIT -ne 0 ]; then
+        echo "ERROR: MCTruth extraction failed for partition ${PARTITION} with exit code ${TRUTH_EXIT}." >&2
+        exit $TRUTH_EXIT
+    fi
+
+    # 6. Step 3: Run Charm Dimuon Categories Skims (Direct and Indirect)
+    echo " ~ [5/7] Step 3/4: Creating charm dimuon category skims (direct & indirect)..."
+    DATA_BASE_DIR="$(dirname "$OUTPUT_DIR")"
+    "${PYTHON_BIN}" "${SKIM_SCRIPT}" \
+        -i "${TRUTH_PATTERN}" \
+        -b "${DATA_BASE_DIR}" \
+        -p "${PARTITION}" \
+        -j 1 \
+        ${SKIP_SKIM_FLAG}
+    SKIM_EXIT=$?
+
+    if [ $SKIM_EXIT -ne 0 ]; then
+        echo "ERROR: Charm dimuon skimming failed for partition ${PARTITION} with exit code ${SKIM_EXIT}." >&2
+        exit $SKIM_EXIT
+    fi
+else
+    echo " ~ [Displays-Only Mode] Skipping Tracking, MCTruth, and Skimming."
+fi
+
+if [ ! -f "${TRUTH_FILE}" ]; then
+    echo "ERROR: Expected truth output file does not exist: ${TRUTH_FILE}" >&2
+    exit 4
+fi
+echo " ~ Truth input verified: ${TRUTH_FILE}"
+
+TRUTH_BASE=$(basename "${TRUTH_FILE}" .root)
+DIRECT_FILE="${OUTPUT_DIR}/${TRUTH_BASE}_charmDimuonDirect.root"
+INDIRECT_FILE="${OUTPUT_DIR}/${TRUTH_BASE}_charmDimuonIndirect.root"
+
+if [ ! -f "${DIRECT_FILE}" ] || [ ! -f "${INDIRECT_FILE}" ]; then
+    echo "ERROR: Expected charm skim file(s) missing in ${OUTPUT_DIR}." >&2
+    exit 5
+fi
+echo " ~ Skim outputs verified:"
+echo "     Direct   : ${DIRECT_FILE}"
+echo "     Indirect : ${INDIRECT_FILE}"
+
+# 7. Step 4: Run 2D Event Display Generation for Skimmed Signal & Signal-like Events
+if [ "${SKIP_DISPLAYS:-0}" = "1" ] || [ -z "${DISP_PATTERN}" ] || [ "${DISP_PATTERN}" = "none" ]; then
+    echo " ~ [6/7] Skipping Event Displays generation (SKIP_DISPLAYS=${SKIP_DISPLAYS:-0})."
+else
+    DISP_BASE_DIR="$(dirname "$DISP_FILE")"
+    DISP_DIRECT_DIR="${DISP_BASE_DIR}/direct"
+    DISP_INDIRECT_DIR="${DISP_BASE_DIR}/indirect"
+    mkdir -p "${DISP_DIRECT_DIR}" "${DISP_INDIRECT_DIR}"
+
+    DISP_DIRECT_FILE="${DISP_DIRECT_DIR}/displays_part${PARTITION}.root"
+    DISP_INDIRECT_FILE="${DISP_INDIRECT_DIR}/displays_part${PARTITION}.root"
+
+    # 1. Direct Signal Event Displays
+    N_DIRECT=$("${PYTHON_BIN}" -c "import ROOT; f=ROOT.TFile.Open('${DIRECT_FILE}'); t=f.Get('cbmsim') if f and not f.IsZombie() else None; print(t.GetEntries() if t else 0)")
+    if [ "$N_DIRECT" -gt 0 ]; then
+        if [ "${FORCE:-0}" != "1" ] && [ "${FORCE_DISPLAYS:-0}" != "1" ] && [ -f "${DISP_DIRECT_FILE}" ] && [ $(stat -c%s "${DISP_DIRECT_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
+            echo " ~ [6/7] Direct signal display file already exists: ${DISP_DIRECT_FILE} (skipping)"
+        else
+            echo " ~ [6/7] Generating 2D displays for ${N_DIRECT} direct charm dimuon signal event(s)..."
+            set +e
+            "${PYTHON_BIN}" "${DISP_SCRIPT}" \
+                -i "${DIRECT_FILE}" \
+                -o "${DISP_DIRECT_FILE}" \
+                --mc-truth \
+                --recoMuons \
+                -j 1
+            DISP_EXIT=$?
+            set -e
+            if [ $DISP_EXIT -ne 0 ]; then
+                echo "WARNING: Direct display generation returned exit code ${DISP_EXIT} for partition ${PARTITION}." >&2
+            fi
+        fi
+    else
+        echo " ~ [6/7] Direct signal events: 0 (no displays needed)."
+    fi
+
+    # 2. Indirect Signal-like Event Displays
+    N_INDIRECT=$("${PYTHON_BIN}" -c "import ROOT; f=ROOT.TFile.Open('${INDIRECT_FILE}'); t=f.Get('cbmsim') if f and not f.IsZombie() else None; print(t.GetEntries() if t else 0)")
+    if [ "$N_INDIRECT" -gt 0 ]; then
+        if [ "${FORCE:-0}" != "1" ] && [ "${FORCE_DISPLAYS:-0}" != "1" ] && [ -f "${DISP_INDIRECT_FILE}" ] && [ $(stat -c%s "${DISP_INDIRECT_FILE}" 2>/dev/null || echo 0) -gt 500 ]; then
+            echo " ~ [6/7] Indirect signal-like display file already exists: ${DISP_INDIRECT_FILE} (skipping)"
+        else
+            echo " ~ [6/7] Generating 2D displays for ${N_INDIRECT} indirect charm dimuon event(s)..."
+            set +e
+            "${PYTHON_BIN}" "${DISP_SCRIPT}" \
+                -i "${INDIRECT_FILE}" \
+                -o "${DISP_INDIRECT_FILE}" \
+                --mc-truth \
+                --recoMuons \
+                -j 1
+            DISP_EXIT=$?
+            set -e
+            if [ $DISP_EXIT -ne 0 ]; then
+                echo "WARNING: Indirect display generation returned exit code ${DISP_EXIT} for partition ${PARTITION}." >&2
+            fi
+        fi
+    else
+        echo " ~ [6/7] Indirect signal-like events: 0 (no displays needed)."
+    fi
+fi
+
+echo "======================================================================"
+echo " ~ [7/7] Pipeline completed successfully for partition ${PARTITION} at $(date)!"
+echo "   1) Tracked ROOT file : ${TRACK_FILE}"
+echo "   2) Truth ROOT file   : ${TRUTH_FILE}"
+echo "   3) Direct Skim ROOT  : ${DIRECT_FILE}"
+echo "   4) Indirect Skim ROOT: ${INDIRECT_FILE}"
+if [ -f "${DISP_DIRECT_FILE}" ]; then
+    echo "   5) Direct Displays   : ${DISP_DIRECT_FILE}"
+fi
+if [ -f "${DISP_INDIRECT_FILE}" ]; then
+    echo "   6) Indirect Displays : ${DISP_INDIRECT_FILE}"
+fi
+echo "======================================================================"
+exit 0

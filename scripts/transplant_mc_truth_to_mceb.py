@@ -112,10 +112,20 @@ def transplant_single_file(
         res["error"] = f"Input MCEB file not found: {input_mceb_path}"
         return res
 
-    if not force and os.path.abspath(output_path) != os.path.abspath(input_mceb_path) and os.path.isfile(output_path) and os.path.getsize(output_path) > 1000:
-        res["status"] = "exists"
-        res["error"] = f"Output file already exists: {output_path}"
-        return res
+    if not force and os.path.isfile(output_path) and os.path.getsize(output_path) > 1000:
+        try:
+            f_chk = ROOT.TFile.Open(output_path, "READ")
+            if f_chk and not f_chk.IsZombie():
+                has_c2 = bool(f_chk.GetKey(tree_name, 2))
+                f_chk.Close()
+                if has_c2 or (os.path.abspath(output_path) != os.path.abspath(input_mceb_path)):
+                    res["status"] = "exists"
+                    res["error"] = f"Transplantation already completed: {output_path}"
+                    return res
+            elif f_chk:
+                f_chk.Close()
+        except Exception:
+            pass
 
     # 1. Open truth source file and build EventNumber -> EntryIndex index
     f_truth = ROOT.TFile.Open(truth_source_path, "READ")

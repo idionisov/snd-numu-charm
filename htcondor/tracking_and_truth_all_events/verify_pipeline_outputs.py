@@ -234,8 +234,16 @@ def main():
         prefix = "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks"
         raw_name = "sndLHC.Genie-TGeant4_MCEB_dig.root"
     else:
-        prefix = "sndLHC.Genie-TGeant4_dig_2MuTrks"
-        raw_name = "sndLHC.Genie-TGeant4_dig.root"
+        # Auto-detect if MCEB format is present when not explicitly requested
+        sample_p = partitions[0] if partitions else 1
+        sample_mceb = os.path.join(args.base_dir, str(sample_p), "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks.root")
+        sample_std = os.path.join(args.base_dir, str(sample_p), "sndLHC.Genie-TGeant4_dig_2MuTrks.root")
+        if os.path.exists(sample_mceb) and not os.path.exists(sample_std):
+            prefix = "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks"
+            raw_name = "sndLHC.Genie-TGeant4_MCEB_dig.root"
+        else:
+            prefix = "sndLHC.Genie-TGeant4_dig_2MuTrks"
+            raw_name = "sndLHC.Genie-TGeant4_dig.root"
 
     print("=" * 80)
     print(" SND@LHC PIPELINE OUTPUT VERIFICATION & QA AUDITOR")

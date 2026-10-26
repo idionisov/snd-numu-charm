@@ -1,0 +1,52 @@
+# ==============================================================================
+# HTCondor Submit File: SND@LHC Stage 5 - Dimuon Track Reconstruction & Skimming
+#
+# Process per partition:
+#   Inputs : sndLHC.Genie-TGeant4_MCEB_dig.root (with cbmsim;1, cbmsim;2, mctruth)
+#   Outputs: sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root
+#            sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonDirect.root
+#            sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonIndirect.root
+#            displays_part<p>.root (direct & indirect 2D event displays)
+#
+# Usage:
+#   condor_submit dimuon_tracking.sub
+#   ./submit_dimuon_tracking.sh
+# ==============================================================================
+
+base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/dimuon_tracking
+initialdir              = $(base_dir)
+
+flavour                 = $(flavour:longlunch)
+args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
+
+input_pattern           = $(input_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_MCEB_dig.root)
+output_pattern          = $(output_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root)
+disp_pattern            = $(disp_pattern:/eos/user/i/idioniso/snd-numu-charm/event_displays/newP8_MCEB/partitions/displays_part%s.root)
+store_events            = $(store_events:all)
+
+executable              = $(base_dir)/run_dimuon_tracking_partition.sh
+arguments               = $(partition) $(input_pattern) $(output_pattern) $(disp_pattern) $(store_events)
+environment             = "FORCE=$(force:0) SKIP_DISPLAYS=$(skip_displays:0)"
+
+output                  = $(base_dir)/out/tracking_part$(partition)_$(ClusterId)_$(ProcId).out
+error                   = $(base_dir)/err/tracking_part$(partition)_$(ClusterId)_$(ProcId).err
+log                     = $(base_dir)/log/tracking_$(ClusterId).log
+
+getenv                  = False
+notification            = Never
+requirements            = (OpSysAndVer =?= "AlmaLinux9")
+
++JobFlavour             = "$(flavour)"
++AccountingGroup        = "group_u_SNDLHC.users"
+MY.JobRequiresAFS       = True
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = $(base_dir)/sndswEnv.sh, /afs/cern.ch/user/i/idioniso/ddfUtils
+
+request_cpus            = 1
+request_memory          = 3GB
+request_disk            = 3GB
+max_retries             = 2
+
+queue partition from $(args_file)

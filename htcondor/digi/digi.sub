@@ -1,0 +1,46 @@
+# ==============================================================================
+# HTCondor Submit File: SND@LHC Stage 4 - Digitization
+#
+# Process per partition:
+#   Inputs : sndLHC.Genie-TGeant4_MCEB.root + geofile_full.Genie-TGeant4.root
+#   Outputs: sndLHC.Genie-TGeant4_MCEB_dig.root
+#
+# Usage:
+#   condor_submit digi.sub
+#   ./submit_digi.sh
+# ==============================================================================
+
+base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/digi
+initialdir              = $(base_dir)
+
+flavour                 = $(flavour:longlunch)
+args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
+
+data_pattern            = $(data_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s)
+
+executable              = $(base_dir)/run_digi_partition.sh
+arguments               = $(partition) $(data_pattern)
+environment             = "FORCE=$(force:0)"
+
+output                  = $(base_dir)/out/digi_part$(partition)_$(ClusterId)_$(ProcId).out
+error                   = $(base_dir)/err/digi_part$(partition)_$(ClusterId)_$(ProcId).err
+log                     = $(base_dir)/log/digi_$(ClusterId).log
+
+getenv                  = False
+notification            = Never
+requirements            = (OpSysAndVer =?= "AlmaLinux9")
+
++JobFlavour             = "$(flavour)"
++AccountingGroup        = "group_u_SNDLHC.users"
+MY.JobRequiresAFS       = True
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = $(base_dir)/sndswEnv.sh, /afs/cern.ch/user/i/idioniso/ddfUtils
+
+request_cpus            = 1
+request_memory          = 4GB
+request_disk            = 4GB
+max_retries             = 2
+
+queue partition from $(args_file)

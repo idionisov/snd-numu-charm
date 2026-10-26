@@ -28,6 +28,7 @@ Usage:
 import os
 import sys
 import time
+import shutil
 import argparse
 from typing import List, Optional, Tuple, Dict, Any
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -35,6 +36,9 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import ROOT
 ROOT.gROOT.SetBatch(True)
 ROOT.gEnv.SetValue("TFile.Recover", 0)
+ROOT.gEnv.SetValue("XNet.ConnectTimeout", 30)
+ROOT.gEnv.SetValue("XNet.RequestTimeout", 120)
+ROOT.gEnv.SetValue("XNet.MaxRedirects", 5)
 ROOT.gErrorIgnoreLevel = ROOT.kError
 try:
     ROOT.gSystem.Load("libShipData.so")
@@ -161,6 +165,10 @@ def process_single_partition(
             "indirect": 0,
         }
 
+    if t_cbm:
+        t_cbm.SetCacheSize(30 * 1024 * 1024)
+    t_truth.SetCacheSize(10 * 1024 * 1024)
+
     n_tot = t_truth.GetEntries()
     direct_entries: List[int] = []
     indirect_entries: List[int] = []
@@ -179,47 +187,68 @@ def process_single_partition(
                 if ds_mu == 1:
                     indirect_entries.append(iev)
 
-    # 1. Write Direct Skim
-    if len(direct_entries) > 0 or write_empty:
-        f_out_dir = ROOT.TFile.Open(out_direct, "RECREATE")
-        cbm_dir = t_cbm.CloneTree(0) if t_cbm else None
-        truth_dir = t_truth.CloneTree(0)
+    tmp_direct = f"/tmp/{prefix}_dir_{os.getpid()}_{partition}.root"
+    tmp_indirect = f"/tmp/{prefix}_ind_{os.getpid()}_{partition}.root"
 
-        for iev in direct_entries:
-            if t_cbm and cbm_dir:
-                t_cbm.GetEntry(iev)
-                cbm_dir.Fill()
-            t_truth.GetEntry(iev)
-            truth_dir.Fill()
+    try:
+        # 1. Write Direct Skim
+        if len(direct_entries) > 0 or write_empty:
+            f_out_dir = ROOT.TFile.Open(tmp_direct, "RECREATE")
+            cbm_dir = t_cbm.CloneTree(0) if t_cbm else None
+            truth_dir = t_truth.CloneTree(0)
 
-        f_out_dir.cd()
-        if cbm_dir:
-            cbm_dir.Write()
-        truth_dir.Write()
-        if branch_list:
-            branch_list.Write("BranchList")
-        f_out_dir.Close()
+            for iev in direct_entries:
+                if t_cbm and cbm_dir:
+                    nb = t_cbm.GetEntry(iev)
+                    if nb > 0:
+                        cbm_dir.Fill()
+                nb_tr = t_truth.GetEntry(iev)
+                if nb_tr > 0:
+                    truth_dir.Fill()
 
-    # 2. Write Indirect Skim
-    if len(indirect_entries) > 0 or write_empty:
-        f_out_ind = ROOT.TFile.Open(out_indirect, "RECREATE")
-        cbm_ind = t_cbm.CloneTree(0) if t_cbm else None
-        truth_ind = t_truth.CloneTree(0)
+            f_out_dir.cd()
+            if cbm_dir:
+                cbm_dir.Write()
+            truth_dir.Write()
+            if branch_list:
+                branch_list.Write("BranchList")
+            f_out_dir.Close()
+            shutil.move(tmp_direct, out_direct)
 
-        for iev in indirect_entries:
-            if t_cbm and cbm_ind:
-                t_cbm.GetEntry(iev)
-                cbm_ind.Fill()
-            t_truth.GetEntry(iev)
-            truth_ind.Fill()
+        # 2. Write Indirect Skim
+        if len(indirect_entries) > 0 or write_empty:
+            f_out_ind = ROOT.TFile.Open(tmp_indirect, "RECREATE")
+            cbm_ind = t_cbm.CloneTree(0) if t_cbm else None
+            truth_ind = t_truth.CloneTree(0)
 
-        f_out_ind.cd()
-        if cbm_ind:
-            cbm_ind.Write()
-        truth_ind.Write()
-        if branch_list:
-            branch_list.Write("BranchList")
-        f_out_ind.Close()
+            for iev in indirect_entries:
+                if t_cbm and cbm_ind:
+                    nb = t_cbm.GetEntry(iev)
+                    if nb > 0:
+                        cbm_ind.Fill()
+                nb_tr = t_truth.GetEntry(iev)
+                if nb_tr > 0:
+                    truth_ind.Fill()
+
+            f_out_ind.cd()
+            if cbm_ind:
+                cbm_ind.Write()
+            truth_ind.Write()
+            if branch_list:
+                branch_list.Write("BranchList")
+            f_out_ind.Close()
+            shutil.move(tmp_indirect, out_indirect)
+    finally:
+        if os.path.exists(tmp_direct):
+            try:
+                os.remove(tmp_direct)
+            except OSError:
+                pass
+        if os.path.exists(tmp_indirect):
+            try:
+                os.remove(tmp_indirect)
+            except OSError:
+                pass
 
     f_in.Close()
     elapsed = time.time() - t0

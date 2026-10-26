@@ -253,6 +253,11 @@ else
     DISP_DIRECT_FILE="${DISP_DIRECT_DIR}/displays_part${PARTITION}.root"
     DISP_INDIRECT_FILE="${DISP_INDIRECT_DIR}/displays_part${PARTITION}.root"
 
+    EXTRA_DISP_ARGS=()
+    if [ -n "${TRUTH_SOURCE_PATTERN}" ]; then
+        EXTRA_DISP_ARGS+=("--truth-source" "${TRUTH_SOURCE_PATTERN}")
+    fi
+
     # 1. Direct Signal Event Displays
     N_DIRECT=$("${PYTHON_BIN}" -c "import ROOT; f=ROOT.TFile.Open('${DIRECT_FILE}'); t=f.Get('cbmsim') if f and not f.IsZombie() else None; print(t.GetEntries() if t else 0)")
     if [ "$N_DIRECT" -gt 0 ]; then
@@ -266,6 +271,7 @@ else
                 -o "${DISP_DIRECT_FILE}" \
                 --mc-truth \
                 --recoMuons \
+                "${EXTRA_DISP_ARGS[@]}" \
                 -j 1
             DISP_EXIT=$?
             set -e
@@ -290,6 +296,7 @@ else
                 -o "${DISP_INDIRECT_FILE}" \
                 --mc-truth \
                 --recoMuons \
+                "${EXTRA_DISP_ARGS[@]}" \
                 -j 1
             DISP_EXIT=$?
             set -e

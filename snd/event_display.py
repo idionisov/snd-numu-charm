@@ -404,8 +404,8 @@ class Snd2DEventDisplay:
         pad.cd()
         return drawn_objs
 
-    def _extract_truth(self, tree):
-        """Extracts truth information from tree event."""
+    def _extract_truth(self, tree, truth_tree=None):
+        """Extracts truth information from tree event, optionally falling back to truth_tree."""
         truth = {
             "nu_e": 0.0,
             "vtx": (0.0, 0.0, -9999.0),
@@ -418,43 +418,52 @@ class Snd2DEventDisplay:
             "has_candidate": False,
         }
 
-        if hasattr(tree, "nu_e"):
-            truth["nu_e"] = float(tree.nu_e)
-        if hasattr(tree, "vtx_x"):
-            truth["vtx"] = (float(tree.vtx_x), float(tree.vtx_y), float(tree.vtx_z))
-        if hasattr(tree, "charm_pdg"):
-            truth["charm_pdg"] = int(tree.charm_pdg)
-        if hasattr(tree, "decay_length_3d"):
-            truth["decay_length_3d"] = float(tree.decay_length_3d)
-        if hasattr(tree, "mu1_p"):
-            truth["mu1_p"] = float(tree.mu1_p)
-        if hasattr(tree, "mu2_p"):
-            truth["mu2_p"] = float(tree.mu2_p)
-        if hasattr(tree, "dimuon_mass"):
-            truth["dimuon_mass"] = float(tree.dimuon_mass)
-        if hasattr(tree, "dimuon_opening_angle_mrad"):
-            truth["dimuon_opening_angle_mrad"] = float(tree.dimuon_opening_angle_mrad)
-        if hasattr(tree, "has_candidate"):
-            truth["has_candidate"] = bool(tree.has_candidate)
-        if hasattr(tree, "is_cc"):
-            truth["is_cc"] = bool(tree.is_cc)
-        if hasattr(tree, "is_nc"):
-            truth["is_nc"] = bool(tree.is_nc)
-        if hasattr(tree, "is_numu_cc"):
-            truth["is_numu_cc"] = bool(tree.is_numu_cc)
-        if hasattr(tree, "is_anti_numu_cc"):
-            truth["is_anti_numu_cc"] = bool(tree.is_anti_numu_cc)
+        # Check sources for flat truth branches (priority: tree, then truth_tree)
+        sources = [tree]
+        if truth_tree is not None and truth_tree is not tree:
+            sources.append(truth_tree)
+
+        for src in sources:
+            if truth["nu_e"] == 0.0 and hasattr(src, "nu_e"):
+                truth["nu_e"] = float(src.nu_e)
+            if truth["vtx"][2] < -9000.0 and hasattr(src, "vtx_x"):
+                truth["vtx"] = (float(src.vtx_x), float(src.vtx_y), float(src.vtx_z))
+            if truth["charm_pdg"] == 0 and hasattr(src, "charm_pdg"):
+                truth["charm_pdg"] = int(src.charm_pdg)
+            if truth["decay_length_3d"] == 0.0 and hasattr(src, "decay_length_3d"):
+                truth["decay_length_3d"] = float(src.decay_length_3d)
+            if truth["mu1_p"] == 0.0 and hasattr(src, "mu1_p"):
+                truth["mu1_p"] = float(src.mu1_p)
+            if truth["mu2_p"] == 0.0 and hasattr(src, "mu2_p"):
+                truth["mu2_p"] = float(src.mu2_p)
+            if truth["dimuon_mass"] == 0.0 and hasattr(src, "dimuon_mass"):
+                truth["dimuon_mass"] = float(src.dimuon_mass)
+            if truth["dimuon_opening_angle_mrad"] == 0.0 and hasattr(src, "dimuon_opening_angle_mrad"):
+                truth["dimuon_opening_angle_mrad"] = float(src.dimuon_opening_angle_mrad)
+            if not truth["has_candidate"] and hasattr(src, "has_candidate"):
+                truth["has_candidate"] = bool(src.has_candidate)
+            if "is_cc" not in truth and hasattr(src, "is_cc"):
+                truth["is_cc"] = bool(src.is_cc)
+            if "is_nc" not in truth and hasattr(src, "is_nc"):
+                truth["is_nc"] = bool(src.is_nc)
+            if "is_numu_cc" not in truth and hasattr(src, "is_numu_cc"):
+                truth["is_numu_cc"] = bool(src.is_numu_cc)
+            if "is_anti_numu_cc" not in truth and hasattr(src, "is_anti_numu_cc"):
+                truth["is_anti_numu_cc"] = bool(src.is_anti_numu_cc)
 
         # Physical consistency check: A primary prompt muon only exists in CC interactions
         if truth.get("mu1_p", 0.0) > 0.0:
             truth["is_cc"] = True
             truth["is_nc"] = False
 
-        # Fallback to direct MCTrack inspection when flat truth branches are not present on tree
-        if truth["nu_e"] == 0.0 and hasattr(tree, "MCTrack") and len(tree.MCTrack) > 0:
-            nu_trk = tree.MCTrack[0]
-            truth["nu_e"] = float(nu_trk.GetEnergy())
-            truth["vtx"] = (float(nu_trk.GetStartX()), float(nu_trk.GetStartY()), float(nu_trk.GetStartZ()))
+        # Fallback to direct MCTrack inspection when flat truth branches are not present or incomplete
+        mctrk_source = truth_tree if (truth_tree is not None and hasattr(truth_tree, "MCTrack") and truth_tree.MCTrack.GetEntries() > 0) else tree
+        if (truth["nu_e"] == 0.0 or truth["vtx"][2] < -9000.0 or truth["charm_pdg"] == 0) and hasattr(mctrk_source, "MCTrack") and len(mctrk_source.MCTrack) > 0:
+            nu_trk = mctrk_source.MCTrack[0]
+            if truth["nu_e"] == 0.0:
+                truth["nu_e"] = float(nu_trk.GetEnergy())
+            if truth["vtx"][2] < -9000.0:
+                truth["vtx"] = (float(nu_trk.GetStartX()), float(nu_trk.GetStartY()), float(nu_trk.GetStartZ()))
             nu_pdg = nu_trk.GetPdgCode()
 
             mu1_trk = None
@@ -462,7 +471,7 @@ class Snd2DEventDisplay:
             is_cc = False
             charm_trk = None
             charm_id = -1
-            for i, trk in enumerate(tree.MCTrack):
+            for i, trk in enumerate(mctrk_source.MCTrack):
                 if trk.GetMotherId() == 0:
                     abs_pdg = abs(trk.GetPdgCode())
                     if abs_pdg in [11, 13, 15]:
@@ -470,17 +479,18 @@ class Snd2DEventDisplay:
                         if abs_pdg == 13 and trk.GetP() > max_p:
                             max_p = trk.GetP()
                             mu1_trk = trk
-                    if abs_pdg in [411, 421, 431, 4122, 4232, 4132, 4332]:
+                    if abs_pdg in [411, 421, 431, 4122, 4232, 4132, 4332] and trk.GetP() > 0.0:
                         if charm_trk is None:
                             charm_trk = trk
                             charm_id = i
 
-            truth["is_cc"] = is_cc
-            truth["is_nc"] = not is_cc
+            if "is_cc" not in truth:
+                truth["is_cc"] = is_cc
+                truth["is_nc"] = not is_cc
 
             # Particle gun fallback: primary muons with motherId < 0
             if mu1_trk is None:
-                pg_muons = [t for t in tree.MCTrack if abs(t.GetPdgCode()) == 13 and t.GetMotherId() < 0]
+                pg_muons = [t for t in mctrk_source.MCTrack if abs(t.GetPdgCode()) == 13 and t.GetMotherId() < 0]
                 if len(pg_muons) >= 2:
                     truth["is_particle_gun"] = True
                     mu1_trk = pg_muons[0]
@@ -497,21 +507,21 @@ class Snd2DEventDisplay:
                     lv2 = ROOT.TLorentzVector(mu2_trk.GetPx(), mu2_trk.GetPy(), mu2_trk.GetPz(), mu2_trk.GetEnergy())
                     truth["dimuon_mass"] = float((lv1 + lv2).M())
 
-            if mu1_trk is not None:
+            if mu1_trk is not None and truth["mu1_p"] == 0.0:
                 truth["mu1_p"] = float(mu1_trk.GetP())
                 if nu_pdg == 14:
                     truth["is_numu_cc"] = True
                 elif nu_pdg == -14:
                     truth["is_anti_numu_cc"] = True
 
-            if charm_trk is not None and charm_id >= 0:
+            if charm_trk is not None and charm_id >= 0 and truth["charm_pdg"] == 0:
                 truth["charm_pdg"] = int(charm_trk.GetPdgCode())
                 c_start = (charm_trk.GetStartX(), charm_trk.GetStartY(), charm_trk.GetStartZ())
                 if c_start[2] < 280.0 and truth["vtx"][2] > -9000.0:
                     c_start = truth["vtx"]
                 c_end = None
-                for d_trk in tree.MCTrack:
-                    if d_trk.GetMotherId() == charm_id:
+                for d_trk in mctrk_source.MCTrack:
+                    if d_trk.GetMotherId() == charm_id and d_trk.GetStartZ() >= 280.0:
                         c_end = (d_trk.GetStartX(), d_trk.GetStartY(), d_trk.GetStartZ())
                         break
                 if c_end is not None:
@@ -554,7 +564,7 @@ class Snd2DEventDisplay:
         z1 = min(self.z_max, max(self.z_min, p0[2] + dz))
         return (x1, y1, z1)
 
-    def _find_truth_tracks(self, tree, truth_info):
+    def _find_truth_tracks(self, tree, truth_info, truth_tree=None):
         """Finds trajectory coordinates for mu1, charm, mu2, and intermediate decay particles."""
         tracks = {
             "mu1": None,
@@ -565,9 +575,11 @@ class Snd2DEventDisplay:
             "intermediate_chain": [],
         }
 
+        mctrk_source = truth_tree if (truth_tree is not None and hasattr(truth_tree, "MCTrack") and truth_tree.MCTrack.GetEntries() > 0) else tree
+
         vtx = truth_info["vtx"]
-        if vtx[2] < -9000.0 and hasattr(tree, "MCTrack") and tree.MCTrack.GetEntries() > 0:
-            vtx = (tree.MCTrack[0].GetStartX(), tree.MCTrack[0].GetStartY(), tree.MCTrack[0].GetStartZ())
+        if vtx[2] < -9000.0 and hasattr(mctrk_source, "MCTrack") and mctrk_source.MCTrack.GetEntries() > 0:
+            vtx = (mctrk_source.MCTrack[0].GetStartX(), mctrk_source.MCTrack[0].GetStartY(), mctrk_source.MCTrack[0].GetStartZ())
             tracks["vtx"] = vtx
 
         mu1_trk = None
@@ -575,8 +587,8 @@ class Snd2DEventDisplay:
         mu2_trk = None
         intermediate_chain = []
 
-        if hasattr(tree, "MCTrack") and tree.MCTrack.GetEntries() > 0:
-            n_tracks = tree.MCTrack.GetEntries()
+        if hasattr(mctrk_source, "MCTrack") and mctrk_source.MCTrack.GetEntries() > 0:
+            n_tracks = mctrk_source.MCTrack.GetEntries()
 
             # 1. Primary prompt muon (mu1)
             mu1_id = -1
@@ -585,15 +597,22 @@ class Snd2DEventDisplay:
                     mu1_id = int(tree.mu1_track_id)
                 except Exception:
                     mu1_id = -1
+            if (mu1_id < 0 or mu1_id >= n_tracks) and hasattr(mctrk_source, "mu1_track_id"):
+                try:
+                    mu1_id = int(mctrk_source.mu1_track_id)
+                except Exception:
+                    mu1_id = -1
             if mu1_id < 0 or mu1_id >= n_tracks:
                 max_p = -1.0
-                for i, trk in enumerate(tree.MCTrack):
-                    if abs(trk.GetPdgCode()) == 13 and trk.GetMotherId() == 0:
+                for i, trk in enumerate(mctrk_source.MCTrack):
+                    if abs(trk.GetPdgCode()) == 13 and trk.GetMotherId() == 0 and trk.GetP() > 0.0:
                         if trk.GetP() > max_p:
                             max_p = trk.GetP()
                             mu1_id = i
             if 0 <= mu1_id < n_tracks:
-                mu1_trk = (mu1_id, tree.MCTrack[mu1_id])
+                cand = mctrk_source.MCTrack[mu1_id]
+                if cand.GetP() > 0.0 and cand.GetStartZ() >= 280.0:
+                    mu1_trk = (mu1_id, cand)
 
             # 2. Primary charm hadron
             charm_id = -1
@@ -602,38 +621,53 @@ class Snd2DEventDisplay:
                     charm_id = int(tree.charm_track_id)
                 except Exception:
                     charm_id = -1
+            if (charm_id < 0 or charm_id >= n_tracks) and hasattr(mctrk_source, "charm_track_id"):
+                try:
+                    charm_id = int(mctrk_source.charm_track_id)
+                except Exception:
+                    charm_id = -1
             if charm_id < 0 or charm_id >= n_tracks:
-                for i, trk in enumerate(tree.MCTrack):
+                for i, trk in enumerate(mctrk_source.MCTrack):
                     abs_pdg = abs(trk.GetPdgCode())
-                    if abs_pdg in [411, 421, 431, 4122, 4232, 4132, 4332] and trk.GetMotherId() == 0:
+                    if abs_pdg in [411, 421, 431, 4122, 4232, 4132, 4332] and trk.GetMotherId() == 0 and trk.GetP() > 0.0:
                         charm_id = i
                         break
             if 0 <= charm_id < n_tracks:
-                charm_trk = (charm_id, tree.MCTrack[charm_id])
+                cand = mctrk_source.MCTrack[charm_id]
+                if cand.GetP() > 0.0:
+                    charm_trk = (charm_id, cand)
 
             # 3. Secondary Muon (mu2): identified via unified find_truth_mu2_track_id
             from .filter import find_truth_mu2_track_id
             mu2_id = find_truth_mu2_track_id(tree)
+            if mu2_id < 0 and mctrk_source is not tree:
+                mu2_id = find_truth_mu2_track_id(mctrk_source)
             if 0 <= mu2_id < n_tracks:
-                mu2_trk = (mu2_id, tree.MCTrack[mu2_id])
+                cand = mctrk_source.MCTrack[mu2_id]
+                if cand.GetP() > 0.0 and cand.GetStartZ() >= 280.0:
+                    mu2_trk = (mu2_id, cand)
 
             # Particle gun fallback: primary muons with motherId < 0
             if mu1_trk is None or mu2_trk is None:
                 pg_mu_ids = [
-                    i for i, trk in enumerate(tree.MCTrack)
-                    if abs(trk.GetPdgCode()) == 13 and trk.GetMotherId() < 0
+                    i for i, trk in enumerate(mctrk_source.MCTrack)
+                    if abs(trk.GetPdgCode()) == 13 and trk.GetMotherId() < 0 and trk.GetP() > 0.0
                 ]
                 if len(pg_mu_ids) >= 2:
                     mu1_id, mu2_id = pg_mu_ids[0], pg_mu_ids[1]
-                    mu1_trk = (mu1_id, tree.MCTrack[mu1_id])
-                    mu2_trk = (mu2_id, tree.MCTrack[mu2_id])
+                    mu1_trk = (mu1_id, mctrk_source.MCTrack[mu1_id])
+                    mu2_trk = (mu2_id, mctrk_source.MCTrack[mu2_id])
 
+            # Update truth_info if mu2_trk discovered
+            if mu2_trk is not None and truth_info.get("mu2_p", 0.0) <= 0.0:
+                truth_info["mu2_p"] = float(mu2_trk[1].GetP())
+                truth_info["has_candidate"] = True
 
             # 4. Extract chain of in-between particles that produced the second muon
             if charm_trk is not None and mu2_trk is not None:
                 c_id = charm_trk[0]
                 m_id = mu2_trk[0]
-                curr_mid = tree.MCTrack[m_id].GetMotherId()
+                curr_mid = mctrk_source.MCTrack[m_id].GetMotherId()
                 chain_ids = []
                 visited = {m_id}
                 while 0 <= curr_mid < n_tracks and curr_mid not in visited:
@@ -641,24 +675,26 @@ class Snd2DEventDisplay:
                     if curr_mid == c_id:
                         break
                     chain_ids.append(curr_mid)
-                    curr_mid = tree.MCTrack[curr_mid].GetMotherId()
+                    curr_mid = mctrk_source.MCTrack[curr_mid].GetMotherId()
                 chain_ids.reverse()
 
+                pt_sources = [mctrk_source] if mctrk_source is tree else [mctrk_source, tree]
                 for idx_c, trk_id in enumerate(chain_ids):
-                    itrk = tree.MCTrack[trk_id]
+                    itrk = mctrk_source.MCTrack[trk_id]
                     p0 = (itrk.GetStartX(), itrk.GetStartY(), itrk.GetStartZ())
                     pts = [p0]
-                    if hasattr(tree, "ScifiPoint"):
-                        for p in tree.ScifiPoint:
-                            if p.GetTrackID() == trk_id:
-                                pts.append((p.GetX(), p.GetY(), p.GetZ()))
-                    if hasattr(tree, "MuFilterPoint"):
-                        for p in tree.MuFilterPoint:
-                            if p.GetTrackID() == trk_id:
-                                pts.append((p.GetX(), p.GetY(), p.GetZ()))
+                    for src in pt_sources:
+                        if hasattr(src, "ScifiPoint"):
+                            for p in src.ScifiPoint:
+                                if p.GetTrackID() == trk_id:
+                                    pts.append((p.GetX(), p.GetY(), p.GetZ()))
+                        if hasattr(src, "MuFilterPoint"):
+                            for p in src.MuFilterPoint:
+                                if p.GetTrackID() == trk_id:
+                                    pts.append((p.GetX(), p.GetY(), p.GetZ()))
 
                     if idx_c + 1 < len(chain_ids):
-                        next_trk = tree.MCTrack[chain_ids[idx_c + 1]]
+                        next_trk = mctrk_source.MCTrack[chain_ids[idx_c + 1]]
                         p_end = (next_trk.GetStartX(), next_trk.GetStartY(), next_trk.GetStartZ())
                     else:
                         p_end = (mu2_trk[1].GetStartX(), mu2_trk[1].GetStartY(), mu2_trk[1].GetStartZ())
@@ -674,19 +710,22 @@ class Snd2DEventDisplay:
 
         tracks["intermediate_chain"] = intermediate_chain
 
+        pt_sources = [mctrk_source] if mctrk_source is tree else [mctrk_source, tree]
+
         # Trajectory for Primary Muon
         if mu1_trk is not None:
             trk = mu1_trk[1]
             p0 = (trk.GetStartX(), trk.GetStartY(), trk.GetStartZ())
             pts = [p0]
-            if hasattr(tree, "ScifiPoint"):
-                for p in tree.ScifiPoint:
-                    if p.GetTrackID() == mu1_trk[0]:
-                        pts.append((p.GetX(), p.GetY(), p.GetZ()))
-            if hasattr(tree, "MuFilterPoint"):
-                for p in tree.MuFilterPoint:
-                    if p.GetTrackID() == mu1_trk[0]:
-                        pts.append((p.GetX(), p.GetY(), p.GetZ()))
+            for src in pt_sources:
+                if hasattr(src, "ScifiPoint"):
+                    for p in src.ScifiPoint:
+                        if p.GetTrackID() == mu1_trk[0]:
+                            pts.append((p.GetX(), p.GetY(), p.GetZ()))
+                if hasattr(src, "MuFilterPoint"):
+                    for p in src.MuFilterPoint:
+                        if p.GetTrackID() == mu1_trk[0]:
+                            pts.append((p.GetX(), p.GetY(), p.GetZ()))
             if len(pts) == 1:
                 p1 = self._extrapolate_track(p0, trk, max_len=200.0 if trk.GetP() > 5.0 else 60.0)
                 if p1:
@@ -705,15 +744,23 @@ class Snd2DEventDisplay:
 
             c_decay = None
             if intermediate_chain:
-                first_trk = tree.MCTrack[intermediate_chain[0]["track_id"]]
+                first_trk = mctrk_source.MCTrack[intermediate_chain[0]["track_id"]]
                 c_decay = (first_trk.GetStartX(), first_trk.GetStartY(), first_trk.GetStartZ())
             elif mu2_trk is not None and charm_trk is not None and mu2_trk[1].GetMotherId() == charm_trk[0]:
                 c_decay = (mu2_trk[1].GetStartX(), mu2_trk[1].GetStartY(), mu2_trk[1].GetStartZ())
-            elif hasattr(tree, "charm_decay_z") and getattr(tree, "charm_decay_z") > 280.0:
+            elif charm_trk is not None:
+                # Direct check for charm daughters in MCTrack
+                for d_trk in mctrk_source.MCTrack:
+                    if d_trk.GetMotherId() == charm_trk[0] and d_trk.GetStartZ() >= 280.0:
+                        c_decay = (d_trk.GetStartX(), d_trk.GetStartY(), d_trk.GetStartZ())
+                        break
+            if c_decay is None and hasattr(tree, "charm_decay_z") and getattr(tree, "charm_decay_z") > 280.0:
                 c_decay = (float(tree.charm_decay_x), float(tree.charm_decay_y), float(tree.charm_decay_z))
-            elif mu2_trk is not None:
+            elif c_decay is None and hasattr(mctrk_source, "charm_decay_z") and getattr(mctrk_source, "charm_decay_z") > 280.0:
+                c_decay = (float(mctrk_source.charm_decay_x), float(mctrk_source.charm_decay_y), float(mctrk_source.charm_decay_z))
+            elif c_decay is None and mu2_trk is not None:
                 c_decay = (mu2_trk[1].GetStartX(), mu2_trk[1].GetStartY(), mu2_trk[1].GetStartZ())
-            elif truth_info.get("decay_length_3d", 0) > 0 and charm_trk is not None and charm_trk[1].GetP() > 0:
+            elif c_decay is None and truth_info.get("decay_length_3d", 0) > 0 and charm_trk is not None and charm_trk[1].GetP() > 0:
                 L = truth_info["decay_length_3d"]
                 p = charm_trk[1].GetP()
                 c_decay = (
@@ -721,23 +768,34 @@ class Snd2DEventDisplay:
                     c_start[1] + L * charm_trk[1].GetPy() / p,
                     c_start[2] + L * charm_trk[1].GetPz() / p,
                 )
-            if c_decay is not None:
+
+            # Strictly require physical decay vertex coordinates (z >= 280.0)
+            if c_decay is not None and c_decay[2] >= 280.0:
                 tracks["charm"] = [c_start, c_decay]
                 tracks["charm_decay"] = c_decay
+                if truth_info.get("decay_length_3d", 0.0) <= 0.0:
+                    dx = c_decay[0] - c_start[0]
+                    dy = c_decay[1] - c_start[1]
+                    dz = c_decay[2] - c_start[2]
+                    truth_info["decay_length_3d"] = float((dx * dx + dy * dy + dz * dz) ** 0.5)
+            else:
+                tracks["charm"] = None
+                tracks["charm_decay"] = None
 
         # Trajectory for Mu2
         if mu2_trk is not None:
             trk = mu2_trk[1]
             p0 = (trk.GetStartX(), trk.GetStartY(), trk.GetStartZ())
             pts = [p0]
-            if hasattr(tree, "ScifiPoint"):
-                for p in tree.ScifiPoint:
-                    if p.GetTrackID() == mu2_trk[0]:
-                        pts.append((p.GetX(), p.GetY(), p.GetZ()))
-            if hasattr(tree, "MuFilterPoint"):
-                for p in tree.MuFilterPoint:
-                    if p.GetTrackID() == mu2_trk[0]:
-                        pts.append((p.GetX(), p.GetY(), p.GetZ()))
+            for src in pt_sources:
+                if hasattr(src, "ScifiPoint"):
+                    for p in src.ScifiPoint:
+                        if p.GetTrackID() == mu2_trk[0]:
+                            pts.append((p.GetX(), p.GetY(), p.GetZ()))
+                if hasattr(src, "MuFilterPoint"):
+                    for p in src.MuFilterPoint:
+                        if p.GetTrackID() == mu2_trk[0]:
+                            pts.append((p.GetX(), p.GetY(), p.GetZ()))
             if len(pts) == 1:
                 p1 = self._extrapolate_track(p0, trk, max_len=200.0 if trk.GetP() > 5.0 else 60.0)
                 if p1:
@@ -757,14 +815,15 @@ class Snd2DEventDisplay:
         event_number: Optional[int] = None,
         show_mc_truth: bool = False,
         draw_reco_tracks: bool = False,
+        truth_tree: Optional[Any] = None,
     ) -> ROOT.TCanvas:
         """
         Builds the 2D event display TCanvas mimicking EventDisplay_Task simpleDisplay.
         """
         tree.GetEntry(event_idx)
         if show_mc_truth:
-            truth = self._extract_truth(tree)
-            tracks = self._find_truth_tracks(tree, truth)
+            truth = self._extract_truth(tree, truth_tree=truth_tree)
+            tracks = self._find_truth_tracks(tree, truth, truth_tree=truth_tree)
         else:
             truth = None
             tracks = None

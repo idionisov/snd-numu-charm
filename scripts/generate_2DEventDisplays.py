@@ -143,6 +143,7 @@ def process_single_file_worker(args_tuple):
         other_name,
         reco_muons,
         processor_cfg,
+        truth_source,
     ) = args_tuple
 
     import ROOT
@@ -307,6 +308,28 @@ def process_single_file_worker(args_tuple):
             )
             _WORKER_DISPLAY_CACHE[cache_key] = display
 
+        # Open optional external truth source file if provided
+        f_truth = None
+        t_truth = None
+        truth_event_map = {}
+        if truth_source:
+            truth_path = truth_source % run_num if "%s" in truth_source else truth_source
+            if os.path.exists(truth_path) and os.path.abspath(truth_path) != os.path.abspath(input_path):
+                f_truth = ROOT.TFile.Open(truth_path, "READ")
+                if f_truth and not f_truth.IsZombie():
+                    t_truth = f_truth.Get("cbmsim") or f_truth.Get("rawConv") or f_truth.Get("events")
+                    if t_truth:
+                        t_truth.SetBranchStatus("*", 0)
+                        t_truth.SetBranchStatus("EventHeader*", 1)
+                        for ti in range(t_truth.GetEntries()):
+                            t_truth.GetEntry(ti)
+                            thdr = getattr(t_truth, "EventHeader", None)
+                            if thdr and hasattr(thdr, "GetEventNumber"):
+                                truth_event_map[int(thdr.GetEventNumber())] = ti
+                            else:
+                                truth_event_map[ti] = ti
+                        t_truth.SetBranchStatus("*", 1)
+
         # Build fallback truth processor if running in MC truth mode without pre-extracted truth branches
         truth_processor = None
         if mc_truth and not hasattr(tree, "nu_pdg"):
@@ -374,6 +397,13 @@ def process_single_file_worker(args_tuple):
             else:
                 canvas_title = f"SND@LHC Run {ev_run_id} Event {event_num}"
 
+            active_truth_tree = None
+            if t_truth is not None:
+                ti = truth_event_map.get(event_num)
+                if ti is not None:
+                    t_truth.GetEntry(ti)
+                    active_truth_tree = t_truth
+
             canvas = display.draw_event(
                 tree,
                 event_idx=iev,
@@ -383,6 +413,7 @@ def process_single_file_worker(args_tuple):
                 event_number=event_num,
                 show_mc_truth=mc_truth,
                 draw_reco_tracks=reco_muons,
+                truth_tree=active_truth_tree,
             )
 
             target_tdir = get_or_create_tdirectory(ftemp, target_parts)
@@ -411,6 +442,8 @@ def process_single_file_worker(args_tuple):
         ftemp.Write()
         ftemp.Close()
         fin.Close()
+        if f_truth is not None:
+            f_truth.Close()
         result["temp_root"] = temp_path
 
     except Exception as e:
@@ -462,6 +495,12 @@ def main():
         action="store_true",
         default=False,
         help="Enable Monte Carlo truth overlay and dynamic multi-tiered TDirectory hierarchy: MCTruth/<flavor>/<current>/<process>/<category>_<N>mu/<acceptance>",
+    )
+    parser.add_argument(
+        "--truth-source",
+        type=str,
+        default=None,
+        help="Path or pattern (with %s for partition/run) to external unpruned truth simulation file(s) containing complete MCTrack array (defaults to input file if not provided)",
     )
     parser.add_argument(
         "--recoMuons", "--reco-muons", "--muonReco", "--muon-reco",
@@ -635,6 +674,8 @@ def main():
     print(" SND@LHC 2D Event Display Generator")
     print("=" * 78)
     print(f" Mode:                 {'Monte Carlo Simulation (--mc-truth)' if args.mc_truth else 'Real Data (Default)'}")
+    if args.truth_source:
+        print(f" Truth Source:         {args.truth_source}")
     print(f" Config File:          {args.config}")
     print(f" Input Target:         {input_path}")
     print(f" Files Matched:        {len(input_files)}")
@@ -710,6 +751,7 @@ def main():
             other_name,
             args.reco_muons,
             processor_cfg,
+            args.truth_source,
         ))
 
     total_saved = 0

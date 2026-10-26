@@ -608,6 +608,7 @@ def _filter_partition_stream(
     record_failures: bool = False,
     partition_id: int = 0,
     default_category: str = "other",
+    csv_all_events: bool = False,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     import ROOT
     res = {
@@ -721,23 +722,10 @@ def _filter_partition_stream(
                         else:
                             passed_entries.append(iev)
 
-            if record_failures and not (p_t and p_v and p_d and p_tr):
+            passed_all = bool(p_t and p_v and p_d and p_tr)
+            if record_failures and (csv_all_events or not passed_all):
                 h = getattr(t_cbm, "EventHeader.", None) or getattr(t_cbm, "EventHeader", None)
                 ev_num = h.GetEventNumber() if h else iev
-                if not p_t:
-                    failed_stage = "SciFi_DS_Timing"
-                elif not p_v:
-                    failed_stage = "No_Veto_Hits"
-                elif not p_d:
-                    failed_stage = "DS_Dimuon_Activity"
-                else:
-                    failed_stage = "Two_DS_Tracks"
-
-                all_f = []
-                if not p_t: all_f.append("SciFi_DS_Timing")
-                if not p_v: all_f.append("No_Veto_Hits")
-                if not p_d: all_f.append("DS_Dimuon_Activity")
-                if not p_tr: all_f.append("Two_DS_Tracks")
 
                 # Resolve category: charm_direct, charm_indirect, or other
                 category = default_category
@@ -760,9 +748,12 @@ def _filter_partition_stream(
                     "partition": partition_id,
                     "event_number": ev_num,
                     "category": category,
-                    "failed_cut_stage": failed_stage,
                     "entry": iev,
-                    "failed_cuts": ";".join(all_f),
+                    "SciFi_DS_Timing": int(p_t),
+                    "No_Veto_Hits": int(p_v),
+                    "DS_Dimuon_Activity": int(p_d),
+                    "Two_DS_Tracks": int(p_tr),
+                    "passed_all": int(passed_all),
                 })
 
     res["passed"] = len(passed_entries)
@@ -821,6 +812,7 @@ def process_single_partition_pipeline(
     create_symlinks: bool = True,
     skip_empty: bool = False,
     skip_existing: bool = False,
+    csv_all_events: bool = False,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """
     Process a single partition for main, direct signal, and indirect signal datasets:
@@ -908,6 +900,7 @@ def process_single_partition_pipeline(
         record_failures=(main_input is not None),
         partition_id=partition,
         default_category="other",
+        csv_all_events=csv_all_events,
     )
     main_res["partition"] = partition
     if main_input is not None:
@@ -925,6 +918,7 @@ def process_single_partition_pipeline(
         record_failures=(main_input is None and sig_input is not None),
         partition_id=partition,
         default_category="charm_direct",
+        csv_all_events=csv_all_events,
     )
     sig_res["partition"] = partition
     if main_input is None and sig_input is not None:
@@ -942,6 +936,7 @@ def process_single_partition_pipeline(
         record_failures=(main_input is None and ind_input is not None),
         partition_id=partition,
         default_category="charm_indirect",
+        csv_all_events=csv_all_events,
     )
     ind_res["partition"] = partition
     if main_input is None and ind_input is not None:
@@ -1134,10 +1129,17 @@ def main():
         help="Output file pattern for filtered indirect charm dimuon ROOT files (supports '%%s')",
     )
     parser.add_argument(
-        "--failed-cuts-csv",
+        "--failed-cuts-csv", "--cuts-csv",
+        dest="failed_cuts_csv",
         type=str,
         default=None,
-        help="Output CSV file path to record partitions, event numbers, and failed cut stages for signal events",
+        help="Output CSV file path to record partitions, event numbers, categories, and binary 1/0 decisions for each cut",
+    )
+    parser.add_argument(
+        "--csv-all-events",
+        action="store_true",
+        default=False,
+        help="Record cut decisions (1/0) for all events in the CSV, not only events that failed at least one cut",
     )
     parser.add_argument(
         "-w", "--workers",
@@ -1347,7 +1349,7 @@ def main():
             os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
             if not os.path.isfile(csv_path) or not args.skip_existing:
                 with open(csv_path, "w") as f_csv:
-                    f_csv.write("partition,event_number,category,failed_cut_stage,entry,failed_cuts\n")
+                    f_csv.write("partition,event_number,category,entry,SciFi_DS_Timing,No_Veto_Hits,DS_Dimuon_Activity,Two_DS_Tracks,passed_all\n")
 
         # Build task list
         tasks = []
@@ -1384,7 +1386,7 @@ def main():
             elif m_out and ind_in:
                 ind_out = os.path.join(os.path.dirname(m_out), os.path.basename(ind_in))
 
-            tasks.append((p, m_in, m_out, s_in, s_out, ind_in, ind_out, args.config, args.cutset, not args.no_symlinks, args.skip_empty, args.skip_existing))
+            tasks.append((p, m_in, m_out, s_in, s_out, ind_in, ind_out, args.config, args.cutset, not args.no_symlinks, args.skip_empty, args.skip_existing, args.csv_all_events))
 
         print(f"\n[Parallel] Dispatching {len(tasks)} partition tasks across {args.workers} worker processes...\n")
 
@@ -1441,7 +1443,10 @@ def main():
             if failed_records and args.failed_cuts_csv:
                 with open(args.failed_cuts_csv, "a") as f_csv:
                     for r in failed_records:
-                        f_csv.write(f"{r['partition']},{r['event_number']},{r.get('category', 'other')},{r['failed_cut_stage']},{r['entry']},{r['failed_cuts']}\n")
+                        f_csv.write(
+                            f"{r['partition']},{r['event_number']},{r.get('category', 'other')},{r['entry']},"
+                            f"{r['SciFi_DS_Timing']},{r['No_Veto_Hits']},{r['DS_Dimuon_Activity']},{r['Two_DS_Tracks']},{r['passed_all']}\n"
+                        )
                     f_csv.flush()
 
         if args.workers > 1 or len(tasks) > 1:

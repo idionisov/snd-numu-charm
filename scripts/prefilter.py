@@ -24,6 +24,22 @@ Usage examples:
     -o "prefiltered/%s/preselected_signal_run%s.root" \\
     --cutflow "cutflow_histograms.root" \\
     -j 4
+
+# Do everything
+python scripts/prefilter.py \
+    -i "/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root" \
+    --signal-input "/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonDirect.root" \
+    --indirect-input "/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonIndirect.root" \
+    -o "/eos/user/i/idioniso/snd-numu-charm/prefiltered/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_MCEB/essentials/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root" \
+    --signal-output "/eos/user/i/idioniso/snd-numu-charm/prefiltered/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_MCEB/essentials-direct/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root" \
+    --indirect-output "/eos/user/i/idioniso/snd-numu-charm/prefiltered/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_MCEB/essentials-indirect/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root" \
+    -p "1-1000" \
+    --cutset essentials \
+    --cutflow "/eos/user/i/idioniso/snd-numu-charm/cutflows/cutflow_essentials.root" \
+    --signal-cutflow "/eos/user/i/idioniso/snd-numu-charm/cutflows/cutflow_signal.root" \
+    --failed-cuts-csv "/eos/user/i/idioniso/snd-numu-charm/prefiltered/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget_MCEB/failed_cuts.txt" \
+    --nu-scaling 0.004533333333333334 \
+    -w 10 -j 1
 """
 
 from __future__ import annotations

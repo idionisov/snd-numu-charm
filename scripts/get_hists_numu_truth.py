@@ -39,6 +39,7 @@ import sys
 import glob
 import array
 import argparse
+import re
 import numpy as np
 import ROOT
 
@@ -109,6 +110,12 @@ def parse_arguments():
         type=str,
         default=None,
         help="Output ROOT file for summary histograms",
+    )
+    parser.add_argument(
+        "--truth-source",
+        type=str,
+        default=None,
+        help="Path or pattern (with %s for partition) to external truth simulation file(s) (e.g. pre-extracted _truth.root or pre-MCEB _dig.root)",
     )
     parser.add_argument(
         "-j", "--threads",
@@ -219,6 +226,8 @@ def main():
     has_mufilter = False
     actual_tree_name = tree_name
     detected_truth_name = None
+    input_has_cbmsim = False
+    external_truth_files = []
 
     f_test = ROOT.TFile.Open(input_files[0])
     if f_test and not f_test.IsZombie():
@@ -227,28 +236,60 @@ def main():
                 has_truth_tree = True
                 detected_truth_name = cand_truth
                 break
+        if f_test.Get("cbmsim"):
+            input_has_cbmsim = True
+        f_test.Close()
 
-        if not args.tree:
-            # Auto-detect best tree: prefer 'cbmsim' if it contains MCTrack to reconstruct full 3D kinematics,
-            # or pre-analyzed 'truth' tree if present
-            if f_test.Get("cbmsim") and f_test.Get("cbmsim").GetBranch("MCTrack"):
-                actual_tree_name = "cbmsim"
-            elif has_truth_tree and detected_truth_name:
-                actual_tree_name = detected_truth_name
-            elif f_test.Get(tree_name):
-                actual_tree_name = tree_name
-            else:
-                for alt_name in ["cbmsim", "rawConv"]:
-                    if f_test.Get(alt_name):
-                        actual_tree_name = alt_name
+    # Resolve external truth source files if requested
+    if args.truth_source:
+        for in_f in input_files:
+            m = re.search(r'/(\d+)/', in_f)
+            part_str = m.group(1) if m else ""
+            src_f = args.truth_source % part_str if "%s" in args.truth_source else args.truth_source
+            if os.path.exists(src_f):
+                external_truth_files.append(src_f)
+
+        if external_truth_files:
+            f_truth_test = ROOT.TFile.Open(external_truth_files[0])
+            if f_truth_test and not f_truth_test.IsZombie():
+                for cand_truth in ["mctruth", "mc_truth", "truth"]:
+                    if f_truth_test.Get(cand_truth):
+                        has_truth_tree = True
+                        detected_truth_name = cand_truth
                         break
-        t_check = f_test.Get(actual_tree_name)
-        if t_check and t_check.GetBranch("MuFilterPoint"):
+                f_truth_test.Close()
+
+    if not args.tree:
+        # Auto-detect best tree: prefer pre-analyzed 'truth'/'mctruth' tree if present
+        # (which contains complete, uncorrupted physics truth), otherwise fallback to 'cbmsim'
+        if has_truth_tree and detected_truth_name:
+            actual_tree_name = detected_truth_name
+        elif input_has_cbmsim:
+            actual_tree_name = "cbmsim"
+        elif tree_name:
+            actual_tree_name = tree_name
+        else:
+            actual_tree_name = "cbmsim"
+
+    # Check MuFilterPoint availability across input or truth source
+    f_test = ROOT.TFile.Open(input_files[0])
+    if f_test and not f_test.IsZombie():
+        t_cbm = f_test.Get("cbmsim") or f_test.Get(actual_tree_name)
+        if t_cbm and t_cbm.GetBranch("MuFilterPoint"):
             has_mufilter = True
         f_test.Close()
+    if not has_mufilter and external_truth_files:
+        f_truth_test = ROOT.TFile.Open(external_truth_files[0])
+        if f_truth_test and not f_truth_test.IsZombie():
+            t_truth_cbm = f_truth_test.Get("cbmsim") or f_truth_test.Get(actual_tree_name)
+            if t_truth_cbm and t_truth_cbm.GetBranch("MuFilterPoint"):
+                has_mufilter = True
+            f_truth_test.Close()
 
     print(f"Loaded TTree       : {actual_tree_name}")
     print(f"Pre-analyzed truth : {has_truth_tree} ({detected_truth_name or 'none'})")
+    if external_truth_files:
+        print(f"External truth src : {len(external_truth_files)} files matched ({external_truth_files[0]})")
     print(f"MuFilter available : {has_mufilter} (DS acceptance tracking enabled: {has_mufilter or actual_tree_name in ('mctruth', 'mc_truth', 'truth') or actual_tree_name == 'cbmsim'})")
 
     # Declare C++ helper functions for unified 3D kinematics and reconstructed track projections
@@ -944,15 +985,32 @@ def main():
         proc_cfg["require_direct_charm_decay"] = args.require_direct_charm_decay
     processor = build_processor(proc_cfg)
 
-    # 4. Initialize DataManager for dataset loading
-    dm = DataManager(
-        source=input_files,
-        tree_name=actual_tree_name,
-        num_threads=effective_threads,
-        n_files=max_files if max_files > 0 else -1,
-        load_libraries=True,
-    )
-    df = dm.rdf(range_limit=args.entries if args.entries > 0 else None)
+    # 4. Initialize DataManager / Chains for dataset loading
+    if actual_tree_name in ("mctruth", "mc_truth", "truth") and (input_has_cbmsim or external_truth_files):
+        truth_source_files = external_truth_files if external_truth_files else input_files
+        ch_truth = ROOT.TChain(actual_tree_name)
+        for f in truth_source_files:
+            ch_truth.Add(f)
+
+        # Friend cbmsim from input files to attach MuFilterPoint and Reco_MuonTracks
+        if input_has_cbmsim:
+            ch_cbm = ROOT.TChain("cbmsim")
+            for f in input_files:
+                ch_cbm.Add(f)
+            ch_truth.AddFriend(ch_cbm)
+
+        df = ROOT.RDataFrame(ch_truth)
+        if args.entries and args.entries > 0:
+            df = df.Range(args.entries)
+    else:
+        dm = DataManager(
+            source=input_files,
+            tree_name=actual_tree_name,
+            num_threads=effective_threads,
+            n_files=max_files if max_files > 0 else -1,
+            load_libraries=True,
+        )
+        df = dm.rdf(range_limit=args.entries if args.entries > 0 else None)
 
     # 5. Define Truth Observables
     existing_cols = set(str(c) for c in df.GetColumnNames())

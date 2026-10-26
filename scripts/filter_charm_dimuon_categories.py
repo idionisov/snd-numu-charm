@@ -88,6 +88,7 @@ def process_single_partition(
     skip_existing: bool = False,
     write_empty: bool = True,
     input_pattern: Optional[str] = None,
+    deduplicate: bool = True,
 ) -> Dict[str, Any]:
     """Processes a single partition and produces direct and indirect skimmed ROOT files."""
     part_dir = os.path.join(base_dir, str(partition))
@@ -165,13 +166,16 @@ def process_single_partition(
             "indirect": 0,
         }
 
-    if t_cbm:
-        t_cbm.SetCacheSize(30 * 1024 * 1024)
     t_truth.SetCacheSize(10 * 1024 * 1024)
 
     n_tot = t_truth.GetEntries()
-    direct_entries: List[int] = []
-    indirect_entries: List[int] = []
+    direct_candidates: Dict[int, List[int]] = {}
+    indirect_candidates: Dict[int, List[int]] = {}
+
+    ev_leaf = t_cbm.GetLeaf("EventHeader.fEventNumber") if t_cbm else None
+    if ev_leaf:
+        t_cbm.SetBranchStatus("*", 0)
+        t_cbm.SetBranchStatus("EventHeader.*", 1)
 
     for iev in range(n_tot):
         t_truth.GetEntry(iev)
@@ -179,13 +183,29 @@ def process_single_partition(
         has_charm = int(getattr(t_truth, "has_charm", 0))
 
         if is_cc == 1 and has_charm == 1:
+            ev_num = iev
+            if ev_leaf:
+                t_cbm.GetEntry(iev)
+                ev_num = int(ev_leaf.GetValue())
+
             direct_mu = int(getattr(t_truth, "charm_has_direct_muon", 0))
             if direct_mu == 1:
-                direct_entries.append(iev)
+                direct_candidates.setdefault(ev_num, []).append(iev)
             else:
                 ds_mu = int(getattr(t_truth, "has_charm_hadronic_downstream_muon", 0))
                 if ds_mu == 1:
-                    indirect_entries.append(iev)
+                    indirect_candidates.setdefault(ev_num, []).append(iev)
+
+    if ev_leaf:
+        t_cbm.SetBranchStatus("*", 1)
+
+    if deduplicate and ev_leaf:
+        # One primary bunch-crossing entry per physical interaction
+        direct_entries = [slices[0] for slices in direct_candidates.values()]
+        indirect_entries = [slices[0] for slices in indirect_candidates.values()]
+    else:
+        direct_entries = [iev for slices in direct_candidates.values() for iev in slices]
+        indirect_entries = [iev for slices in indirect_candidates.values() for iev in slices]
 
     tmp_direct = f"/tmp/{prefix}_dir_{os.getpid()}_{partition}.root"
     tmp_indirect = f"/tmp/{prefix}_ind_{os.getpid()}_{partition}.root"
@@ -306,8 +326,14 @@ def main():
         action="store_true",
         help="Do not create files for partitions with 0 selected events.",
     )
+    parser.add_argument(
+        "--all-slices",
+        action="store_true",
+        help="Do not deduplicate MCEB time-slices (saves all 25ns slices rather than 1 entry per physical event).",
+    )
 
     args = parser.parse_args()
+    deduplicate = not args.all_slices
 
     base_dir = args.base_dir
     if args.input:
@@ -341,6 +367,7 @@ def main():
     print(f" Parallel Workers     : {args.jobs}")
     print(f" Skip Existing        : {args.skip_existing}")
     print(f" Write Empty Files    : {write_empty}")
+    print(f" Deduplicate Events   : {deduplicate} (1 entry per physical event)")
     sample_prefix = "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth" if (args.input and "MCEB" in args.input) else "sndLHC.Genie-TGeant4_dig_2MuTrks_truth"
     print(f" Output 1 (Direct)    : {sample_prefix}_charmDimuonDirect.root")
     print(f" Output 2 (Indirect)  : {sample_prefix}_charmDimuonIndirect.root")
@@ -355,7 +382,7 @@ def main():
     skipped_count = 0
 
     task_args = [
-        (p, base_dir, args.skip_existing, write_empty, args.input)
+        (p, base_dir, args.skip_existing, write_empty, args.input, deduplicate)
         for p in partitions
     ]
 

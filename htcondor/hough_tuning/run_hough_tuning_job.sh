@@ -24,12 +24,19 @@ if [ -z "${JOB_ID}" ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PROJECT_ROOT="/afs/cern.ch/work/i/idioniso/snd-numu-charm"
+if [ ! -d "${PROJECT_ROOT}" ]; then
+    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+fi
 
 # Source SNDSW & Python runtime environment
 if [ -f "${SCRIPT_DIR}/sndswEnv.sh" ]; then
     source "${SCRIPT_DIR}/sndswEnv.sh" > /dev/null 2>&1 || true
+elif [ -f "${PROJECT_ROOT}/htcondor/hough_tuning/sndswEnv.sh" ]; then
+    source "${PROJECT_ROOT}/htcondor/hough_tuning/sndswEnv.sh" > /dev/null 2>&1 || true
 fi
+
+cd "${PROJECT_ROOT}"
 
 # Limit low-level math library threading
 export OMP_NUM_THREADS=1
@@ -67,6 +74,10 @@ fi
 START_TIME=$(date +%s)
 
 python3 -X faulthandler "${PROJECT_ROOT}/pgun/scripts/tune_dimuon_hough.py" \
+    --genie-sig-cache "${PROJECT_ROOT}/pgun/tuning_cache_genie_341ev.pkl" \
+    --pgun-sig-cache "${PROJECT_ROOT}/pgun/tuning_cache_500ev.pkl" \
+    --genie-bkg-cache "${PROJECT_ROOT}/pgun/cache_genie_bkg_500ev.pkl" \
+    --pmu-bkg-cache "${PROJECT_ROOT}/pgun/cache_pmu_bkg_500ev.pkl" \
     --job-id "${JOB_ID}" \
     --n-jobs "${N_JOBS}" \
     --output-csv "${LOCAL_CSV}" \

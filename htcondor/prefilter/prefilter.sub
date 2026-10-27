@@ -1,0 +1,52 @@
+# ==============================================================================
+# HTCondor Submit File: SND@LHC Stage 6 - Event Prefiltering (Essentials)
+#
+# Process per partition:
+#   Inputs : sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root
+#            sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonDirect.root
+#            sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonIndirect.root
+#   Outputs: prefiltered/newP8/essentials/<p>/...
+#            prefiltered/newP8/essentials-direct/<p>/...
+#            prefiltered/newP8/essentials-indirect/<p>/...
+#
+# Usage:
+#   condor_submit prefilter.sub
+#   ./submit_prefilter.sh
+# ==============================================================================
+
+base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/prefilter
+initialdir              = $(base_dir)
+
+flavour                 = $(flavour:microcentury)
+args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
+
+input_pattern           = $(input_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root)
+output_pattern          = $(output_pattern:/eos/user/i/idioniso/snd-numu-charm/prefiltered/newP8/essentials/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root)
+cutset                  = $(cutset:essentials)
+
+executable              = $(base_dir)/run_prefilter_partition.sh
+arguments               = $(partition) $(input_pattern) $(output_pattern) $(cutset)
+environment             = "FORCE=$(force:0)"
+
+output                  = $(base_dir)/out/prefilter_part$(partition)_$(ClusterId)_$(ProcId).out
+error                   = $(base_dir)/err/prefilter_part$(partition)_$(ClusterId)_$(ProcId).err
+log                     = $(base_dir)/log/prefilter_$(ClusterId).log
+
+getenv                  = False
+notification            = Never
+requirements            = (OpSysAndVer =?= "AlmaLinux9")
+
++JobFlavour             = "$(flavour)"
++AccountingGroup        = "group_u_SNDLHC.users"
+MY.JobRequiresAFS       = True
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = $(base_dir)/sndswEnv.sh, /afs/cern.ch/user/i/idioniso/ddfUtils
+
+request_cpus            = 1
+request_memory          = 2GB
+request_disk            = 2GB
+max_retries             = 2
+
+queue partition from $(args_file)

@@ -49,9 +49,13 @@ STAGE_CONFIG = {
         "name": "TRACK",
         "sub": "sub/dimuon_tracking.sub",
     },
+    "prefilter": {
+        "name": "PREFILTER",
+        "sub": "sub/prefilter.sub",
+    },
 }
 
-ALL_STAGES_ORDER = ["sim", "mceb", "mctruth", "digi", "track"]
+ALL_STAGES_ORDER = ["sim", "mceb", "mctruth", "digi", "track", "prefilter"]
 
 
 def parse_partitions(part_arg: Optional[str]) -> List[int]:
@@ -80,7 +84,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate HTCondor DAGMan file for SND@LHC pipeline")
     parser.add_argument("-p", "--partitions", type=str, default="1-1000", help="Partition range (e.g. 1-1000, 1-10, 1,2,5)")
     parser.add_argument("-o", "--output", type=str, default="pipeline.dag", help="Output DAG filename")
-    parser.add_argument("-s", "--stages", type=str, default="all", help="Comma-separated stages: sim,mceb,mctruth,digi,track (default: all)")
+    parser.add_argument("-s", "--stages", type=str, default="all", help="Comma-separated stages: sim,mceb,mctruth,digi,track,prefilter (default: all)")
     parser.add_argument("-r", "--retries", type=int, default=2, help="Number of automatic retries per node (default: 2)")
     parser.add_argument("--force", action="store_true", help="Set force=1 to overwrite existing outputs")
     parser.add_argument("--skip-displays", action="store_true", help="Set skip_displays=1 in tracking stage")

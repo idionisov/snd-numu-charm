@@ -48,45 +48,63 @@ def parse_partitions(part_arg: Optional[str]) -> List[int]:
     return sorted(list(partitions))
 
 
-def verify_partition(p: int, data_dir: str, disp_dir: str) -> Tuple[int, bool, Dict[str, str]]:
+def verify_partition(p: int, data_dir: str, disp_dir: str, prefilter_dir: str, requested_stages: List[str]) -> Tuple[int, bool, Dict[str, str]]:
     pdir = os.path.join(data_dir, str(p))
     stage_status = {}
 
     # Stage 1: Sim
-    sim_file = os.path.join(pdir, "sndLHC.Genie-TGeant4.root")
-    geo_file = os.path.join(pdir, "geofile_full.Genie-TGeant4.root")
-    stage_status["sim"] = "OK" if (os.path.isfile(sim_file) and os.path.getsize(sim_file) > 100000 and os.path.isfile(geo_file)) else "MISSING"
+    if "sim" in requested_stages:
+        sim_file = os.path.join(pdir, "sndLHC.Genie-TGeant4.root")
+        geo_file = os.path.join(pdir, "geofile_full.Genie-TGeant4.root")
+        stage_status["sim"] = "OK" if (os.path.isfile(sim_file) and os.path.getsize(sim_file) > 100000 and os.path.isfile(geo_file)) else "MISSING"
 
     # Stage 2 & 3: MCEB & MCTruth
-    mceb_file = os.path.join(pdir, "sndLHC.Genie-TGeant4_MCEB.root")
-    if os.path.isfile(mceb_file) and os.path.getsize(mceb_file) > 100000:
-        stage_status["mceb"] = "OK"
-        # Check truth
-        f = ROOT.TFile.Open(mceb_file, "READ")
-        if f is not None and not f.IsZombie():
-            has_mc = f.GetKey("mctruth") is not None
-            has_cbm2 = f.GetKey("cbmsim", 2) is not None
-            f.Close()
-            stage_status["mctruth"] = "OK" if (has_mc and has_cbm2) else "MISSING_TRUTH_KEYS"
+    if "mceb" in requested_stages or "mctruth" in requested_stages:
+        mceb_file = os.path.join(pdir, "sndLHC.Genie-TGeant4_MCEB.root")
+        if os.path.isfile(mceb_file) and os.path.getsize(mceb_file) > 100000:
+            if "mceb" in requested_stages:
+                stage_status["mceb"] = "OK"
+            if "mctruth" in requested_stages:
+                f = ROOT.TFile.Open(mceb_file, "READ")
+                if f is not None and not f.IsZombie():
+                    has_mc = f.GetKey("mctruth") is not None
+                    has_cbm2 = f.GetKey("cbmsim", 2) is not None
+                    f.Close()
+                    stage_status["mctruth"] = "OK" if (has_mc and has_cbm2) else "MISSING_TRUTH_KEYS"
+                else:
+                    stage_status["mctruth"] = "ZOMBIE"
         else:
-            stage_status["mctruth"] = "ZOMBIE"
-    else:
-        stage_status["mceb"] = "MISSING"
-        stage_status["mctruth"] = "MISSING"
+            if "mceb" in requested_stages:
+                stage_status["mceb"] = "MISSING"
+            if "mctruth" in requested_stages:
+                stage_status["mctruth"] = "MISSING"
 
     # Stage 4: Digi
-    digi_file = os.path.join(pdir, "sndLHC.Genie-TGeant4_MCEB_dig.root")
-    stage_status["digi"] = "OK" if (os.path.isfile(digi_file) and os.path.getsize(digi_file) > 100000) else "MISSING"
+    if "digi" in requested_stages:
+        digi_file = os.path.join(pdir, "sndLHC.Genie-TGeant4_MCEB_dig.root")
+        stage_status["digi"] = "OK" if (os.path.isfile(digi_file) and os.path.getsize(digi_file) > 100000) else "MISSING"
 
     # Stage 5: Tracking & Skims
-    track_file = os.path.join(pdir, "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root")
-    direct_skim = os.path.join(pdir, "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonDirect.root")
-    indirect_skim = os.path.join(pdir, "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonIndirect.root")
-    disp_direct = os.path.join(disp_dir, "direct", f"displays_part{p}.root")
+    if "track" in requested_stages:
+        track_file = os.path.join(pdir, "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root")
+        direct_skim = os.path.join(pdir, "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonDirect.root")
+        indirect_skim = os.path.join(pdir, "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonIndirect.root")
 
-    has_track = os.path.isfile(track_file) and os.path.getsize(track_file) > 100000
-    has_skims = os.path.isfile(direct_skim) and os.path.isfile(indirect_skim)
-    stage_status["track"] = "OK" if (has_track and has_skims) else "MISSING"
+        has_track = os.path.isfile(track_file) and os.path.getsize(track_file) > 100000
+        has_skims = os.path.isfile(direct_skim) and os.path.isfile(indirect_skim)
+        stage_status["track"] = "OK" if (has_track and has_skims) else "MISSING"
+
+    # Stage 6: Prefilter
+    if "prefilter" in requested_stages:
+        pref_main = os.path.join(prefilter_dir, "essentials", str(p), "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root")
+        pref_dir = os.path.join(prefilter_dir, "essentials-direct", str(p), "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root")
+        pref_ind = os.path.join(prefilter_dir, "essentials-indirect", str(p), "sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root")
+        has_pref = (
+            os.path.isfile(pref_main) and os.path.getsize(pref_main) > 500 and
+            os.path.isfile(pref_dir) and os.path.getsize(pref_dir) > 500 and
+            os.path.isfile(pref_ind) and os.path.getsize(pref_ind) > 500
+        )
+        stage_status["prefilter"] = "OK" if has_pref else "MISSING"
 
     all_ok = all(v == "OK" for v in stage_status.values())
     return p, all_ok, stage_status
@@ -95,14 +113,25 @@ def verify_partition(p: int, data_dir: str, disp_dir: str) -> Tuple[int, bool, D
 def main():
     parser = argparse.ArgumentParser(description="Master End-to-End Auditor for SND@LHC Pipeline")
     parser.add_argument("-p", "--partitions", type=str, default="1-1000", help="Partitions to audit (default: 1-1000)")
+    parser.add_argument("-s", "--stages", type=str, default="sim,mceb,mctruth,digi,track", help="Stages to verify: sim,mceb,mctruth,digi,track,prefilter or all (default: sim,mceb,mctruth,digi,track)")
     parser.add_argument("-d", "--data-dir", type=str, default="/eos/user/i/idioniso/snd-numu-charm/data/newP8")
+    parser.add_argument("--prefilter-dir", type=str, default="/eos/user/i/idioniso/snd-numu-charm/prefiltered/newP8")
     parser.add_argument("--disp-dir", type=str, default="/eos/user/i/idioniso/snd-numu-charm/event_displays/newP8_MCEB/partitions")
     parser.add_argument("-j", "--jobs", type=int, default=8, help="Workers")
     args = parser.parse_args()
 
     partitions = parse_partitions(args.partitions)
+
+    all_known_stages = ["sim", "mceb", "mctruth", "digi", "track", "prefilter"]
+    if args.stages.strip().lower() == "all":
+        requested_stages = all_known_stages
+    else:
+        requested_stages = [st.strip().lower() for st in args.stages.split(",") if st.strip().lower() in all_known_stages]
+    if not requested_stages:
+        requested_stages = all_known_stages
+
     print("==========================================================")
-    print(f" Auditing Full Pipeline for {len(partitions)} Partition(s)")
+    print(f" Auditing Pipeline ({','.join(requested_stages)}) for {len(partitions)} Partition(s)")
     print(f" Data Directory : {args.data_dir}")
     print("==========================================================")
 
@@ -110,12 +139,13 @@ def main():
     failed = []
 
     with ThreadPoolExecutor(max_workers=args.jobs) as executor:
-        futures = {executor.submit(verify_partition, p, args.data_dir, args.disp_dir): p for p in partitions}
+        futures = {executor.submit(verify_partition, p, args.data_dir, args.disp_dir, args.prefilter_dir, requested_stages): p for p in partitions}
         for fut in as_completed(futures):
             p, ok, stages = fut.result()
+            status_str = " | ".join([f"{k.capitalize()}: {v}" for k, v in stages.items()])
             if ok:
                 passed += 1
-                print(f" [OK]   Part {p:4d} | Sim: OK | MCEB: OK | MCTruth: OK | Digi: OK | Tracking: OK")
+                print(f" [OK]   Part {p:4d} | {status_str}")
             else:
                 failed.append((p, stages))
                 errs = ", ".join([f"{k}:{v}" for k, v in stages.items() if v != "OK"])

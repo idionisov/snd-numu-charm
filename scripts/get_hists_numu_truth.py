@@ -156,6 +156,13 @@ def parse_arguments():
         choices=["all", "direct", "indirect", "non_charm", "signal_like"],
         help="Focus category: 'all' (inclusive signal-like), 'direct' (c->mu), 'indirect' (c->h->mu), 'non_charm' (no charm, 2 muons in DS), or 'signal_like'",
     )
+    parser.add_argument(
+        "--truth-only", "--no-friend",
+        dest="truth_only",
+        action="store_true",
+        default=False,
+        help="Load pure truth tree without friending cbmsim (avoids friend entry mismatch errors when cbmsim is filtered or missing)",
+    )
     return parser.parse_args()
 
 
@@ -236,7 +243,7 @@ def main():
                 has_truth_tree = True
                 detected_truth_name = cand_truth
                 break
-        if f_test.Get("cbmsim"):
+        if f_test.Get("cbmsim") and not args.truth_only:
             input_has_cbmsim = True
         f_test.Close()
 
@@ -993,7 +1000,7 @@ def main():
             ch_truth.Add(f)
 
         # Friend cbmsim from input files to attach MuFilterPoint and Reco_MuonTracks
-        if input_has_cbmsim:
+        if input_has_cbmsim and not args.truth_only:
             ch_cbm = ROOT.TChain("cbmsim")
             for f in input_files:
                 ch_cbm.Add(f)

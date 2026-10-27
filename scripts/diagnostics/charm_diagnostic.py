@@ -1557,16 +1557,30 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
     Worker process analyzing a batch of ROOT files.
     Extracts all neutrino CC events, charm hadrons, and their decay properties.
     """
-    (
-        file_chunk,
-        nu_bin_edges,
-        charm_bin_edges,
-        decay_only,
-        ground_state_only,
-        numu_cc_only,
-        max_events_chunk,
-        pdg_inclusive_modes,
-    ) = args_tuple
+    if len(args_tuple) == 9:
+        (
+            file_chunk,
+            nu_bin_edges,
+            charm_bin_edges,
+            decay_only,
+            ground_state_only,
+            numu_cc_only,
+            max_events_chunk,
+            pdg_inclusive_modes,
+            deduplicate_mceb,
+        ) = args_tuple
+    else:
+        (
+            file_chunk,
+            nu_bin_edges,
+            charm_bin_edges,
+            decay_only,
+            ground_state_only,
+            numu_cc_only,
+            max_events_chunk,
+            pdg_inclusive_modes,
+        ) = args_tuple[:8]
+        deduplicate_mceb = True
 
     import ROOT
     ROOT.gROOT.SetBatch(True)
@@ -1742,14 +1756,30 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
 
         local_data["files_processed"] += 1
         last_truth_idx = -1
+        seen_events_in_file = set()
 
         for iev in range(n_entries):
+            tree_cbmsim.GetEntry(iev)
+
+            # MCEB Deduplication: retain only the primary/first 25ns slice per physical neutrino interaction
+            if deduplicate_mceb:
+                ev_id = get_tree_event_id(tree_cbmsim)
+                if ev_id is not None:
+                    if ev_id in seen_events_in_file:
+                        continue
+                    seen_events_in_file.add(ev_id)
+                else:
+                    trks_check = getattr(tree_cbmsim, "MCTrack", None)
+                    if trks_check and len(trks_check) > 0:
+                        sig = (round(trks_check[0].GetPx(), 4), round(trks_check[0].GetPy(), 4), round(trks_check[0].GetPz(), 4))
+                        if sig in seen_events_in_file:
+                            continue
+                        seen_events_in_file.add(sig)
+
             if max_events_chunk > 0 and events_analyzed >= max_events_chunk:
                 break
             events_analyzed += 1
             local_data["total_events"] += 1
-
-            tree_cbmsim.GetEntry(iev)
 
             truth_tree_obj = tree_cbmsim
             if use_external_truth and tree_truth_cbm:
@@ -5546,6 +5576,12 @@ def main():
         dest="ready_only",
         help="Attempt processing all partitions even if still in progress",
     )
+    parser.add_argument(
+        "--all-slices",
+        action="store_true",
+        default=False,
+        help="Keep all MCEB bunch-crossing time slices (default is False: deduplicate to keep only first slice per interaction)",
+    )
 
     args = parser.parse_args()
 
@@ -5613,6 +5649,7 @@ def main():
             args.numu_cc_only,
             max_events_per_worker,
             pdg_data,
+            not args.all_slices,
         )
         for chunk in file_chunks
     ]

@@ -116,11 +116,17 @@ fi
 
 # Step 2: MCEventBuilder
 MCEB_FILE="${SCRATCH_DIR}/sndLHC.Genie-TGeant4_MCEB.root"
-echo " ~ [4/5] [Step 2/4] Running MCEventBuilder..."
+SAVE_FIRST25_ONLY="${SAVE_FIRST25_ONLY:-1}"
+EXTRA_MCEB_ARGS=()
+if [ "${SAVE_FIRST25_ONLY}" = "1" ] || [ "${SAVE_FIRST25_ONLY}" = "true" ]; then
+    EXTRA_MCEB_ARGS+=("--saveFirst25nsOnly")
+fi
+echo " ~ [4/5] [Step 2/4] Running MCEventBuilder (saveFirst25nsOnly: ${SAVE_FIRST25_ONLY})..."
 python3 -X faulthandler "${VMCWORKDIR}/shipLHC/run_MCEventBuilder.py" \
     -f "${SIM_FILE}" \
     -g "${GEO_FILE}" \
-    -o "${MCEB_FILE}" || true
+    -o "${MCEB_FILE}" \
+    "${EXTRA_MCEB_ARGS[@]}" || true
 
 if [ ! -s "${MCEB_FILE}" ]; then
     echo "ERROR: MCEventBuilder failed!" >&2

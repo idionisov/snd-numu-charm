@@ -20,6 +20,7 @@ NEVENTS="0"
 FLAVOUR="microcentury"
 FORCE="0"
 DRY_RUN="0"
+SAVE_FIRST25_ONLY="1"
 POSITIONAL=()
 
 while [[ $# -gt 0 ]]; do
@@ -38,6 +39,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --force)
       FORCE="1"
+      shift
+      ;;
+    --all-slices)
+      SAVE_FIRST25_ONLY="0"
+      shift
+      ;;
+    --saveFirst25nsOnly|--save-first-25)
+      SAVE_FIRST25_ONLY="1"
       shift
       ;;
     --dry-run)
@@ -98,13 +107,14 @@ echo " Total Jobs     : ${TOTAL_PARTITIONS} partitions"
 echo " Events/job     : ${NEVENTS} (0 = all)"
 echo " Flavour        : ${FLAVOUR}"
 echo " Force Mode     : ${FORCE}"
+echo " Save First 25ns: ${SAVE_FIRST25_ONLY}"
 echo " Data Pattern   : ${DATA_PATTERN}"
 echo " Args File      : ${ARGS_FILE}"
 echo "=========================================================="
 
 if [ "${DRY_RUN}" = "1" ]; then
     echo "[Dry-Run Mode] Command that would be executed:"
-    echo "condor_submit mceb.sub args_file=\"${ARGS_FILE}\" flavour=\"${FLAVOUR}\" nevents=\"${NEVENTS}\" force=\"${FORCE}\""
+    echo "condor_submit mceb.sub args_file=\"${ARGS_FILE}\" flavour=\"${FLAVOUR}\" nevents=\"${NEVENTS}\" force=\"${FORCE}\" save_first25_only=\"${SAVE_FIRST25_ONLY}\""
     exit 0
 fi
 
@@ -118,7 +128,8 @@ condor_submit mceb.sub \
     args_file="${ARGS_FILE}" \
     flavour="${FLAVOUR}" \
     nevents="${NEVENTS}" \
-    force="${FORCE}"
+    force="${FORCE}" \
+    save_first25_only="${SAVE_FIRST25_ONLY}"
 
 echo ""
 echo "Jobs submitted! You can monitor them using:"

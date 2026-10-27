@@ -20,7 +20,7 @@ data_pattern            = $(data_pattern:/eos/user/i/idioniso/snd-numu-charm/dat
 
 executable              = $(base_dir)/run_mceb_partition.sh
 arguments               = $(partition) $(data_pattern)
-environment             = "FORCE=$(force:0) NEVENTS=$(nevents:0)"
+environment             = "FORCE=$(force:0) NEVENTS=$(nevents:0) SAVE_FIRST25_ONLY=$(save_first25_only:1)"
 
 output                  = $(base_dir)/out/mceb_part$(partition)_$(ClusterId)_$(ProcId).out
 error                   = $(base_dir)/err/mceb_part$(partition)_$(ClusterId)_$(ProcId).err

@@ -118,12 +118,16 @@ cd "${SCRATCH_DIR}"
 
 # 6. Run MCEventBuilder
 NEVENTS="${NEVENTS:-0}"
+SAVE_FIRST25_ONLY="${SAVE_FIRST25_ONLY:-1}"
 EXTRA_MCEB_ARGS=()
 if [ -n "${NEVENTS}" ] && [ "${NEVENTS}" -gt 0 ]; then
     EXTRA_MCEB_ARGS+=("-n" "${NEVENTS}")
 fi
+if [ "${SAVE_FIRST25_ONLY}" = "1" ] || [ "${SAVE_FIRST25_ONLY}" = "true" ]; then
+    EXTRA_MCEB_ARGS+=("--saveFirst25nsOnly")
+fi
 
-echo " ~ [4/4] Running MCEventBuilder..."
+echo " ~ [4/4] Running MCEventBuilder (saveFirst25nsOnly: ${SAVE_FIRST25_ONLY})..."
 python3 -X faulthandler "${VMCWORKDIR}/shipLHC/run_MCEventBuilder.py" \
     -f "${LOCAL_SIM}" \
     -g "${LOCAL_GEO}" \

@@ -163,6 +163,12 @@ def parse_arguments():
         default=False,
         help="Load pure truth tree without friending cbmsim (avoids friend entry mismatch errors when cbmsim is filtered or missing)",
     )
+    parser.add_argument(
+        "--all-slices",
+        action="store_true",
+        default=False,
+        help="Keep all MCEB bunch-crossing time slices (default is False: deduplicate to keep only first/primary slice per physical neutrino interaction)",
+    )
     return parser.parse_args()
 
 
@@ -308,6 +314,32 @@ def main():
     #include "FairMCPoint.h"
     #include <cmath>
     #include <algorithm>
+    #include <mutex>
+    #include <unordered_set>
+    #include <string>
+
+    namespace MCEBFilter {
+        static std::mutex mtx;
+        static std::unordered_set<std::string> seen_keys;
+
+        inline void reset() {
+            std::lock_guard<std::mutex> lock(mtx);
+            seen_keys.clear();
+        }
+
+        inline bool is_first_slice(double nu_e, double vx, double vy, double vz) {
+            char buf[128];
+            snprintf(buf, sizeof(buf), "%.4f_%.2f_%.2f_%.2f", nu_e, vx, vy, vz);
+            std::string key(buf);
+
+            std::lock_guard<std::mutex> lock(mtx);
+            if (seen_keys.find(key) == seen_keys.end()) {
+                seen_keys.insert(key);
+                return true;
+            }
+            return false;
+        }
+    }
 
     namespace RecoTracksExt {
         inline int count_total_tracks(const TClonesArray& tracks) {
@@ -1004,7 +1036,14 @@ def main():
             ch_cbm = ROOT.TChain("cbmsim")
             for f in input_files:
                 ch_cbm.Add(f)
-            ch_truth.AddFriend(ch_cbm)
+            n_truth = ch_truth.GetEntries()
+            n_cbm = ch_cbm.GetEntries()
+            if n_cbm != n_truth:
+                print(f"[WARNING] Tree entry mismatch: {actual_tree_name} has {n_truth} entries, but cbmsim has {n_cbm} entries!")
+                print(f"          Disabling friend cbmsim to prevent RDataFrame crash. Running in truth-only mode.")
+                input_has_cbmsim = False
+            else:
+                ch_truth.AddFriend(ch_cbm)
 
         df = ROOT.RDataFrame(ch_truth)
         if args.entries and args.entries > 0:
@@ -1584,6 +1623,14 @@ def main():
         df_truth = safe_def(df_truth, "reco_mu1_theta_yz_mrad", "-9999.0")
         df_truth = safe_def(df_truth, "reco_sec_mu_theta_yz_mrad", "-9999.0")
         df_truth = safe_def(df_truth, "reco_dimuon_opening_angle_yz_mrad", "-9999.0")
+
+    # MCEB Bunch-Crossing Deduplication (keep only primary first 25ns slice per physical interaction)
+    if not args.all_slices and ("nu_e" in existing_cols and "vtx_x" in existing_cols):
+        ROOT.MCEBFilter.reset()
+        print("MCEB Deduplication : Enabled (keeping only the first 25ns slice per physical neutrino interaction)")
+        df_truth = df_truth.Filter("MCEBFilter::is_first_slice(nu_e, vtx_x, vtx_y, vtx_z)", "KeepFirstMCEBSlice")
+    elif args.all_slices:
+        print("MCEB Deduplication : Disabled (--all-slices specified: keeping all bunch-crossing slices)")
 
     # 6. Define Filtered Subsamples
     # All Interacting Muon Neutrinos in the Detector (CC + NC, nu_mu and anti-nu_mu)
@@ -3105,6 +3152,7 @@ def main():
         print(f"\nSaved {n_total_plots} objects ({len(booked_histograms_1d)} 1D, {len(booked_histograms_2d)} 2D, {len(booked_profiles)} Profiles, {len(teff_objects)} TEfficiencies) to: {output_file}")
 
     print("\nTruth analysis and histogram generation completed successfully!")
+    os._exit(0)
 
 
 if __name__ == "__main__":

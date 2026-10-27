@@ -268,6 +268,9 @@ def prefilter_file(
     max_events: Optional[int] = None,
     create_symlinks: bool = True,
     skip_empty: bool = False,
+    record_failures: bool = False,
+    csv_failed_only: bool = False,
+    partition_id: int = 1,
 ) -> Dict[str, Any]:
     """
     Process a single ROOT file with RDataFrame, apply sequential cuts,
@@ -284,8 +287,10 @@ def prefilter_file(
         "symlinks_created": 0,
         "cutflow_stats": [],
         "stage_histograms": {},
+        "failed_records": [],
     }
 
+    f_in = None
     try:
         # 1. Setup multi-threading
         effective_mt = jobs > 1 and (max_events is None or max_events <= 0)
@@ -303,19 +308,27 @@ def prefilter_file(
             result["error"] = f"Branch 'Digi_ScifiHits' not found in tree '{resolved_tree}'"
             return result
 
-        # Check if mctruth tree exists in input_file and add as friend
-        has_mctruth = False
-        try:
-            _ftest = ROOT.TFile.Open(input_file, "READ")
-            if _ftest and not _ftest.IsZombie():
-                has_mctruth = bool(_ftest.Get("mctruth"))
-                _ftest.Close()
-        except Exception:
-            pass
+        # Open file to inspect and isolate trees (clearing stale serialized friends)
+        f_in = ROOT.TFile.Open(input_file, "READ")
+        tree = f_in.Get(resolved_tree) if f_in and not f_in.IsZombie() else None
+        has_mctruth = bool(f_in and not f_in.IsZombie() and f_in.Get("mctruth"))
 
-        if has_mctruth:
-            chain = dm.get_chain()
-            chain.AddFriend("mctruth", input_file)
+        if tree:
+            flist = tree.GetListOfFriends()
+            if flist:
+                flist.Clear()
+            if has_mctruth:
+                tm = f_in.Get("mctruth")
+                if tm:
+                    tree.AddFriend(tm, "mctruth")
+            df = ROOT.ROOT.RDataFrame(tree)
+            if max_events is not None and max_events > 0:
+                df = df.Range(max_events)
+        else:
+            if has_mctruth:
+                chain = dm.get_chain()
+                chain.AddFriend("mctruth", input_file)
+            df = dm.rdf(range_limit=max_events)
 
         # Detect data vs MC
         has_header = dm.has_branch("EventHeader")
@@ -323,7 +336,6 @@ def prefilter_file(
         is_data = has_header and not has_mc
 
         # 3. Build RDataFrame
-        df = dm.rdf(range_limit=max_events)
         total_entries = int(df.Count().GetValue())
         result["total_entries"] = total_entries
 
@@ -365,6 +377,7 @@ def prefilter_file(
 
         # Define metrics observables if MuFilter is present and cutflow recording is requested
         has_mufi = dm.has_branch("Digi_MuFilterHits")
+        has_scifi = dm.has_branch("Digi_ScifiHits")
         if has_mufi and record_cutflow:
             df_processed = define_preselection_metrics(df)
         else:
@@ -541,6 +554,65 @@ def prefilter_file(
         result["cutflow_stats"] = cutflow_stats
         result["stage_histograms"] = stage_hists
 
+        # Record failure metadata if requested
+        if record_failures:
+            cols = ["rdfentry_"]
+            if df_processed.HasColumn("mc_weight"):
+                cols.append("mc_weight")
+            for c_col in ["pass_scifi_ds_timing_cut", "pass_veto_cut", "pass_ds_dimuon_cut", "pass_two_ds_tracks_cut"]:
+                if df_processed.HasColumn(c_col):
+                    cols.append(c_col)
+
+            data = df_processed.AsNumpy(columns=cols)
+            n_ev = len(data["rdfentry_"])
+            entries = data["rdfentry_"]
+            weights = data.get("mc_weight", [1.0] * n_ev)
+            t_col = data.get("pass_scifi_ds_timing_cut", [True] * n_ev)
+            v_col = data.get("pass_veto_cut", [True] * n_ev)
+            d_col = data.get("pass_ds_dimuon_cut", [True] * n_ev)
+            tr_col = data.get("pass_two_ds_tracks_cut", [True] * n_ev)
+
+            ev_nums = list(range(n_ev))
+            if dm.has_branch("EventHeader"):
+                try:
+                    ch = tree if tree else dm.get_chain()
+                    ev_nums = []
+                    for iev in range(n_ev):
+                        ch.GetEntry(iev)
+                        h = getattr(ch, "EventHeader.", None) or getattr(ch, "EventHeader", None)
+                        ev_nums.append(h.GetEventNumber() if h else iev)
+                except Exception:
+                    ev_nums = list(entries)
+            else:
+                ev_nums = list(entries)
+
+            category = "other"
+            if "pmu" in input_file.lower():
+                category = "pmu"
+
+            rec_list = []
+            for i in range(n_ev):
+                p_t = int(bool(t_col[i]))
+                p_v = int(bool(v_col[i]))
+                p_d = int(bool(d_col[i]))
+                p_tr = int(bool(tr_col[i]))
+                passed_all = int(p_t and p_v and p_d and p_tr)
+                if csv_failed_only and passed_all:
+                    continue
+                rec_list.append({
+                    "partition": partition_id,
+                    "event_number": ev_nums[i],
+                    "category": category,
+                    "entry": int(entries[i]),
+                    "mc_weight": float(weights[i]),
+                    "SciFi_DS_Timing": p_t,
+                    "No_Veto_Hits": p_v,
+                    "DS_Dimuon_Activity": p_d,
+                    "Two_DS_Tracks": p_tr,
+                    "passed_all": passed_all,
+                })
+            result["failed_records"] = rec_list
+
         # Check if skipping empty
         if passed_entries == 0 and skip_empty:
             result["status"] = "SKIPPED_EMPTY"
@@ -551,9 +623,11 @@ def prefilter_file(
             out_dir = os.path.dirname(os.path.abspath(output_file))
             os.makedirs(out_dir, exist_ok=True)
 
-            chain = dm.get_chain()
+            chain = tree if tree else dm.get_chain()
             fout = ROOT.TFile.Open(output_file, "RECREATE")
             out_tree = chain.CloneTree(0)
+            if out_tree.GetListOfFriends():
+                out_tree.GetListOfFriends().Clear()
 
             for iev in passed_entry_list:
                 chain.GetEntry(iev)
@@ -561,8 +635,12 @@ def prefilter_file(
 
             # If input file has mctruth tree, clone and fill it alongside cbmsim
             if has_mctruth:
-                fin_truth = ROOT.TFile.Open(input_file, "READ")
-                tin_truth = fin_truth.Get("mctruth") if fin_truth else None
+                tin_truth = f_in.Get("mctruth") if f_in else None
+                if not tin_truth:
+                    fin_truth = ROOT.TFile.Open(input_file, "READ")
+                    tin_truth = fin_truth.Get("mctruth") if fin_truth else None
+                else:
+                    fin_truth = None
                 if tin_truth:
                     fout.cd()
                     out_truth = tin_truth.CloneTree(0)
@@ -592,6 +670,11 @@ def prefilter_file(
         result["status"] = "ERROR"
         result["error"] = str(err)
     finally:
+        if f_in:
+            try:
+                f_in.Close()
+            except Exception:
+                pass
         ROOT.ROOT.DisableImplicitMT()
 
     return result
@@ -749,6 +832,7 @@ def _filter_partition_stream(
                     "event_number": ev_num,
                     "category": category,
                     "entry": iev,
+                    "mc_weight": mw,
                     "SciFi_DS_Timing": int(p_t),
                     "No_Veto_Hits": int(p_v),
                     "DS_Dimuon_Activity": int(p_d),
@@ -774,6 +858,8 @@ def _filter_partition_stream(
                 if t_cbm:
                     t_cbm.SetBranchStatus("*", 1)
                     out_cbm = t_cbm.CloneTree(0)
+                    if out_cbm.GetListOfFriends():
+                        out_cbm.GetListOfFriends().Clear()
                     for iev in passed_entries:
                         t_cbm.GetEntry(iev)
                         out_cbm.Fill()
@@ -1357,7 +1443,7 @@ def main():
             os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
             if not os.path.isfile(csv_path) or not args.skip_existing:
                 with open(csv_path, "w") as f_csv:
-                    f_csv.write("partition,event_number,category,entry,SciFi_DS_Timing,No_Veto_Hits,DS_Dimuon_Activity,Two_DS_Tracks,passed_all\n")
+                    f_csv.write("partition,event_number,category,entry,mc_weight,SciFi_DS_Timing,No_Veto_Hits,DS_Dimuon_Activity,Two_DS_Tracks,passed_all\n")
 
         # Build task list
         tasks = []
@@ -1454,6 +1540,7 @@ def main():
                     for r in failed_records:
                         f_csv.write(
                             f"{r['partition']},{r['event_number']},{r.get('category', 'other')},{r['entry']},"
+                            f"{r.get('mc_weight', 1.0):.6g},"
                             f"{r['SciFi_DS_Timing']},{r['No_Veto_Hits']},{r['DS_Dimuon_Activity']},{r['Two_DS_Tracks']},{r['passed_all']}\n"
                         )
                     f_csv.flush()
@@ -1619,6 +1706,14 @@ def main():
         else:
             print(f"[Warning] Signal file not found: {args.signal_input}")
 
+    # Check if CSV output requested
+    if args.failed_cuts_csv:
+        csv_path = args.failed_cuts_csv
+        os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
+        if not os.path.isfile(csv_path) or not args.skip_existing:
+            with open(csv_path, "w") as f_csv:
+                f_csv.write("partition,event_number,category,entry,mc_weight,SciFi_DS_Timing,No_Veto_Hits,DS_Dimuon_Activity,Two_DS_Tracks,passed_all\n")
+
     for idx, input_file in enumerate(input_files, start=1):
         out_file = format_output_path(input_file, args.input, args.output, index=idx) if args.output else None
         print(f"[{idx}/{len(input_files)}] Processing: {os.path.basename(input_file)}")
@@ -1627,6 +1722,8 @@ def main():
             print(f"  Output: {out_file}")
 
         file_start = time.time()
+        caps = extract_captures(input_file, args.input) if args.input else []
+        file_part_id = int(caps[0]) if caps and caps[0].isdigit() else idx
         res = prefilter_file(
             input_file=input_file,
             output_file=out_file,
@@ -1647,6 +1744,9 @@ def main():
             max_events=args.max_events,
             create_symlinks=(not args.no_symlinks and bool(out_file)),
             skip_empty=args.skip_empty,
+            record_failures=bool(args.failed_cuts_csv),
+            csv_failed_only=args.csv_failed_only,
+            partition_id=file_part_id,
         )
         elapsed_file = time.time() - file_start
 
@@ -1660,6 +1760,16 @@ def main():
             print(f"  Result: ERROR: {res['error']}")
 
         results.append(res)
+
+        if args.failed_cuts_csv and res.get("failed_records"):
+            with open(args.failed_cuts_csv, "a") as f_csv:
+                for r in res["failed_records"]:
+                    f_csv.write(
+                        f"{r['partition']},{r['event_number']},{r.get('category', 'other')},{r['entry']},"
+                        f"{r.get('mc_weight', 1.0):.6g},"
+                        f"{r['SciFi_DS_Timing']},{r['No_Veto_Hits']},{r['DS_Dimuon_Activity']},{r['Two_DS_Tracks']},{r['passed_all']}\n"
+                    )
+                f_csv.flush()
 
         # Process signal sample if requested and partitioned
         file_sig_stats = list(static_sig_stats) if static_sig_stats else []
@@ -1779,6 +1889,8 @@ def main():
     print(f" Files Processed:     {successful_files}/{len(input_files)} successful")
     print(f" Total Input Events:  {total_in}")
     print(f" Total Passed Events: {total_out} ({overall_yield:.2f}%)")
+    if args.failed_cuts_csv:
+        print(f" Failed Cuts CSV:     {args.failed_cuts_csv}")
     print(f" Total Elapsed Time:  {total_elapsed:.1f} seconds")
     print("=" * 80)
 

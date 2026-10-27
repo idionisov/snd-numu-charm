@@ -83,8 +83,27 @@ DEFAULT_PRESETS: Dict[str, Dict[str, str]] = {
 
 def safe_set_branch_status(tree: Any, bpattern: str, status: int = 1):
     """Safely sets branch status without producing ROOT warnings for non-existent branches."""
+    if not tree:
+        return
     prefix = bpattern.rstrip("*")
-    if any(b.GetName().startswith(prefix) for b in tree.GetListOfBranches()):
+    branches = tree.GetListOfBranches()
+    has_branch = bool(branches and any(b.GetName().startswith(prefix) for b in branches))
+    if not has_branch and hasattr(tree, "GetBranch"):
+        has_branch = bool(tree.GetBranch(prefix))
+    if hasattr(tree, "GetListOfFriends"):
+        flist = tree.GetListOfFriends()
+        if flist:
+            for fr in flist:
+                fr_tree = fr.GetTree()
+                if fr_tree:
+                    fr_b = fr_tree.GetListOfBranches()
+                    if fr_b and any(b.GetName().startswith(prefix) for b in fr_b):
+                        has_branch = True
+                        try:
+                            fr_tree.SetBranchStatus(bpattern, status)
+                        except Exception:
+                            pass
+    if has_branch:
         try:
             tree.SetBranchStatus(bpattern, status)
         except Exception:
@@ -1751,6 +1770,12 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
                 "has_prompt_charm_muon*",
             ]:
                 safe_set_branch_status(tree_cbmsim, bname)
+            if tree_truth and not tree_truth.IsZombie():
+                for tb in [
+                    "is_cc*", "has_charm*", "has_prompt_charm_muon*",
+                    "mc_weight*", "raw_weight*", "mctruth_weight*",
+                ]:
+                    safe_set_branch_status(tree_truth, tb)
         except Exception:
             pass
 
@@ -1794,21 +1819,19 @@ def process_files_worker(args_tuple) -> Dict[str, Any]:
                     truth_tree_obj = tree_truth_cbm
 
             mc_weight = 1.0
-            if hasattr(tree_cbmsim, "mc_weight"):
-                try:
-                    mc_weight = float(tree_cbmsim.mc_weight)
-                except Exception:
-                    mc_weight = 1.0
-            elif hasattr(truth_tree_obj, "mc_weight"):
-                try:
-                    mc_weight = float(truth_tree_obj.mc_weight)
-                except Exception:
-                    mc_weight = 1.0
-            elif tree_truth and hasattr(tree_truth, "mc_weight"):
-                try:
-                    mc_weight = float(tree_truth.mc_weight)
-                except Exception:
-                    mc_weight = 1.0
+            found_weight = False
+            for cand in (tree_cbmsim, truth_tree_obj, tree_truth):
+                if cand and hasattr(cand, "mc_weight"):
+                    try:
+                        val = float(cand.mc_weight)
+                        if val > 0.0:
+                            mc_weight = val
+                            found_weight = True
+                            break
+                    except Exception:
+                        pass
+            if not found_weight:
+                mc_weight = 1.0
 
             tracks = getattr(truth_tree_obj, "MCTrack", None)
             if not tracks:

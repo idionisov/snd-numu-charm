@@ -78,10 +78,15 @@ python3 generate_dag.py \
     ${FORCE_FLAG} \
     ${SKIP_DISPLAYS_FLAG}
 
+CONDOR_SUBMIT_FLAGS=()
+if [ -n "${FORCE_FLAG}" ]; then
+    CONDOR_SUBMIT_FLAGS+=("-f")
+fi
+
 if [ "${DRY_RUN}" = "1" ]; then
     echo ""
     echo "[Dry-Run Mode] Command that would be executed on lxplus:"
-    echo "condor_submit_dag -config dagman.config ${DAG_FILE}"
+    echo "condor_submit_dag -config dagman.config ${CONDOR_SUBMIT_FLAGS[*]} ${DAG_FILE}"
     exit 0
 fi
 
@@ -90,11 +95,11 @@ if ! command -v condor_submit_dag >/dev/null 2>&1; then
     echo "ERROR: 'condor_submit_dag' not found in PATH." >&2
     echo "Please execute this submission command from an lxplus node (e.g. lxplus.cern.ch):" >&2
     echo "  cd ${SCRIPT_DIR}" >&2
-    echo "  condor_submit_dag -config dagman.config ${DAG_FILE}" >&2
+    echo "  condor_submit_dag -config dagman.config ${CONDOR_SUBMIT_FLAGS[*]} ${DAG_FILE}" >&2
     exit 1
 fi
 
-condor_submit_dag -config dagman.config "${DAG_FILE}"
+condor_submit_dag -config dagman.config "${CONDOR_SUBMIT_FLAGS[@]}" "${DAG_FILE}"
 
 echo ""
 echo "DAGMan workflow submitted successfully!"

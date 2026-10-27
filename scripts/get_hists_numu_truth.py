@@ -983,6 +983,25 @@ def main():
             return vtx_z - z_cross;
         }
 
+        inline double get_mcpoints_res_z_cross(double vtx_z, int trk1_id, int trk2_id, const TClonesArray& pts, bool is_xz) {
+            double z_cross = get_mcpoints_cross_z(trk1_id, trk2_id, pts, is_xz);
+            if (z_cross < -9000.0) return -9999.0;
+            return z_cross - vtx_z;
+        }
+
+        inline double get_mcpoints_delta_z_xz_yz(int trk1_id, int trk2_id, const TClonesArray& pts) {
+            double z_xz = get_mcpoints_cross_z(trk1_id, trk2_id, pts, true);
+            double z_yz = get_mcpoints_cross_z(trk1_id, trk2_id, pts, false);
+            if (z_xz < -9000.0 || z_yz < -9000.0) return -9999.0;
+            return z_xz - z_yz;
+        }
+
+        inline double get_mcpoints_abs_delta_z_xz_yz(int trk1_id, int trk2_id, const TClonesArray& pts) {
+            double dz = get_mcpoints_delta_z_xz_yz(trk1_id, trk2_id, pts);
+            if (dz < -9000.0) return -9999.0;
+            return std::abs(dz);
+        }
+
         struct DSPlanePoint {
             double x;
             double y;
@@ -1576,9 +1595,21 @@ def main():
         df_truth = safe_def(df_truth, "ds_mcpoint_fit_opening_angle_xz_mrad", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_fit_opening_angle_mrad(mu1_track_id, sec_mu_track_id, MuFilterPoint, true) : -9999.0")
         df_truth = safe_def(df_truth, "ds_mcpoint_fit_opening_angle_yz_mrad", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_fit_opening_angle_mrad(mu1_track_id, sec_mu_track_id, MuFilterPoint, false) : -9999.0")
 
-        # Crossing point z and difference with true vertex z (z_vtx - z_cross)
+        # Crossing point z values themselves
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_cross_z_xz", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_cross_z(mu1_track_id, sec_mu_track_id, MuFilterPoint, true) : -9999.0")
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_cross_z_yz", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_cross_z(mu1_track_id, sec_mu_track_id, MuFilterPoint, false) : -9999.0")
+
+        # Residuals: z_cross - z_vtx
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_res_z_xz", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_res_z_cross(vtx_z, mu1_track_id, sec_mu_track_id, MuFilterPoint, true) : -9999.0")
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_res_z_yz", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_res_z_cross(vtx_z, mu1_track_id, sec_mu_track_id, MuFilterPoint, false) : -9999.0")
+
+        # Crossing point z and difference with true vertex z (legacy: z_vtx - z_cross)
         df_truth = safe_def(df_truth, "ds_mcpoint_fit_delta_z_cross_xz", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_delta_z_cross(vtx_z, mu1_track_id, sec_mu_track_id, MuFilterPoint, true) : -9999.0")
         df_truth = safe_def(df_truth, "ds_mcpoint_fit_delta_z_cross_yz", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_delta_z_cross(vtx_z, mu1_track_id, sec_mu_track_id, MuFilterPoint, false) : -9999.0")
+
+        # Crossing z difference XZ - YZ and |XZ - YZ|
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_delta_z_cross", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_delta_z_xz_yz(mu1_track_id, sec_mu_track_id, MuFilterPoint) : -9999.0")
+        df_truth = safe_def(df_truth, "ds_mcpoint_fit_abs_delta_z_cross", "(sec_mu_track_id >= 0) ? TruthExt::get_mcpoints_abs_delta_z_xz_yz(mu1_track_id, sec_mu_track_id, MuFilterPoint) : -9999.0")
 
         # Third DS Plane (plane == 2) positions and distances
         df_truth = safe_def(df_truth, "ds3_mcpoint_dx", "(sec_mu_track_id >= 0) ? TruthExt::get_ds_plane_dx(mu1_track_id, sec_mu_track_id, MuFilterPoint, 2) : -9999.0")
@@ -1599,7 +1630,10 @@ def main():
             "ds_mcpoint_fit_mu1_theta_xz_mrad", "ds_mcpoint_fit_mu1_theta_yz_mrad",
             "ds_mcpoint_fit_sec_mu_theta_xz_mrad", "ds_mcpoint_fit_sec_mu_theta_yz_mrad",
             "ds_mcpoint_fit_opening_angle_xz_mrad", "ds_mcpoint_fit_opening_angle_yz_mrad",
+            "ds_mcpoint_fit_cross_z_xz", "ds_mcpoint_fit_cross_z_yz",
+            "ds_mcpoint_fit_res_z_xz", "ds_mcpoint_fit_res_z_yz",
             "ds_mcpoint_fit_delta_z_cross_xz", "ds_mcpoint_fit_delta_z_cross_yz",
+            "ds_mcpoint_fit_delta_z_cross", "ds_mcpoint_fit_abs_delta_z_cross",
             "ds3_mcpoint_dx", "ds3_mcpoint_dy", "has_both_muons_in_ds3",
             "ds3_mcpoint_abs_dx", "ds3_mcpoint_abs_dy", "ds3_mcpoint_dist_2d",
         ]:
@@ -2339,6 +2373,23 @@ def main():
         book_1d(f"h_{pref}_ds_mcpoint_fit_delta_z_cross_yz", f"DS MCPoint Crossing z Residual in YZ ({lbl});z_{{vtx}} - z_{{cross}}^{{YZ}} [cm];Events", "ds_mcpoint_fit_delta_z_cross_yz", node, 80, -200.0, 200.0)
         book_2d(f"h2_{pref}_ds_mcpoint_fit_delta_z_cross_yz_vs_xz", f"DS MCPoint Crossing z Residual YZ vs XZ ({lbl});z_{{vtx}} - z_{{cross}}^{{XZ}} [cm];z_{{vtx}} - z_{{cross}}^{{YZ}} [cm]", "ds_mcpoint_fit_delta_z_cross_xz", "ds_mcpoint_fit_delta_z_cross_yz", node, 60, -200.0, 200.0, 60, -200.0, 200.0)
 
+        # 1. Crossing Values Themselves (z_cross_XZ and z_cross_YZ)
+        book_1d(f"h_{pref}_ds_mcpoint_fit_cross_z_xz", f"DS MCPoint Fit Crossing z in XZ ({lbl});z_{{cross, XZ}}^{{fit}} [cm];Events", "ds_mcpoint_fit_cross_z_xz", node, 70, 150.0, 500.0)
+        book_1d(f"h_{pref}_ds_mcpoint_fit_cross_z_yz", f"DS MCPoint Fit Crossing z in YZ ({lbl});z_{{cross, YZ}}^{{fit}} [cm];Events", "ds_mcpoint_fit_cross_z_yz", node, 70, 150.0, 500.0)
+
+        # 2. Residuals: z_cross - z_vtx
+        book_1d(f"h_{pref}_ds_mcpoint_fit_res_z_xz", f"DS MCPoint Fit Crossing z Residual in XZ ({lbl});z_{{cross, XZ}}^{{fit}} - z_{{vtx}}^{{true}} [cm];Events", "ds_mcpoint_fit_res_z_xz", node, 80, -200.0, 200.0)
+        book_1d(f"h_{pref}_ds_mcpoint_fit_res_z_yz", f"DS MCPoint Fit Crossing z Residual in YZ ({lbl});z_{{cross, YZ}}^{{fit}} - z_{{vtx}}^{{true}} [cm];Events", "ds_mcpoint_fit_res_z_yz", node, 80, -200.0, 200.0)
+        book_2d(f"h2_{pref}_ds_mcpoint_fit_cross_z_xz_vs_vtx_z", f"DS MCPoint Fit Crossing z_{{XZ}} vs True Vertex z ({lbl});z_{{vtx}}^{{true}} [cm];z_{{cross, XZ}}^{{fit}} [cm]", "vtx_z", "ds_mcpoint_fit_cross_z_xz", node, 50, 260.0, 360.0, 70, 150.0, 500.0)
+        book_2d(f"h2_{pref}_ds_mcpoint_fit_cross_z_yz_vs_vtx_z", f"DS MCPoint Fit Crossing z_{{YZ}} vs True Vertex z ({lbl});z_{{vtx}}^{{true}} [cm];z_{{cross, YZ}}^{{fit}} [cm]", "vtx_z", "ds_mcpoint_fit_cross_z_yz", node, 50, 260.0, 360.0, 70, 150.0, 500.0)
+
+        # 3. Differences between XZ and YZ crossings: z_cross_XZ - z_cross_YZ and |z_cross_XZ - z_cross_YZ|
+        book_1d(f"h_{pref}_ds_mcpoint_fit_delta_z_cross", f"DS MCPoint Crossing z Difference XZ - YZ ({lbl});z_{{cross, XZ}}^{{fit}} - z_{{cross, YZ}}^{{fit}} [cm];Events", "ds_mcpoint_fit_delta_z_cross", node, 60, -150.0, 150.0)
+        book_1d(f"h_{pref}_ds_mcpoint_fit_abs_delta_z_cross", f"DS MCPoint Absolute Crossing z Difference |XZ - YZ| ({lbl});|z_{{cross, XZ}}^{{fit}} - z_{{cross, YZ}}^{{fit}}| [cm];Events", "ds_mcpoint_fit_abs_delta_z_cross", node, 60, 0.0, 150.0)
+
+        # 4. 2D Histogram: z_cross_XZ on x-axis, z_cross_YZ on y-axis!
+        book_2d(f"h2_{pref}_ds_mcpoint_fit_cross_z_yz_vs_xz", f"DS MCPoint Fit Crossing z_{{YZ}} vs z_{{XZ}} ({lbl});z_{{cross, XZ}}^{{fit}} [cm];z_{{cross, YZ}}^{{fit}} [cm]", "ds_mcpoint_fit_cross_z_xz", "ds_mcpoint_fit_cross_z_yz", node, 70, 150.0, 500.0, 70, 150.0, 500.0)
+
     # --------------------------------------------------------------------------
     # 8b-4b. Stage 4: Reconstructed Track Angles (for 2 DS Track Events In DS Acc)
     # --------------------------------------------------------------------------
@@ -3065,10 +3116,21 @@ def main():
         # 4. reco_ds_tracks
         d_reco = out_file.mkdir("reco_ds_tracks")
         d_reco_mult = d_reco.mkdir("multiplicities")
-        d_reco_cross = d_reco.mkdir("crossing_points")
-        d_reco_res = d_reco.mkdir("delta_z_and_residuals")
+        d_reco_cross = d_reco.mkdir("crossing_z_values")
+        d_reco_res = d_reco.mkdir("residuals_z_cross_minus_vtx")
+        d_reco_diff = d_reco.mkdir("delta_z_xz_minus_yz")
         d_reco_2d = d_reco.mkdir("correlations_2d")
         d_reco_angles = d_reco.mkdir("angular_properties")
+
+        # Category-based subdirectories for fast navigation
+        d_reco_samples = d_reco.mkdir("by_sample")
+        reco_cat_dirs = {
+            "signal": d_reco_samples.mkdir("inclusive_signal"),
+            "direct": d_reco_samples.mkdir("direct_signal"),
+            "indirect": d_reco_samples.mkdir("indirect_fake"),
+            "non_charm": d_reco_samples.mkdir("non_charm"),
+            "signal_like": d_reco_samples.mkdir("all_signal_like"),
+        }
 
         d_reco_mult.cd()
         for name, h_res in booked_histograms_1d.items():
@@ -3082,7 +3144,15 @@ def main():
 
         d_reco_res.cd()
         for name, h_res in booked_histograms_1d.items():
-            if any(x in name for x in ["_2ds_delta_z_cross", "_2ds_abs_delta_z_cross", "_2ds_res_z_"]):
+            if any(x in name for x in ["_2ds_res_z_"]):
+                h_res.GetValue().Write()
+        for name, h2_res in booked_histograms_2d.items():
+            if "_2ds_cross_z_" in name and "_vs_vtx_z" in name:
+                h2_res.GetValue().Write()
+
+        d_reco_diff.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if any(x in name for x in ["_2ds_delta_z_cross", "_2ds_abs_delta_z_cross"]):
                 h_res.GetValue().Write()
 
         d_reco_2d.cd()
@@ -3098,13 +3168,37 @@ def main():
             if any(x in name for x in ["_reco_sec_mu_theta_", "_reco_opening_angle_"]):
                 h2_res.GetValue().Write()
 
+        # Write per-sample reco folders
+        for sname, sdir in reco_cat_dirs.items():
+            sdir.cd()
+            for name, h_res in booked_histograms_1d.items():
+                if f"h_{sname}_2ds_" in name or f"h_{sname}_n_reco_" in name or f"h_{sname}_n_ds_" in name or f"h_{sname}_has_two_ds_" in name or f"h_{sname}_reco_" in name:
+                    h_res.GetValue().Write()
+            for name, h2_res in booked_histograms_2d.items():
+                if f"h2_{sname}_2ds_" in name or f"h2_{sname}_reco_" in name:
+                    h2_res.GetValue().Write()
+
         # 4b. ds_mcpoints_angles (MuFilterPoint Angle Statistics, Linear Fits & 3rd Plane Distances)
         d_ds_mc = out_file.mkdir("ds_mcpoints_angles")
         d_ds_mc_angles = d_ds_mc.mkdir("individual_muon_angles")
         d_ds_mc_open = d_ds_mc.mkdir("opening_angles")
         d_ds_mc_fits = d_ds_mc.mkdir("linear_fits_and_crossing")
+        d_ds_mc_fits_cross = d_ds_mc_fits.mkdir("crossing_z_values")
+        d_ds_mc_fits_res = d_ds_mc_fits.mkdir("residuals_z_cross_minus_vtx")
+        d_ds_mc_fits_diff = d_ds_mc_fits.mkdir("delta_z_xz_minus_yz")
+        d_ds_mc_fits_2d = d_ds_mc_fits.mkdir("correlations_2d")
         d_ds_mc_ds3 = d_ds_mc.mkdir("third_ds_plane_distances")
-        d_ds_mc_2d = d_ds_mc.mkdir("correlations_2d")
+        d_ds_mc_2d = d_ds_mc.mkdir("all_correlations_2d")
+
+        # By sample subdirectories for MCPoint fits
+        d_ds_mc_samples = d_ds_mc.mkdir("by_sample")
+        mc_cat_dirs = {
+            "signal_in_acc": d_ds_mc_samples.mkdir("inclusive_in_acc"),
+            "direct_in_acc": d_ds_mc_samples.mkdir("direct_signal_in_acc"),
+            "indirect_in_acc": d_ds_mc_samples.mkdir("indirect_fake_in_acc"),
+            "non_charm_in_acc": d_ds_mc_samples.mkdir("non_charm_in_acc"),
+            "signal_like_in_acc": d_ds_mc_samples.mkdir("all_signal_like_in_acc"),
+        }
 
         d_ds_mc_angles.cd()
         for name, h_res in booked_histograms_1d.items():
@@ -3121,6 +3215,29 @@ def main():
             if "_ds_mcpoint_fit_" in name:
                 h_res.GetValue().Write()
 
+        d_ds_mc_fits_cross.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if "_ds_mcpoint_fit_cross_z_" in name:
+                h_res.GetValue().Write()
+
+        d_ds_mc_fits_res.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if "_ds_mcpoint_fit_res_z_" in name or "_ds_mcpoint_fit_delta_z_cross_xz" in name or "_ds_mcpoint_fit_delta_z_cross_yz" in name:
+                h_res.GetValue().Write()
+        for name, h2_res in booked_histograms_2d.items():
+            if "_ds_mcpoint_fit_cross_z_" in name and "_vs_vtx_z" in name:
+                h2_res.GetValue().Write()
+
+        d_ds_mc_fits_diff.cd()
+        for name, h_res in booked_histograms_1d.items():
+            if "_ds_mcpoint_fit_delta_z_cross" in name or "_ds_mcpoint_fit_abs_delta_z_cross" in name:
+                h_res.GetValue().Write()
+
+        d_ds_mc_fits_2d.cd()
+        for name, h2_res in booked_histograms_2d.items():
+            if "_ds_mcpoint_fit_cross_z_yz_vs_xz" in name or "_ds_mcpoint_fit_delta_z_cross_yz_vs_xz" in name:
+                h2_res.GetValue().Write()
+
         d_ds_mc_ds3.cd()
         for name, h_res in booked_histograms_1d.items():
             if "_ds3_mcpoint_" in name:
@@ -3131,26 +3248,54 @@ def main():
             if "_ds_mcpoint_" in name or "_ds3_mcpoint_" in name:
                 h2_res.GetValue().Write()
 
+        # Write per-sample MCPoint folders
+        for sname, sdir in mc_cat_dirs.items():
+            sdir.cd()
+            for name, h_res in booked_histograms_1d.items():
+                if f"h_{sname}_ds_mcpoint_" in name:
+                    h_res.GetValue().Write()
+            for name, h2_res in booked_histograms_2d.items():
+                if f"h2_{sname}_ds_mcpoint_" in name:
+                    h2_res.GetValue().Write()
+
         # 5. efficiencies_clopper_pearson
         d_eff = out_file.mkdir("efficiencies_clopper_pearson")
         d_eff_ds = d_eff.mkdir("ds_acceptance")
         d_eff_2ds_ovr = d_eff.mkdir("two_ds_tracks_overall")
         d_eff_2ds_acc = d_eff.mkdir("two_ds_tracks_in_ds_acceptance")
 
+        eff_cat_map = {
+            "signal": "inclusive",
+            "direct": "direct_signal",
+            "indirect": "indirect_fake",
+            "non_charm": "non_charm",
+            "signal_like": "all_signal_like",
+        }
+        ovr_cat_dirs = {k: d_eff_2ds_ovr.mkdir(v) for k, v in eff_cat_map.items()}
+        acc_cat_dirs = {k: d_eff_2ds_acc.mkdir(v) for k, v in eff_cat_map.items()}
+
         d_eff_ds.cd()
         for name, eff in teff_objects.items():
             if name.startswith("teff_ds_acc_"):
                 eff.Write()
 
-        d_eff_2ds_ovr.cd()
         for name, eff in teff_objects.items():
             if name.startswith("teff_2ds_overall_"):
+                d_eff_2ds_ovr.cd()
                 eff.Write()
+                for k, sdir in ovr_cat_dirs.items():
+                    if f"_{k}_vs_" in name:
+                        sdir.cd()
+                        eff.Write()
 
-        d_eff_2ds_acc.cd()
         for name, eff in teff_objects.items():
             if name.startswith("teff_2ds_in_acc_"):
+                d_eff_2ds_acc.cd()
                 eff.Write()
+                for k, sdir in acc_cat_dirs.items():
+                    if f"_{k}_vs_" in name:
+                        sdir.cd()
+                        eff.Write()
 
         # 6. acceptance_comparison
         d_acc = out_file.mkdir("acceptance_comparison")
@@ -3175,10 +3320,27 @@ def main():
 
         # 7. species
         d_spec = out_file.mkdir("species")
-        d_spec.cd()
+        d_spec_d0 = d_spec.mkdir("d0")
+        d_spec_dplus = d_spec.mkdir("dplus")
+        d_spec_ds = d_spec.mkdir("ds")
+        d_spec_lambdac = d_spec.mkdir("lambdac")
+
         for name, h_res in booked_histograms_1d.items():
             if name.startswith("h_species_"):
+                d_spec.cd()
                 h_res.GetValue().Write()
+                if "_d0_" in name:
+                    d_spec_d0.cd()
+                    h_res.GetValue().Write()
+                elif "_dplus_" in name:
+                    d_spec_dplus.cd()
+                    h_res.GetValue().Write()
+                elif "_ds_" in name:
+                    d_spec_ds.cd()
+                    h_res.GetValue().Write()
+                elif "_lambdac_" in name:
+                    d_spec_lambdac.cd()
+                    h_res.GetValue().Write()
 
         # 8. cutflow
         d_cf = out_file.mkdir("cutflow")

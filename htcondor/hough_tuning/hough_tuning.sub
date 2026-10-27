@@ -22,9 +22,9 @@ extra_args              = $(extra_args:--pairwise --hf linearSlopeIntercept --so
 executable              = $(base_dir)/run_hough_tuning_job.sh
 arguments               = $(job_id) $(n_jobs) $(out_dir) $(extra_args)
 
-output                  = $(base_dir)/out/tuning_job$(job_id)_$(ClusterId)_$(ProcId).out
-error                   = $(base_dir)/err/tuning_job$(job_id)_$(ClusterId)_$(ProcId).err
-log                     = $(base_dir)/log/tuning_$(ClusterId).log
+output                  = out/tuning_job$(job_id)_$(ClusterId)_$(ProcId).out
+error                   = err/tuning_job$(job_id)_$(ClusterId)_$(ProcId).err
+log                     = log/tuning_$(ClusterId).log
 
 getenv                  = False
 notification            = Never

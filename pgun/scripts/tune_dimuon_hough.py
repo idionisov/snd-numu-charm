@@ -1129,9 +1129,9 @@ def generate_parameter_grid(
     """Build grid of parameter configurations with requested binning factors, max angles, and smoothing options."""
     tolerances = [0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0]
     if max_angles is None:
-        max_angles = [0.175]
+        max_angles = [0.180, 0.200, 0.220]
     if max_opening_angles is None:
-        max_opening_angles = [0.120] if use_pairwise else [None]
+        max_opening_angles = [0.180, 0.200, 0.220] if use_pairwise else [None]
     z_target = z_plane
 
     if delta_zCross_max is None:
@@ -1648,8 +1648,8 @@ def main():
                         help="Maximum track angles (in rad) to include in grid search (default: 0.180 0.200 0.220)")
     parser.add_argument("--pairwise", action="store_true", default=False,
                         help="Enable joint pairwise candidate search instead of greedy single-track search")
-    parser.add_argument("--max-opening-angles", nargs="+", type=float, default=[0.120],
-                        help="Maximum track opening angle in projection (in rad) for pairwise search (default: 0.120)")
+    parser.add_argument("--max-opening-angles", nargs="+", type=float, default=[0.180, 0.200, 0.220],
+                        help="Maximum track opening angle in projection (in rad) for pairwise search (default: 0.180 0.200 0.220)")
     parser.add_argument("--sigmas", nargs="+", type=float, default=[0.5, 1.0, 1.5, 2.0, 3.0],
                         help="Gaussian smoothing sigma values in units of bins (default: 0.5 1.0 1.5 2.0 3.0)")
     parser.add_argument("--truncates", "--truncs", nargs="+", type=float, default=[1.0, 2.0, 3.0, 4.0],

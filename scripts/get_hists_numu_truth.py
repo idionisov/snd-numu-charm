@@ -118,6 +118,12 @@ def parse_arguments():
         help="Path or pattern (with %s for partition) to external truth simulation file(s) (e.g. pre-extracted _truth.root or pre-MCEB _dig.root)",
     )
     parser.add_argument(
+        "--cbmsim-source",
+        type=str,
+        default=None,
+        help="Path or pattern (with %s for partition) to clean reconstructed cbmsim file(s) (e.g. _MCEB_dig_2MuTrks.root) when friend tree entries mismatch",
+    )
+    parser.add_argument(
         "-j", "--threads",
         type=int,
         default=None,
@@ -271,6 +277,16 @@ def main():
                         detected_truth_name = cand_truth
                         break
                 f_truth_test.Close()
+
+    # Resolve external cbmsim source files if requested
+    cbmsim_source_files = []
+    if args.cbmsim_source:
+        for in_f in input_files:
+            m = re.search(r'/(\d+)/', in_f)
+            part_str = m.group(1) if m else ""
+            src_f = args.cbmsim_source % part_str if "%s" in args.cbmsim_source else args.cbmsim_source
+            if os.path.exists(src_f):
+                cbmsim_source_files.append(src_f)
 
     if not args.tree:
         # Auto-detect best tree: prefer pre-analyzed 'truth'/'mctruth' tree if present
@@ -1031,13 +1047,29 @@ def main():
         for f in truth_source_files:
             ch_truth.Add(f)
 
-        # Friend cbmsim from input files to attach MuFilterPoint and Reco_MuonTracks
-        if input_has_cbmsim and not args.truth_only:
+        # Friend cbmsim from input files (or cbmsim-source) to attach MuFilterPoint and Reco_MuonTracks
+        if (input_has_cbmsim or cbmsim_source_files) and not args.truth_only:
             ch_cbm = ROOT.TChain("cbmsim")
-            for f in input_files:
+            cbm_files = cbmsim_source_files if cbmsim_source_files else input_files
+            for f in cbm_files:
                 ch_cbm.Add(f)
             n_truth = ch_truth.GetEntries()
             n_cbm = ch_cbm.GetEntries()
+
+            if n_cbm != n_truth and not cbmsim_source_files:
+                # Automatic fallback: check if clean base files without '_truth' exist
+                fallback_files = [f.replace("_truth.root", ".root") for f in input_files if "_truth.root" in f and os.path.exists(f.replace("_truth.root", ".root"))]
+                if len(fallback_files) == len(input_files):
+                    print(f"[Notice] Detected entry mismatch in _truth.root files ({n_cbm} vs {n_truth}).")
+                    print(f"         Attempting to friend clean base files ({fallback_files[0]})...")
+                    ch_cbm_fallback = ROOT.TChain("cbmsim")
+                    for f in fallback_files:
+                        ch_cbm_fallback.Add(f)
+                    if ch_cbm_fallback.GetEntries() == n_truth:
+                        ch_cbm = ch_cbm_fallback
+                        n_cbm = n_truth
+                        print(f"         Successfully aligned cbmsim with {n_truth} entries!")
+
             if n_cbm != n_truth:
                 print(f"[WARNING] Tree entry mismatch: {actual_tree_name} has {n_truth} entries, but cbmsim has {n_cbm} entries!")
                 print(f"          Disabling friend cbmsim to prevent RDataFrame crash. Running in truth-only mode.")
@@ -1061,6 +1093,9 @@ def main():
 
     # 5. Define Truth Observables
     existing_cols = set(str(c) for c in df.GetColumnNames())
+    for col in list(existing_cols):
+        if "." in col:
+            existing_cols.add(col.split(".", 1)[1])
 
     def safe_def(curr_df, col_name, expr):
         if col_name in existing_cols:
@@ -1460,6 +1495,9 @@ def main():
 
     # Synchronize defined columns catalog before defining downstream projected observables
     existing_cols.update(str(c) for c in df_truth.GetColumnNames())
+    for col in list(existing_cols):
+        if "." in col:
+            existing_cols.add(col.split(".", 1)[1])
 
     # Define XZ and YZ projected observables and separation at detector planes
     df_truth = safe_def(df_truth, "mu1_slope_xz", "(std::abs(mu1_pz) > 1e-9) ? mu1_px / mu1_pz : 0.0")

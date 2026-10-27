@@ -274,7 +274,7 @@ def plot_cutflow_comparison(
     all_label: str = "Inclusive Neutrino (2MuTrks)",
     sig_label: str = "Direct Signal (Charm #rightarrow #mu_{2})",
     indirect_label: str = "Indirect Fake Signal (Charm #rightarrow hadrons #rightarrow #mu_{2})",
-    pmu_label: str = "Passing Muons (pmu2022)",
+    pmu_label: str = "Passing Muons (pmu2022, 68 fb^{-1})",
     save_images: bool = False,
 ) -> None:
     """
@@ -471,7 +471,8 @@ def main():
     parser.add_argument("-a", "--all", default=None, help="Path to all-events (inclusive neutrino) cutflow ROOT file")
     parser.add_argument("-s", "--signal", default=None, help="Path to direct signal cutflow ROOT file")
     parser.add_argument("-i", "--indirect", default=None, help="Path to indirect fake signal cutflow ROOT file")
-    parser.add_argument("-p", "--pmu", default=None, help="Path to passing muon cutflow ROOT file")
+    parser.add_argument("-p", "--pmu", default=None, help="Path to passing muon cutflow ROOT file (defaults to cutflow_pmu2022_essentials_68fb-1.root if present)")
+    parser.add_argument("--no-pmu", action="store_true", default=False, help="Explicitly disable passing muon cutflow in comparison plots")
     parser.add_argument("-o", "--output", default="cutflow_comparison.root", help="Output file path (.root, .png, .pdf)")
     parser.add_argument("--nu-scaling", type=float, default=1.0, help="Scaling factor for neutrino cutflow histograms")
     parser.add_argument("--pmu-scaling", type=float, default=1.0, help="Scaling factor for passing muon cutflow histograms")
@@ -479,10 +480,15 @@ def main():
     parser.add_argument("--all-label", default="Inclusive Neutrino (2MuTrks)", help="Legend label for inclusive neutrino")
     parser.add_argument("--sig-label", default="Direct Signal (Charm #rightarrow #mu_{2})", help="Legend label for direct signal")
     parser.add_argument("--indirect-label", default="Indirect Fake Signal (Charm #rightarrow hadrons #rightarrow #mu_{2})", help="Legend label for indirect fake signal")
-    parser.add_argument("--pmu-label", default="Passing Muons (pmu2022)", help="Legend label for passing muons")
+    parser.add_argument("--pmu-label", default="Passing Muons (pmu2022, 68 fb^{-1})", help="Legend label for passing muons")
     parser.add_argument("--save-images", action="store_true", default=False, help="Save companion .png and .pdf images alongside the ROOT file")
 
     args = parser.parse_args()
+
+    default_pmu_path = "/eos/user/i/idioniso/snd-numu-charm/cutflows/cutflow_pmu2022_essentials_68fb-1.root"
+    if not args.pmu and not args.no_pmu and os.path.isfile(default_pmu_path):
+        args.pmu = default_pmu_path
+        print(f" ~ [Info] Automatically including passing muon cutflow: {args.pmu}")
 
     if not args.combined and not args.all and not args.pmu:
         parser.error("Must specify at least one cutflow dataset (-c/--combined, -a/--all, or -p/--pmu)")

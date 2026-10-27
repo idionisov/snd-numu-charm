@@ -78,13 +78,20 @@ echo " Jobs Output Dir:   ${OUT_DIR}"
 echo " Extra Arguments:   ${EXTRA_ARGS}"
 echo "================================================================================"
 
+if ! command -v condor_submit >/dev/null 2>&1; then
+    echo "ERROR: 'condor_submit' not found in PATH." >&2
+    echo "Please run this script from an lxplus node (e.g., ssh lxplus.cern.ch)." >&2
+    exit 1
+fi
+
 SUBMIT_CMD=(
-    condor_submit "${SCRIPT_DIR}/hough_tuning.sub"
-    flavour="${FLAVOUR}"
-    args_file="${ARGS_FILE}"
-    n_jobs="${N_JOBS}"
-    out_dir="${OUT_DIR}"
-    extra_args="${EXTRA_ARGS}"
+    condor_submit
+    -a "flavour = ${FLAVOUR}"
+    -a "args_file = ${ARGS_FILE}"
+    -a "n_jobs = ${N_JOBS}"
+    -a "out_dir = ${OUT_DIR}"
+    -a "extra_args = ${EXTRA_ARGS}"
+    "${SCRIPT_DIR}/hough_tuning.sub"
 )
 
 if [ "${DRY_RUN}" -eq 1 ]; then

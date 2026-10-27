@@ -1,0 +1,46 @@
+# ==============================================================================
+# HTCondor Submit File: Hough Parameter Tuning Grid Search Optimization
+#
+# Evaluates parameter configurations in parallel across distributed batch slots:
+#   Executable: run_hough_tuning_job.sh
+#   Output:     /eos/user/i/idioniso/snd-numu-charm/plots/hough_tuning/jobs/hough_tuning_job_<id>.csv
+#
+# Usage:
+#   condor_submit hough_tuning.sub
+#   ./submit_hough_tuning.sh -j 50
+# ==============================================================================
+
+base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/hough_tuning
+initialdir              = $(base_dir)
+
+flavour                 = $(flavour:microcentury)
+args_file               = $(args_file:$(base_dir)/args_tuning_50.txt)
+n_jobs                  = $(n_jobs:50)
+out_dir                 = $(out_dir:/eos/user/i/idioniso/snd-numu-charm/plots/hough_tuning/jobs)
+extra_args              = $(extra_args:--pairwise --hf linearSlopeIntercept --sort-by asimov_z)
+
+executable              = $(base_dir)/run_hough_tuning_job.sh
+arguments               = $(job_id) $(n_jobs) $(out_dir) $(extra_args)
+
+output                  = $(base_dir)/out/tuning_job$(job_id)_$(ClusterId)_$(ProcId).out
+error                   = $(base_dir)/err/tuning_job$(job_id)_$(ClusterId)_$(ProcId).err
+log                     = $(base_dir)/log/tuning_$(ClusterId).log
+
+getenv                  = False
+notification            = Never
+requirements            = (OpSysAndVer =?= "AlmaLinux9")
+
++JobFlavour             = "$(flavour)"
++AccountingGroup        = "group_u_SNDLHC.users"
+MY.JobRequiresAFS       = True
+
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = $(base_dir)/sndswEnv.sh, /afs/cern.ch/user/i/idioniso/ddfUtils
+
+request_cpus            = 1
+request_memory          = 2GB
+request_disk            = 2GB
+max_retries             = 2
+
+queue job_id from $(args_file)

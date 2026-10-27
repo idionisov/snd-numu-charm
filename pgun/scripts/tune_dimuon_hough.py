@@ -334,9 +334,14 @@ def run_reco_pairwise_event(
     min_planes_hit = 3
     tol = params["tolerance"]
     max_angle = params.get("max_angle", 0.175)
-    max_opening_angle = params.get("max_opening_angle", 0.120)  # default 120 mrad
+    max_opening_angle = params.get("max_opening_angle", 0.200)  # default 200 mrad
     min_opening_angle = params.get("min_opening_angle", 0.002)  # 2 mrad min separation
     min_unique_planes = params.get("min_unique_planes", 1)      # required unshared fired planes
+    delta_zCross_max = params.get("delta_zCross_max", 100.0)
+    zCross_min = params.get("zCross_min", 200.0)
+    zCross_max = params.get("zCross_max", 490.0)
+    delta_zDS3_max = params.get("delta_zDS3_max", 30.0)
+    z_ds3 = params.get("z_ds3", 543.0)
 
     pos = event_data["pos"]
     d = event_data["d"]
@@ -391,6 +396,7 @@ def run_reco_pairwise_event(
         cands_x.append({
             "peak": p,
             "hits": hits,
+            "planes": planes,
             "det_ids": set(p_dids),
             "ds_det_ids": set(p_dids[ds_mask_v[hits]]),
         })
@@ -398,36 +404,7 @@ def run_reco_pairwise_event(
     if len(cands_x) < 2:
         return []
 
-    pairs_x = []
-    for i in range(len(cands_x)):
-        c1 = cands_x[i]
-        p1 = c1["peak"]
-        for j in range(i + 1, len(cands_x)):
-            c2 = cands_x[j]
-            p2 = c2["peak"]
-            d_angle = abs(p1["slope"] - p2["slope"])
-            if not (min_opening_angle <= d_angle <= max_opening_angle):
-                continue
-
-            shared = c1["det_ids"] & c2["det_ids"]
-            unq1 = c1["ds_det_ids"] - shared
-            unq2 = c2["ds_det_ids"] - shared
-            pl_u1 = len({(did % 10000) // 1000 for did in unq1})
-            pl_u2 = len({(did % 10000) // 1000 for did in unq2})
-            if pl_u1 < min_unique_planes or pl_u2 < min_unique_planes:
-                continue
-
-            score = p1["votes"] + p2["votes"] - 0.5 * len(shared)
-            pairs_x.append({
-                "score": score,
-                "p1": p1, "p2": p2,
-                "hits1": c1["hits"], "hits2": c2["hits"],
-            })
-
-    if not pairs_x:
-        return []
-
-    # 3. Form valid 2D pairs in YZ
+    # 3. Extract candidate lines in YZ
     horiz = ~vert
     z_h = pos[2, horiz]
     y_h = pos[1, horiz]
@@ -458,6 +435,7 @@ def run_reco_pairwise_event(
         cands_y.append({
             "peak": p,
             "hits": hits,
+            "planes": planes,
             "det_ids": set(p_dids),
             "ds_det_ids": set(p_dids[ds_mask_h[hits]]),
         })
@@ -465,56 +443,103 @@ def run_reco_pairwise_event(
     if len(cands_y) < 2:
         return []
 
-    pairs_y = []
-    for i in range(len(cands_y)):
-        c1 = cands_y[i]
-        p1 = c1["peak"]
-        for j in range(i + 1, len(cands_y)):
-            c2 = cands_y[j]
-            p2 = c2["peak"]
-            d_angle = abs(p1["slope"] - p2["slope"])
-            if not (min_opening_angle <= d_angle <= max_opening_angle):
+    # 4. Simultaneous 8D candidate search
+    candidates_8d = []
+    for ix in range(len(cands_x)):
+        c_x1 = cands_x[ix]
+        p_x1 = c_x1["peak"]
+        for jx in range(ix + 1, len(cands_x)):
+            c_x2 = cands_x[jx]
+            p_x2 = c_x2["peak"]
+            d_angle_x = abs(p_x1["slope"] - p_x2["slope"])
+            if not (min_opening_angle <= d_angle_x <= max_opening_angle):
+                continue
+            shared_x = c_x1["det_ids"] & c_x2["det_ids"]
+            unq1_x = c_x1["ds_det_ids"] - shared_x
+            unq2_x = c_x2["ds_det_ids"] - shared_x
+            if len({(did % 10000) // 1000 for did in unq1_x}) < min_unique_planes or \
+               len({(did % 10000) // 1000 for did in unq2_x}) < min_unique_planes:
                 continue
 
-            shared = c1["det_ids"] & c2["det_ids"]
-            unq1 = c1["ds_det_ids"] - shared
-            unq2 = c2["ds_det_ids"] - shared
-            pl_u1 = len({(did % 10000) // 1000 for did in unq1})
-            pl_u2 = len({(did % 10000) // 1000 for did in unq2})
-            if pl_u1 < min_unique_planes or pl_u2 < min_unique_planes:
+            denom_x = p_x1["slope"] - p_x2["slope"]
+            z_cross_xz = -(p_x1["intercept"] - p_x2["intercept"]) / denom_x if abs(denom_x) > 1e-6 else -999.0
+            if not (zCross_min <= z_cross_xz <= zCross_max):
                 continue
+            x1_ds3 = p_x1["slope"] * z_ds3 + p_x1["intercept"]
+            x2_ds3 = p_x2["slope"] * z_ds3 + p_x2["intercept"]
+            if abs(x1_ds3 - x2_ds3) > delta_zDS3_max:
+                continue
+            score_x = p_x1["votes"] + p_x2["votes"] - 0.5 * len(shared_x)
 
-            score = p1["votes"] + p2["votes"] - 0.5 * len(shared)
-            pairs_y.append({
-                "score": score,
-                "p1": p1, "p2": p2,
-                "hits1": c1["hits"], "hits2": c2["hits"],
-            })
+            for iy in range(len(cands_y)):
+                c_y1 = cands_y[iy]
+                p_y1 = c_y1["peak"]
+                for jy in range(iy + 1, len(cands_y)):
+                    c_y2 = cands_y[jy]
+                    p_y2 = c_y2["peak"]
+                    d_angle_y = abs(p_y1["slope"] - p_y2["slope"])
+                    if not (min_opening_angle <= d_angle_y <= max_opening_angle):
+                        continue
+                    shared_y = c_y1["det_ids"] & c_y2["det_ids"]
+                    unq1_y = c_y1["ds_det_ids"] - shared_y
+                    unq2_y = c_y2["ds_det_ids"] - shared_y
+                    if len({(did % 10000) // 1000 for did in unq1_y}) < min_unique_planes or \
+                       len({(did % 10000) // 1000 for did in unq2_y}) < min_unique_planes:
+                        continue
 
-    if not pairs_y:
+                    denom_y = p_y1["slope"] - p_y2["slope"]
+                    z_cross_yz = -(p_y1["intercept"] - p_y2["intercept"]) / denom_y if abs(denom_y) > 1e-6 else -999.0
+                    if not (zCross_min <= z_cross_yz <= zCross_max):
+                        continue
+                    y1_ds3 = p_y1["slope"] * z_ds3 + p_y1["intercept"]
+                    y2_ds3 = p_y2["slope"] * z_ds3 + p_y2["intercept"]
+                    if abs(y1_ds3 - y2_ds3) > delta_zDS3_max:
+                        continue
+
+                    delta_z_cross = abs(z_cross_xz - z_cross_yz)
+                    if delta_z_cross > delta_zCross_max:
+                        continue
+
+                    overlap_p0 = len(c_x1["planes"] & c_y1["planes"]) + len(c_x2["planes"] & c_y2["planes"])
+                    overlap_p1 = len(c_x1["planes"] & c_y2["planes"]) + len(c_x2["planes"] & c_y1["planes"])
+                    vdiff_p0 = abs(p_x1["votes"] - p_y1["votes"]) + abs(p_x2["votes"] - p_y2["votes"])
+                    vdiff_p1 = abs(p_x1["votes"] - p_y2["votes"]) + abs(p_x2["votes"] - p_y1["votes"])
+
+                    perm = 0 if (overlap_p0 > overlap_p1 or (overlap_p0 == overlap_p1 and vdiff_p0 <= vdiff_p1)) else 1
+                    match_bonus = (overlap_p0 - 0.1 * vdiff_p0) if perm == 0 else (overlap_p1 - 0.1 * vdiff_p1)
+                    score_y = p_y1["votes"] + p_y2["votes"] - 0.5 * len(shared_y)
+                    score_8d = score_x + score_y + match_bonus
+
+                    candidates_8d.append({
+                        "score_8d": score_8d,
+                        "c_x1": c_x1, "c_x2": c_x2,
+                        "c_y1": c_y1, "c_y2": c_y2,
+                        "perm": perm,
+                    })
+
+    if not candidates_8d:
         return []
 
-    # 4. Select highest vote pair in each projection
-    pairs_x.sort(key=lambda p: -p["score"])
-    pairs_y.sort(key=lambda p: -p["score"])
-    best_x = pairs_x[0]
-    best_y = pairs_y[0]
+    candidates_8d.sort(key=lambda c: -c["score_8d"])
+    best = candidates_8d[0]
+    bx1, bx2 = best["c_x1"], best["c_x2"]
+    by1, by2 = (best["c_y1"], best["c_y2"]) if best["perm"] == 0 else (best["c_y2"], best["c_y1"])
 
     track1 = {
-        "tx": best_x["p1"]["slope"],
-        "ty": best_y["p1"]["slope"],
-        "bx": best_x["p1"]["intercept"],
-        "by": best_y["p1"]["intercept"],
-        "n_hits_h": len(best_y["hits1"]),
-        "n_hits_v": len(best_x["hits1"]),
+        "tx": bx1["peak"]["slope"],
+        "ty": by1["peak"]["slope"],
+        "bx": bx1["peak"]["intercept"],
+        "by": by1["peak"]["intercept"],
+        "n_hits_h": len(by1["hits"]),
+        "n_hits_v": len(bx1["hits"]),
     }
     track2 = {
-        "tx": best_x["p2"]["slope"],
-        "ty": best_y["p2"]["slope"],
-        "bx": best_x["p2"]["intercept"],
-        "by": best_y["p2"]["intercept"],
-        "n_hits_h": len(best_y["hits2"]),
-        "n_hits_v": len(best_x["hits2"]),
+        "tx": bx2["peak"]["slope"],
+        "ty": by2["peak"]["slope"],
+        "bx": bx2["peak"]["intercept"],
+        "by": by2["peak"]["intercept"],
+        "n_hits_h": len(by2["hits"]),
+        "n_hits_v": len(bx2["hits"]),
     }
     return [track1, track2]
 
@@ -672,9 +697,14 @@ def evaluate_multi_tol_sample(
     """Count dimuon candidate reconstructions across multiple tolerances in a single event pass."""
     min_planes_hit = 3
     max_angle = base_params.get("max_angle", 0.175)
-    max_opening_angle = base_params.get("max_opening_angle", 0.120)
+    max_opening_angle = base_params.get("max_opening_angle", 0.200)
     min_opening_angle = base_params.get("min_opening_angle", 0.002)
     min_unique_planes = base_params.get("min_unique_planes", 1)
+    delta_zCross_max = base_params.get("delta_zCross_max", 100.0)
+    zCross_min = base_params.get("zCross_min", 200.0)
+    zCross_max = base_params.get("zCross_max", 490.0)
+    delta_zDS3_max = base_params.get("delta_zDS3_max", 30.0)
+    z_ds3 = base_params.get("z_ds3", 543.0)
 
     counts = {t: 0 for t in tolerances}
 
@@ -766,28 +796,6 @@ def evaluate_multi_tol_sample(
             if len(cands_x) < 2:
                 continue
 
-            has_pair_x = False
-            for i in range(len(cands_x)):
-                p1, d1, ds1 = cands_x[i]
-                for j in range(i + 1, len(cands_x)):
-                    p2, d2, ds2 = cands_x[j]
-                    d_angle = abs(p1["slope"] - p2["slope"])
-                    if not (min_opening_angle <= d_angle <= max_opening_angle):
-                        continue
-                    shared = d1 & d2
-                    unq1 = ds1 - shared
-                    unq2 = ds2 - shared
-                    if len({(did % 10000) // 1000 for did in unq1}) < min_unique_planes or \
-                       len({(did % 10000) // 1000 for did in unq2}) < min_unique_planes:
-                        continue
-                    has_pair_x = True
-                    break
-                if has_pair_x:
-                    break
-
-            if not has_pair_x:
-                continue
-
             # Check Y candidates
             cands_y = []
             for p, dist, clips in geom_y:
@@ -800,26 +808,68 @@ def evaluate_multi_tol_sample(
             if len(cands_y) < 2:
                 continue
 
-            has_pair_y = False
-            for i in range(len(cands_y)):
-                p1, d1, ds1 = cands_y[i]
-                for j in range(i + 1, len(cands_y)):
-                    p2, d2, ds2 = cands_y[j]
-                    d_angle = abs(p1["slope"] - p2["slope"])
-                    if not (min_opening_angle <= d_angle <= max_opening_angle):
+            # Simultaneous 8D candidate search
+            valid_8d = False
+            for i in range(len(cands_x)):
+                p1_x, d1_x, ds1_x = cands_x[i]
+                for j in range(i + 1, len(cands_x)):
+                    p2_x, d2_x, ds2_x = cands_x[j]
+                    d_angle_x = abs(p1_x["slope"] - p2_x["slope"])
+                    if not (min_opening_angle <= d_angle_x <= max_opening_angle):
                         continue
-                    shared = d1 & d2
-                    unq1 = ds1 - shared
-                    unq2 = ds2 - shared
-                    if len({(did % 10000) // 1000 for did in unq1}) < min_unique_planes or \
-                       len({(did % 10000) // 1000 for did in unq2}) < min_unique_planes:
+                    shared_x = d1_x & d2_x
+                    unq1_x = ds1_x - shared_x
+                    unq2_x = ds2_x - shared_x
+                    if len({(did % 10000) // 1000 for did in unq1_x}) < min_unique_planes or \
+                       len({(did % 10000) // 1000 for did in unq2_x}) < min_unique_planes:
                         continue
-                    has_pair_y = True
-                    break
-                if has_pair_y:
+
+                    denom_x = p1_x["slope"] - p2_x["slope"]
+                    z_cross_xz = -(p1_x["intercept"] - p2_x["intercept"]) / denom_x if abs(denom_x) > 1e-6 else -999.0
+                    if not (zCross_min <= z_cross_xz <= zCross_max):
+                        continue
+                    x1_ds3 = p1_x["slope"] * z_ds3 + p1_x["intercept"]
+                    x2_ds3 = p2_x["slope"] * z_ds3 + p2_x["intercept"]
+                    if abs(x1_ds3 - x2_ds3) > delta_zDS3_max:
+                        continue
+
+                    for iy in range(len(cands_y)):
+                        p1_y, d1_y, ds1_y = cands_y[iy]
+                        for jy in range(iy + 1, len(cands_y)):
+                            p2_y, d2_y, ds2_y = cands_y[jy]
+                            d_angle_y = abs(p1_y["slope"] - p2_y["slope"])
+                            if not (min_opening_angle <= d_angle_y <= max_opening_angle):
+                                continue
+                            shared_y = d1_y & d2_y
+                            unq1_y = ds1_y - shared_y
+                            unq2_y = ds2_y - shared_y
+                            if len({(did % 10000) // 1000 for did in unq1_y}) < min_unique_planes or \
+                               len({(did % 10000) // 1000 for did in unq2_y}) < min_unique_planes:
+                                continue
+
+                            denom_y = p1_y["slope"] - p2_y["slope"]
+                            z_cross_yz = -(p1_y["intercept"] - p2_y["intercept"]) / denom_y if abs(denom_y) > 1e-6 else -999.0
+                            if not (zCross_min <= z_cross_yz <= zCross_max):
+                                continue
+                            y1_ds3 = p1_y["slope"] * z_ds3 + p1_y["intercept"]
+                            y2_ds3 = p2_y["slope"] * z_ds3 + p2_y["intercept"]
+                            if abs(y1_ds3 - y2_ds3) > delta_zDS3_max:
+                                continue
+
+                            delta_z_cross = abs(z_cross_xz - z_cross_yz)
+                            if delta_z_cross > delta_zCross_max:
+                                continue
+
+                            valid_8d = True
+                            break
+                        if valid_8d:
+                            break
+                    if valid_8d:
+                        break
+                if valid_8d:
                     break
 
-            if has_pair_y:
+            if valid_8d:
                 counts[tol] += 1
 
     return counts
@@ -1070,6 +1120,11 @@ def generate_parameter_grid(
     target_window_xz: Tuple[float, float] = (-50.0, -3.0),
     target_window_yz: Tuple[float, float] = (5.0, 60.0),
     group_tolerances: bool = False,
+    delta_zCross_max: Union[float, List[float], None] = None,
+    zCross_min: float = 200.0,
+    zCross_max: Union[float, List[float], None] = None,
+    delta_zDS3_max: float = 30.0,
+    z_ds3: float = 543.0,
 ) -> List[Dict[str, Any]]:
     """Build grid of parameter configurations with requested binning factors, max angles, and smoothing options."""
     tolerances = [0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0]
@@ -1078,6 +1133,20 @@ def generate_parameter_grid(
     if max_opening_angles is None:
         max_opening_angles = [0.120] if use_pairwise else [None]
     z_target = z_plane
+
+    if delta_zCross_max is None:
+        delta_zCross_list = [90.0, 100.0, 110.0, 150.0]
+    elif isinstance(delta_zCross_max, (int, float)):
+        delta_zCross_list = [float(delta_zCross_max)]
+    else:
+        delta_zCross_list = [float(x) for x in delta_zCross_max]
+
+    if zCross_max is None:
+        zCross_max_list = [425.0, 450.0, 475.0, 500.0]
+    elif isinstance(zCross_max, (int, float)):
+        zCross_max_list = [float(zCross_max)]
+    else:
+        zCross_max_list = [float(x) for x in zCross_max]
 
     # Requested Linear Slope-Intercept binning factors
     factors_linear = [0.75, 1.00, 1.30, 1.60, 1.80, 2.00, 2.25, 2.50, 2.60, 2.70, 2.75, 2.80, 2.90, 3.00, 3.50, 4.00]
@@ -1103,201 +1172,245 @@ def generate_parameter_grid(
     if h_format in ("linearSlopeIntercept", "all"):
         for max_ang in max_angles:
             for max_open in max_opening_angles:
-                for f in factors_linear:
-                    ny = int(round(base_ny_linear * f))
-                    nx = int(round(base_nx_linear * f))
-                    if group_tolerances:
-                        for smth, sig, trunc in smooth_configs:
-                            grid.append({
-                                "h_format": "linearSlopeIntercept",
-                                "binning_factor": f,
-                                "tolerances": list(tolerances),
-                                "max_angle": float(max_ang),
-                                "max_opening_angle": float(max_open) if max_open is not None else None,
-                                "use_pairwise": use_pairwise,
-                                "z_target": z_target,
-                                "target_window_xz": target_window_xz,
-                                "target_window_yz": target_window_yz,
-                                "n_yH": ny,
-                                "n_xH": nx,
-                                "yH_range_xz": (-105.0, 17.0),
-                                "yH_range_yz": (0.0, 122.0),
-                                "xH_range_xz": (-1.1, 1.1),
-                                "xH_range_yz": (-1.1, 1.1),
-                                "smooth_full": smth,
-                                "sigma": sig,
-                                "truncate": trunc,
-                                "n_random": 0,
-                            })
-                        if include_no_smooth:
-                            grid.append({
-                                "h_format": "linearSlopeIntercept",
-                                "binning_factor": f,
-                                "tolerances": list(tolerances),
-                                "max_angle": float(max_ang),
-                                "max_opening_angle": float(max_open) if max_open is not None else None,
-                                "use_pairwise": use_pairwise,
-                                "z_target": z_target,
-                                "target_window_xz": target_window_xz,
-                                "target_window_yz": target_window_yz,
-                                "n_yH": ny,
-                                "n_xH": nx,
-                                "yH_range_xz": (-105.0, 17.0),
-                                "yH_range_yz": (0.0, 122.0),
-                                "xH_range_xz": (-1.1, 1.1),
-                                "xH_range_yz": (-1.1, 1.1),
-                                "smooth_full": False,
-                                "sigma": 0.0,
-                                "truncate": 0.0,
-                                "n_random": 0,
-                            })
-                    else:
-                        for tol in tolerances:
-                            # Gaussian smoothing cases
-                            for smth, sig, trunc in smooth_configs:
-                                grid.append({
-                                    "h_format": "linearSlopeIntercept",
-                                    "binning_factor": f,
-                                    "tolerance": tol,
-                                    "max_angle": float(max_ang),
-                                    "max_opening_angle": float(max_open) if max_open is not None else None,
-                                    "use_pairwise": use_pairwise,
-                                    "z_target": z_target,
-                                    "target_window_xz": target_window_xz,
-                                    "target_window_yz": target_window_yz,
-                                    "n_yH": ny,
-                                    "n_xH": nx,
-                                    "yH_range_xz": (-105.0, 17.0),
-                                    "yH_range_yz": (0.0, 122.0),
-                                    "xH_range_xz": (-1.1, 1.1),
-                                    "xH_range_yz": (-1.1, 1.1),
-                                    "smooth_full": smth,
-                                    "sigma": sig,
-                                    "truncate": trunc,
-                                    "n_random": 0,
-                                })
-                            # No-smoothing case
-                            if include_no_smooth:
-                                grid.append({
-                                    "h_format": "linearSlopeIntercept",
-                                    "binning_factor": f,
-                                    "tolerance": tol,
-                                    "max_angle": float(max_ang),
-                                    "max_opening_angle": float(max_open) if max_open is not None else None,
-                                    "use_pairwise": use_pairwise,
-                                    "z_target": z_target,
-                                    "target_window_xz": target_window_xz,
-                                    "target_window_yz": target_window_yz,
-                                    "n_yH": ny,
-                                    "n_xH": nx,
-                                    "yH_range_xz": (-105.0, 17.0),
-                                    "yH_range_yz": (0.0, 122.0),
-                                    "xH_range_xz": (-1.1, 1.1),
-                                    "xH_range_yz": (-1.1, 1.1),
-                                    "smooth_full": False,
-                                    "sigma": 0.0,
-                                    "truncate": 0.0,
-                                    "n_random": 0,
-                                })
+                for dz_cross in delta_zCross_list:
+                    for zc_max in zCross_max_list:
+                        for f in factors_linear:
+                            ny = int(round(base_ny_linear * f))
+                            nx = int(round(base_nx_linear * f))
+                            if group_tolerances:
+                                for smth, sig, trunc in smooth_configs:
+                                    grid.append({
+                                        "h_format": "linearSlopeIntercept",
+                                        "binning_factor": f,
+                                        "tolerances": list(tolerances),
+                                        "max_angle": float(max_ang),
+                                        "max_opening_angle": float(max_open) if max_open is not None else None,
+                                        "use_pairwise": use_pairwise,
+                                        "z_target": z_target,
+                                        "target_window_xz": target_window_xz,
+                                        "target_window_yz": target_window_yz,
+                                        "delta_zCross_max": dz_cross,
+                                        "zCross_min": zCross_min,
+                                        "zCross_max": zc_max,
+                                        "delta_zDS3_max": delta_zDS3_max,
+                                        "z_ds3": z_ds3,
+                                        "n_yH": ny,
+                                        "n_xH": nx,
+                                        "yH_range_xz": (-105.0, 17.0),
+                                        "yH_range_yz": (0.0, 122.0),
+                                        "xH_range_xz": (-1.1, 1.1),
+                                        "xH_range_yz": (-1.1, 1.1),
+                                        "smooth_full": smth,
+                                        "sigma": sig,
+                                        "truncate": trunc,
+                                        "n_random": 0,
+                                    })
+                                if include_no_smooth:
+                                    grid.append({
+                                        "h_format": "linearSlopeIntercept",
+                                        "binning_factor": f,
+                                        "tolerances": list(tolerances),
+                                        "max_angle": float(max_ang),
+                                        "max_opening_angle": float(max_open) if max_open is not None else None,
+                                        "use_pairwise": use_pairwise,
+                                        "z_target": z_target,
+                                        "target_window_xz": target_window_xz,
+                                        "target_window_yz": target_window_yz,
+                                        "delta_zCross_max": dz_cross,
+                                        "zCross_min": zCross_min,
+                                        "zCross_max": zc_max,
+                                        "delta_zDS3_max": delta_zDS3_max,
+                                        "z_ds3": z_ds3,
+                                        "n_yH": ny,
+                                        "n_xH": nx,
+                                        "yH_range_xz": (-105.0, 17.0),
+                                        "yH_range_yz": (0.0, 122.0),
+                                        "xH_range_xz": (-1.1, 1.1),
+                                        "xH_range_yz": (-1.1, 1.1),
+                                        "smooth_full": False,
+                                        "sigma": 0.0,
+                                        "truncate": 0.0,
+                                        "n_random": 0,
+                                    })
+                            else:
+                                for tol in tolerances:
+                                    # Gaussian smoothing cases
+                                    for smth, sig, trunc in smooth_configs:
+                                        grid.append({
+                                            "h_format": "linearSlopeIntercept",
+                                            "binning_factor": f,
+                                            "tolerance": tol,
+                                            "max_angle": float(max_ang),
+                                            "max_opening_angle": float(max_open) if max_open is not None else None,
+                                            "use_pairwise": use_pairwise,
+                                            "z_target": z_target,
+                                            "target_window_xz": target_window_xz,
+                                            "target_window_yz": target_window_yz,
+                                            "delta_zCross_max": dz_cross,
+                                            "zCross_min": zCross_min,
+                                            "zCross_max": zc_max,
+                                            "delta_zDS3_max": delta_zDS3_max,
+                                            "z_ds3": z_ds3,
+                                            "n_yH": ny,
+                                            "n_xH": nx,
+                                            "yH_range_xz": (-105.0, 17.0),
+                                            "yH_range_yz": (0.0, 122.0),
+                                            "xH_range_xz": (-1.1, 1.1),
+                                            "xH_range_yz": (-1.1, 1.1),
+                                            "smooth_full": smth,
+                                            "sigma": sig,
+                                            "truncate": trunc,
+                                            "n_random": 0,
+                                        })
+                                    # No-smoothing case
+                                    if include_no_smooth:
+                                        grid.append({
+                                            "h_format": "linearSlopeIntercept",
+                                            "binning_factor": f,
+                                            "tolerance": tol,
+                                            "max_angle": float(max_ang),
+                                            "max_opening_angle": float(max_open) if max_open is not None else None,
+                                            "use_pairwise": use_pairwise,
+                                            "z_target": z_target,
+                                            "target_window_xz": target_window_xz,
+                                            "target_window_yz": target_window_yz,
+                                            "delta_zCross_max": dz_cross,
+                                            "zCross_min": zCross_min,
+                                            "zCross_max": zc_max,
+                                            "delta_zDS3_max": delta_zDS3_max,
+                                            "z_ds3": z_ds3,
+                                            "n_yH": ny,
+                                            "n_xH": nx,
+                                            "yH_range_xz": (-105.0, 17.0),
+                                            "yH_range_yz": (0.0, 122.0),
+                                            "xH_range_xz": (-1.1, 1.1),
+                                            "xH_range_yz": (-1.1, 1.1),
+                                            "smooth_full": False,
+                                            "sigma": 0.0,
+                                            "truncate": 0.0,
+                                            "n_random": 0,
+                                        })
 
     # 2. Normal Representation Grid
     if h_format in ("normal", "all"):
         for max_ang in max_angles:
             for max_open in max_opening_angles:
-                for f in factors_normal:
-                    ny = int(round(base_ny_normal * f))
-                    nx = int(round(base_nx_normal * f))
-                    if group_tolerances:
-                        for smth, sig, trunc in smooth_configs:
-                            grid.append({
-                                "h_format": "normal",
-                                "binning_factor": f,
-                                "tolerances": list(tolerances),
-                                "max_angle": float(max_ang),
-                                "max_opening_angle": float(max_open) if max_open is not None else None,
-                                "use_pairwise": use_pairwise,
-                                "z_target": z_target,
-                                "target_window_xz": target_window_xz,
-                                "target_window_yz": target_window_yz,
-                                "n_yH": ny,
-                                "n_xH": nx,
-                                "yH_range_xz": (-80.0, 0.0),
-                                "yH_range_yz": (0.0, 80.0),
-                                "xH_range_xz": (-1.57, 1.57),
-                                "xH_range_yz": (-1.57, 1.57),
-                                "smooth_full": smth,
-                                "sigma": sig,
-                                "truncate": trunc,
-                                "n_random": 0,
-                            })
-                        if include_no_smooth:
-                            grid.append({
-                                "h_format": "normal",
-                                "binning_factor": f,
-                                "tolerances": list(tolerances),
-                                "max_angle": float(max_ang),
-                                "max_opening_angle": float(max_open) if max_open is not None else None,
-                                "use_pairwise": use_pairwise,
-                                "z_target": z_target,
-                                "target_window_xz": target_window_xz,
-                                "target_window_yz": target_window_yz,
-                                "n_yH": ny,
-                                "n_xH": nx,
-                                "yH_range_xz": (-80.0, 0.0),
-                                "yH_range_yz": (0.0, 80.0),
-                                "xH_range_xz": (-1.57, 1.57),
-                                "xH_range_yz": (-1.57, 1.57),
-                                "smooth_full": False,
-                                "sigma": 0.0,
-                                "truncate": 0.0,
-                                "n_random": 0,
-                            })
-                    else:
-                        for tol in tolerances:
-                            for smth, sig, trunc in smooth_configs:
-                                grid.append({
-                                    "h_format": "normal",
-                                    "binning_factor": f,
-                                    "tolerance": tol,
-                                    "max_angle": float(max_ang),
-                                    "max_opening_angle": float(max_open) if max_open is not None else None,
-                                    "use_pairwise": use_pairwise,
-                                    "z_target": z_target,
-                                    "target_window_xz": target_window_xz,
-                                    "target_window_yz": target_window_yz,
-                                    "n_yH": ny,
-                                    "n_xH": nx,
-                                    "yH_range_xz": (-80.0, 0.0),
-                                    "yH_range_yz": (0.0, 80.0),
-                                    "xH_range_xz": (-1.57, 1.57),
-                                    "xH_range_yz": (-1.57, 1.57),
-                                    "smooth_full": smth,
-                                    "sigma": sig,
-                                    "truncate": trunc,
-                                    "n_random": 0,
-                                })
-                            if include_no_smooth:
-                                grid.append({
-                                    "h_format": "normal",
-                                    "binning_factor": f,
-                                    "tolerance": tol,
-                                    "max_angle": float(max_ang),
-                                    "max_opening_angle": float(max_open) if max_open is not None else None,
-                                    "use_pairwise": use_pairwise,
-                                    "z_target": z_target,
-                                    "target_window_xz": target_window_xz,
-                                    "target_window_yz": target_window_yz,
-                                    "n_yH": ny,
-                                    "n_xH": nx,
-                                    "yH_range_xz": (-80.0, 0.0),
-                                    "yH_range_yz": (0.0, 80.0),
-                                    "xH_range_xz": (-1.57, 1.57),
-                                    "xH_range_yz": (-1.57, 1.57),
-                                    "smooth_full": False,
-                                    "sigma": 0.0,
-                                    "truncate": 0.0,
-                                    "n_random": 0,
-                                })
+                for dz_cross in delta_zCross_list:
+                    for zc_max in zCross_max_list:
+                        for f in factors_normal:
+                            ny = int(round(base_ny_normal * f))
+                            nx = int(round(base_nx_normal * f))
+                            if group_tolerances:
+                                for smth, sig, trunc in smooth_configs:
+                                    grid.append({
+                                        "h_format": "normal",
+                                        "binning_factor": f,
+                                        "tolerances": list(tolerances),
+                                        "max_angle": float(max_ang),
+                                        "max_opening_angle": float(max_open) if max_open is not None else None,
+                                        "use_pairwise": use_pairwise,
+                                        "z_target": z_target,
+                                        "target_window_xz": target_window_xz,
+                                        "target_window_yz": target_window_yz,
+                                        "delta_zCross_max": dz_cross,
+                                        "zCross_min": zCross_min,
+                                        "zCross_max": zc_max,
+                                        "delta_zDS3_max": delta_zDS3_max,
+                                        "z_ds3": z_ds3,
+                                        "n_yH": ny,
+                                        "n_xH": nx,
+                                        "yH_range_xz": (-80.0, 0.0),
+                                        "yH_range_yz": (0.0, 80.0),
+                                        "xH_range_xz": (-1.57, 1.57),
+                                        "xH_range_yz": (-1.57, 1.57),
+                                        "smooth_full": smth,
+                                        "sigma": sig,
+                                        "truncate": trunc,
+                                        "n_random": 0,
+                                    })
+                                if include_no_smooth:
+                                    grid.append({
+                                        "h_format": "normal",
+                                        "binning_factor": f,
+                                        "tolerances": list(tolerances),
+                                        "max_angle": float(max_ang),
+                                        "max_opening_angle": float(max_open) if max_open is not None else None,
+                                        "use_pairwise": use_pairwise,
+                                        "z_target": z_target,
+                                        "target_window_xz": target_window_xz,
+                                        "target_window_yz": target_window_yz,
+                                        "delta_zCross_max": dz_cross,
+                                        "zCross_min": zCross_min,
+                                        "zCross_max": zc_max,
+                                        "delta_zDS3_max": delta_zDS3_max,
+                                        "z_ds3": z_ds3,
+                                        "n_yH": ny,
+                                        "n_xH": nx,
+                                        "yH_range_xz": (-80.0, 0.0),
+                                        "yH_range_yz": (0.0, 80.0),
+                                        "xH_range_xz": (-1.57, 1.57),
+                                        "xH_range_yz": (-1.57, 1.57),
+                                        "smooth_full": False,
+                                        "sigma": 0.0,
+                                        "truncate": 0.0,
+                                        "n_random": 0,
+                                    })
+                            else:
+                                for tol in tolerances:
+                                    for smth, sig, trunc in smooth_configs:
+                                        grid.append({
+                                            "h_format": "normal",
+                                            "binning_factor": f,
+                                            "tolerance": tol,
+                                            "max_angle": float(max_ang),
+                                            "max_opening_angle": float(max_open) if max_open is not None else None,
+                                            "use_pairwise": use_pairwise,
+                                            "z_target": z_target,
+                                            "target_window_xz": target_window_xz,
+                                            "target_window_yz": target_window_yz,
+                                            "delta_zCross_max": dz_cross,
+                                            "zCross_min": zCross_min,
+                                            "zCross_max": zc_max,
+                                            "delta_zDS3_max": delta_zDS3_max,
+                                            "z_ds3": z_ds3,
+                                            "n_yH": ny,
+                                            "n_xH": nx,
+                                            "yH_range_xz": (-80.0, 0.0),
+                                            "yH_range_yz": (0.0, 80.0),
+                                            "xH_range_xz": (-1.57, 1.57),
+                                            "xH_range_yz": (-1.57, 1.57),
+                                            "smooth_full": smth,
+                                            "sigma": sig,
+                                            "truncate": trunc,
+                                            "n_random": 0,
+                                        })
+                                    if include_no_smooth:
+                                        grid.append({
+                                            "h_format": "normal",
+                                            "binning_factor": f,
+                                            "tolerance": tol,
+                                            "max_angle": float(max_ang),
+                                            "max_opening_angle": float(max_open) if max_open is not None else None,
+                                            "use_pairwise": use_pairwise,
+                                            "z_target": z_target,
+                                            "target_window_xz": target_window_xz,
+                                            "target_window_yz": target_window_yz,
+                                            "delta_zCross_max": dz_cross,
+                                            "zCross_min": zCross_min,
+                                            "zCross_max": zc_max,
+                                            "delta_zDS3_max": delta_zDS3_max,
+                                            "z_ds3": z_ds3,
+                                            "n_yH": ny,
+                                            "n_xH": nx,
+                                            "yH_range_xz": (-80.0, 0.0),
+                                            "yH_range_yz": (0.0, 80.0),
+                                            "xH_range_xz": (-1.57, 1.57),
+                                            "xH_range_yz": (-1.57, 1.57),
+                                            "smooth_full": False,
+                                            "sigma": 0.0,
+                                            "truncate": 0.0,
+                                            "n_random": 0,
+                                        })
 
     return grid
 
@@ -1478,6 +1591,11 @@ def export_results_to_csv(results: List[Dict[str, Any]], csv_path: str) -> None:
             "smooth_full": p.get("smooth_full"),
             "sigma": p.get("sigma"),
             "truncate": p.get("truncate"),
+            "delta_zCross_max": p.get("delta_zCross_max"),
+            "zCross_min": p.get("zCross_min"),
+            "zCross_max": p.get("zCross_max"),
+            "delta_zDS3_max": p.get("delta_zDS3_max"),
+            "z_ds3": p.get("z_ds3"),
             # 2. Asimov Discovery Significance & Event Counts
             "s_genie": r.get("s_genie"),
             "b_genie": r.get("b_genie"),
@@ -1543,12 +1661,27 @@ def main():
     parser.add_argument("--max-events", type=int, default=0, help="Cap number of events per dataset (0 = all cached events)")
     parser.add_argument("--output-pickle", default="pgun/plots/hough_fom_results.pkl", help="Output pickle path for results")
     parser.add_argument("--output-csv", default=None, help="Output CSV path for results (defaults to replacing .pkl with .csv)")
+    parser.add_argument("--job-id", type=int, default=None, help="Job slice index (0 to n_jobs - 1)")
+    parser.add_argument("--n-jobs", type=int, default=None, help="Total number of job slices for distributed execution")
+    parser.add_argument("--delta-zCross-max", "--delta-zCross-maxes", dest="delta_zCross_maxes", nargs="+", type=float, default=None,
+                        help="Max longitudinal vertex crossing difference (cm, default: 90 100 110 150)")
+    parser.add_argument("--zCross-min", type=float, default=None, help="Min crossing z coordinate (cm)")
+    parser.add_argument("--zCross-max", "--zCross-maxes", dest="zCross_maxes", nargs="+", type=float, default=None,
+                        help="Max crossing z coordinate (cm, default: 425 450 475 500)")
+    parser.add_argument("--delta-zDS3-max", type=float, default=None, help="Max transverse separation at DS3 (cm)")
+    parser.add_argument("--z-ds3", type=float, default=None, help="Z position of DS3 plane (cm)")
+    parser.add_argument("--no-plots", action="store_true", default=False, help="Skip generating response surface plots (useful for batch jobs)")
     args = parser.parse_args()
 
     # Load plane crossing constraints from XML if available
     z_plane = 352.0
     target_window_xz = (-50.0, -3.0)
     target_window_yz = (5.0, 60.0)
+    delta_zCross_max = [90.0, 100.0, 110.0, 150.0]
+    zCross_min = 200.0
+    zCross_max = [425.0, 450.0, 475.0, 500.0]
+    delta_zDS3_max = 30.0
+    z_ds3 = 543.0
     if os.path.isfile(args.xml):
         try:
             tree_xml = ET.parse(args.xml)
@@ -1562,9 +1695,22 @@ def main():
                         target_window_xz = (float(tc.findtext("x_area_min").strip()), float(tc.findtext("x_area_max").strip()))
                     if tc.find("y_area_min") is not None and tc.find("y_area_max") is not None:
                         target_window_yz = (float(tc.findtext("y_area_min").strip()), float(tc.findtext("y_area_max").strip()))
+                    if tc.find("zCross_min") is not None:
+                        zCross_min = float(tc.findtext("zCross_min").strip())
+                    if tc.find("delta_zDS3_max") is not None:
+                        delta_zDS3_max = float(tc.findtext("delta_zDS3_max").strip())
+                    if tc.find("z_ds3") is not None:
+                        z_ds3 = float(tc.findtext("z_ds3").strip())
                     break
         except Exception as e:
             print(f"Warning: Could not parse crossing window from {args.xml}: {e}")
+
+    # Override with CLI arguments if explicitly given
+    if args.delta_zCross_maxes is not None: delta_zCross_max = args.delta_zCross_maxes
+    if args.zCross_min is not None: zCross_min = args.zCross_min
+    if args.zCross_maxes is not None: zCross_max = args.zCross_maxes
+    if args.delta_zDS3_max is not None: delta_zDS3_max = args.delta_zDS3_max
+    if args.z_ds3 is not None: z_ds3 = args.z_ds3
 
     # Load the 4 benchmark datasets
     samples = {}
@@ -1609,7 +1755,17 @@ def main():
         target_window_xz=target_window_xz,
         target_window_yz=target_window_yz,
         group_tolerances=args.pairwise,
+        delta_zCross_max=delta_zCross_max,
+        zCross_min=zCross_min,
+        zCross_max=zCross_max,
+        delta_zDS3_max=delta_zDS3_max,
+        z_ds3=z_ds3,
     )
+
+    if args.job_id is not None and args.n_jobs is not None:
+        total_in_grid = len(grid)
+        grid = [c for idx, c in enumerate(grid) if idx % args.n_jobs == args.job_id]
+        print(f"Batch Slice Mode: Job {args.job_id}/{args.n_jobs} evaluating {len(grid)} base configurations (out of {total_in_grid}).")
     n_smooth_combos = len(args.sigmas) * len(args.truncates) + (1 if args.include_no_smooth else 0)
     total_configs_display = len(grid) * 8 if args.pairwise else len(grid)
     print(f"\nGenerated parameter grid with {len(grid)} base configurations ({total_configs_display} total configs with tolerances, format: {args.hf}):")
@@ -1651,20 +1807,32 @@ def main():
     target_metric = sort_key_map[args.sort_by]
     results.sort(key=lambda r: -r[target_metric])
 
-    # Print scoreboard
-    print_scoreboard(results, sort_key=target_metric, top_k=25)
+    # Save CSV results
+    csv_path = args.output_csv or os.path.splitext(args.output_pickle)[0] + ".csv"
+    os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
+    export_results_to_csv(results, csv_path)
 
-    # Save results
+    # In batch slice mode, save results and exit
+    if args.job_id is not None:
+        if args.output_pickle and args.output_pickle != "pgun/plots/hough_fom_results.pkl":
+            os.makedirs(os.path.dirname(os.path.abspath(args.output_pickle)), exist_ok=True)
+            with open(args.output_pickle, "wb") as f:
+                pickle.dump(results, f)
+        print(f"Slice job {args.job_id} complete: saved {len(results)} rows to {csv_path}")
+        return
+
+    # Full run mode: Save full pickle
     os.makedirs(os.path.dirname(os.path.abspath(args.output_pickle)), exist_ok=True)
     with open(args.output_pickle, "wb") as f:
         pickle.dump(results, f)
     print(f"Saved full evaluation results to {args.output_pickle}")
 
-    csv_path = args.output_csv or os.path.splitext(args.output_pickle)[0] + ".csv"
-    export_results_to_csv(results, csv_path)
+    # Print scoreboard
+    print_scoreboard(results, sort_key=target_metric, top_k=25)
 
     # Plot response landscapes
-    plot_tuning_summary(results)
+    if not args.no_plots:
+        plot_tuning_summary(results)
 
     best = results[0]
     bp = best["params"]
@@ -1679,6 +1847,12 @@ def main():
     if bp.get("max_opening_angle") is not None:
         open_str = f"{bp['max_opening_angle']} rad" if bp['max_opening_angle'] < 900.0 else "unconstrained (inf)"
         print(f"  Max Open Angle:  {open_str}")
+    if bp.get("delta_zCross_max") is not None:
+        print(f"  delta_zCross_max:{bp['delta_zCross_max']} cm")
+    if bp.get("zCross_max") is not None:
+        print(f"  zCross Range:    [{bp.get('zCross_min', 200.0)}, {bp['zCross_max']}] cm")
+    if bp.get("delta_zDS3_max") is not None:
+        print(f"  delta_zDS3_max:  {bp['delta_zDS3_max']} cm (at z={bp.get('z_ds3', 543.0)} cm)")
     print(f"  Target Window:   z={bp['z_target']} cm, x in {bp['target_window_xz']}, y in {bp['target_window_yz']}")
     print("-" * 70)
     print(f"  Signal s (Genie):       {int(best.get('s_genie', 0))}")

@@ -1042,6 +1042,7 @@ def main():
                 print(f"[WARNING] Tree entry mismatch: {actual_tree_name} has {n_truth} entries, but cbmsim has {n_cbm} entries!")
                 print(f"          Disabling friend cbmsim to prevent RDataFrame crash. Running in truth-only mode.")
                 input_has_cbmsim = False
+                has_mufilter = False
             else:
                 ch_truth.AddFriend(ch_cbm)
 
@@ -1124,7 +1125,7 @@ def main():
             return -1;
         """)
 
-        if has_mufilter or "MuFilterPoint" in existing_cols:
+        if "MuFilterPoint" in existing_cols:
             df_truth = df_truth.Redefine("mu1_in_ds_acceptance", "TruthExt::is_trk_in_ds(mu1_track_id, MuFilterPoint)")
             df_truth = df_truth.Redefine("mu2_in_ds_acceptance", "(sec_mu_track_id >= 0) ? TruthExt::is_trk_in_ds(sec_mu_track_id, MuFilterPoint) : false")
             df_truth = df_truth.Redefine("dimuon_in_ds_acceptance", "mu1_in_ds_acceptance && mu2_in_ds_acceptance")
@@ -1203,7 +1204,7 @@ def main():
         """)
     else:
         # Raw TTree: define truth via C++ processor
-        if has_mufilter:
+        if has_mufilter and "MuFilterPoint" in existing_cols:
             proc_ds = ROOT.snd.MuonNeutrinoTruthWithDSProcessor(processor)
             df_base = df.Define("truth", proc_ds, ["MCTrack", "MuFilterPoint"])
         else:
@@ -1477,7 +1478,7 @@ def main():
     df_truth = safe_def(df_truth, "dimuon_delta_slope_yz", "std::abs(mu1_slope_yz - sec_mu_slope_yz)")
 
     # DS MCPoint Angle Distributions and Uncertainties (via MuFilterPoint px/pz and py/pz)
-    if has_mufilter or "MuFilterPoint" in existing_cols:
+    if "MuFilterPoint" in existing_cols:
         df_truth = safe_def(df_truth, "mu1_ds_avg_theta_xz_mrad", "TruthExt::ds_pt_avg_theta_xz_mrad(mu1_track_id, MuFilterPoint)")
         df_truth = safe_def(df_truth, "mu1_ds_std_theta_xz_mrad", "TruthExt::ds_pt_std_theta_xz_mrad(mu1_track_id, MuFilterPoint)")
         df_truth = safe_def(df_truth, "mu1_ds_avg_theta_yz_mrad", "TruthExt::ds_pt_avg_theta_yz_mrad(mu1_track_id, MuFilterPoint)")

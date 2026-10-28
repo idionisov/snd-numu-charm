@@ -14,16 +14,22 @@ OUT_DIR="/eos/user/i/idioniso/snd-numu-charm/plots/hough_tuning/jobs"
 EXTRA_ARGS="--pairwise --hf linearSlopeIntercept --sort-by asimov_z"
 DRY_RUN=0
 CLEAN_OUT=0
+RETRY_FAILED=0
+CUSTOM_ARGS_FILE=""
+SLICES_ARG=""
 
 usage() {
     cat <<EOF
 Usage: $0 [options]
 
 Options:
-  -j, --jobs <N>        Number of parallel HTCondor job slices (default: 50)
+  -j, --jobs <N>        Total number of grid slices (default: 50)
   -f, --flavour <FLAV>  HTCondor flavour (espresso, microcentury, longlunch, workday; default: microcentury)
   -o, --out-dir <DIR>   Output directory for per-job CSV files (default: /eos/.../plots/hough_tuning/jobs)
   -e, --extra <ARGS>    Extra arguments to pass to tune_dimuon_hough.py
+      --retry-failed    Automatically find and submit only missing/failed job slices
+  -s, --slices <LIST>   Comma- or space-separated list of slice IDs to run (e.g. 19,36,39)
+  -a, --args-file <FILE> Custom arguments file containing job_id values (one per line)
       --clean           Remove existing hough_tuning_job_*.csv files in OUT_DIR before submitting
       --dry-run         Prepare arguments file and print condor_submit command without executing
   -h, --help            Show this help message
@@ -47,6 +53,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         -e|--extra)
             EXTRA_ARGS="$2"
+            shift 2
+            ;;
+        --retry-failed)
+            RETRY_FAILED=1
+            shift
+            ;;
+        -s|--slices)
+            SLICES_ARG="$2"
+            shift 2
+            ;;
+        -a|--args-file)
+            CUSTOM_ARGS_FILE="$2"
             shift 2
             ;;
         --clean)
@@ -75,9 +93,39 @@ if [ "${CLEAN_OUT}" -eq 1 ] && [ -d "${OUT_DIR}" ]; then
     rm -f "${OUT_DIR}"/hough_tuning_job_*.csv
 fi
 
-# Generate args file
+# Prepare args file
 ARGS_FILE="${SCRIPT_DIR}/args_tuning_${N_JOBS}.txt"
-seq 0 $((N_JOBS - 1)) > "${ARGS_FILE}"
+
+if [ -n "${CUSTOM_ARGS_FILE}" ]; then
+    ARGS_FILE="${CUSTOM_ARGS_FILE}"
+elif [ -n "${SLICES_ARG}" ]; then
+    ARGS_FILE="${SCRIPT_DIR}/args_tuning_custom.txt"
+    echo "${SLICES_ARG}" | tr ',' '\n' | tr ' ' '\n' | grep -v '^$' > "${ARGS_FILE}"
+elif [ "${RETRY_FAILED}" -eq 1 ]; then
+    echo "Scanning ${OUT_DIR} for missing job slices (out of ${N_JOBS})..."
+    MISSING_SLICES=$(python3 -c "
+import os, glob, re
+base = '${OUT_DIR}'
+done = set()
+if os.path.isdir(base):
+    for f in glob.glob(os.path.join(base, 'hough_tuning_job_*.csv')):
+        if os.path.getsize(f) > 0:
+            m = re.search(r'hough_tuning_job_(\d+)\.csv', f)
+            if m: done.add(int(m.group(1)))
+missing = [i for i in range(${N_JOBS}) if i not in done]
+print('\n'.join(str(i) for i in missing))
+")
+    if [ -z "${MISSING_SLICES}" ]; then
+        echo "No missing slices found! All ${N_JOBS} jobs completed successfully."
+        exit 0
+    fi
+    ARGS_FILE="${SCRIPT_DIR}/args_tuning_retry_${N_JOBS}.txt"
+    echo "${MISSING_SLICES}" > "${ARGS_FILE}"
+    N_MISSING=$(wc -l < "${ARGS_FILE}")
+    echo "Found ${N_MISSING} missing slice(s): $(tr '\n' ' ' < "${ARGS_FILE}")"
+else
+    seq 0 $((N_JOBS - 1)) > "${ARGS_FILE}"
+fi
 
 echo "================================================================================"
 echo " Submitting Hough Tuning Optimization to HTCondor"

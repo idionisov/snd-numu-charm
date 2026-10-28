@@ -185,6 +185,17 @@ def main():
 
     print(f"\nSuccessfully wrote {len(rows)} merged configurations to:\n  -> {args.output_csv}")
 
+    # Automatically save high-performance Parquet format alongside CSV
+    parquet_path = os.path.splitext(args.output_csv)[0] + ".parquet"
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        pa_table = pa.Table.from_pylist(rows)
+        pq.write_table(pa_table, parquet_path, compression="zstd")
+        print(f"Successfully wrote fast Parquet file to:\n  -> {parquet_path}")
+    except Exception as e:
+        print(f"Notice: Parquet export skipped ({e}).")
+
     # Build standard dictionary objects for scoreboard and plotting
     result_objects = []
     for r in rows:

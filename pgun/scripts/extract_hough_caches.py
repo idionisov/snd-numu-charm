@@ -153,10 +153,10 @@ def extract_genie_background(out_cache="pgun/cache_genie_bkg_500ev.pkl", max_eve
     z_last = 520.0
     det_zlen = z_last - z_first
 
-    for part in range(1, 100):
+    for part in range(1, 1000):
         if len(events) >= max_events:
             break
-        file_path = f"/eos/user/i/idioniso/snd-numu-charm/data/sndlhc_15000fb-1_2022_down_nu14_volume_volTarget/{part}/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root"
+        file_path = f"/eos/user/i/idioniso/snd-numu-charm/prefiltered/newP8/houghTuning-nonsig/{part}/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root"
         if not os.path.exists(file_path):
             continue
 

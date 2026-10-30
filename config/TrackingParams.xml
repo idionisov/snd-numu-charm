@@ -310,7 +310,7 @@
      <max_opening_angle unit="rad"> 0.2 </max_opening_angle>
      <delta_zCross_max unit="cm"> 100. </delta_zCross_max>
      <zCross_min unit="cm"> 200. </zCross_min>
-     <zCross_max unit="cm"> 490. </zCross_max>
+     <zCross_max unit="cm"> 450. </zCross_max>
      <delta_zDS3_max unit="cm"> 30. </delta_zDS3_max>
      <z_ds3 unit="cm"> 543. </z_ds3>
      <!-- Optional working area constraint: lines are required to cross this plane window -->
@@ -321,10 +321,10 @@
      <y_area_max unit="cm"> 60. </y_area_max>
      <n_random> 0 </n_random>
      <mufi_weight> 1 </mufi_weight>
-     <tolerance unit="cm"> 0.5 </tolerance>
+     <tolerance unit="cm"> 1.0 </tolerance>
      <smooth_full> 1 </smooth_full>
      <sigma> 0.5 </sigma>
-     <truncate> 1.0 </truncate>
+     <truncate> 4.0 </truncate>
      <Hough_space_format name = "normal">
            <N_yH_bins> 1152 </N_yH_bins>
            <yH_min_xz unit="cm"> -576. </yH_min_xz>
@@ -338,12 +338,12 @@
            <xH_max_yz unit="rad">  1.57 </xH_max_yz>
      </Hough_space_format>
      <Hough_space_format name = "linearSlopeIntercept">
-           <N_yH_bins> 354 </N_yH_bins>
+           <N_yH_bins> 880 </N_yH_bins>
            <yH_min_xz unit="cm"> -105. </yH_min_xz>
            <yH_max_xz unit="cm">  17.  </yH_max_xz>
            <yH_min_yz unit="cm">  0.  </yH_min_yz>
            <yH_max_yz unit="cm">  122. </yH_max_yz>
-           <N_xH_bins> 638 </N_xH_bins>
+           <N_xH_bins> 488 </N_xH_bins>
            <xH_min_xz unit="rad"> -1.1 </xH_min_xz>
            <xH_max_xz unit="rad">  1.1 </xH_max_xz>
            <xH_min_yz unit="rad"> -1.1 </xH_min_yz>

@@ -60,6 +60,7 @@ else
     export ddfUtils="${DDFUTILS:-/afs/cern.ch/user/i/idioniso/ddfUtils}"
 fi
 
+FORCE=1
 echo " ~ [2/4] Environment configured (VMCWORKDIR=${VMCWORKDIR})"
 echo "         Date             : $(date)"
 echo "         Host             : $(hostname)"

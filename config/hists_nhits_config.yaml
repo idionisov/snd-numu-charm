@@ -1,0 +1,55 @@
+# ==============================================================================
+# SND@LHC: Hit Occupancy & Deposit Histograms Configuration
+# ==============================================================================
+
+# Performance & Multithreading
+performance:
+  threads: 4
+
+# Output specification
+output:
+  default_file: "hists_nhits_distributions.root"
+
+# Histograms definitions
+# Each entry defines:
+#   name: Identifier suffix
+#   title: ROOT histogram title (LaTeX supported, format: "Title;X-axis;Y-axis")
+#   column: RDataFrame column name to plot
+#   bins: Number of bins
+#   xmin: Lower bin boundary
+#   xmax: Upper bin boundary
+histograms:
+  - name: "n_scifi_hits"
+    title: "Total SciFi Hits;N_{hits}^{SciFi};Events"
+    column: "n_scifi_hits"
+    bins: 200
+    xmin: 0.0
+    xmax: 2000.0
+
+  - name: "n_ds_hits"
+    title: "Total Downstream (DS) MuFilter Hits;N_{hits}^{DS};Events"
+    column: "n_ds_hits"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "max_scifi_plane_hits"
+    title: "SciFi Hits in Plane of Max Occupancy;N_{hits}^{max SciFi plane};Events"
+    column: "max_scifi_plane_hits"
+    bins: 100
+    xmin: 0.0
+    xmax: 500.0
+
+  - name: "us_total_qdc"
+    title: "Total Upstream (US) QDC Deposit;QDC_{tot}^{US};Events"
+    column: "us_total_qdc"
+    bins: 150
+    xmin: 0.0
+    xmax: 150000.0
+
+  - name: "max_ds_plane_hits"
+    title: "DS Hits in Plane of Max Occupancy;N_{hits}^{max DS plane};Events"
+    column: "max_ds_plane_hits"
+    bins: 70
+    xmin: 0.0
+    xmax: 70.0

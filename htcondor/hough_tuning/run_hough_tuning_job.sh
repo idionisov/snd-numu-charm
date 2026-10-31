@@ -74,10 +74,10 @@ fi
 START_TIME=$(date +%s)
 
 python3 -X faulthandler "${PROJECT_ROOT}/pgun/scripts/tune_dimuon_hough.py" \
-    --genie-sig-cache "/eos/user/i/idioniso/snd-numu-charm/cache/pgun/tuning_cache_genie_341ev.pkl" \
-    --pgun-sig-cache "/eos/user/i/idioniso/snd-numu-charm/cache/pgun/tuning_cache_500ev.pkl" \
-    --genie-bkg-cache "/eos/user/i/idioniso/snd-numu-charm/cache/pgun/cache_genie_bkg_500ev.pkl" \
-    --pmu-bkg-cache "/eos/user/i/idioniso/snd-numu-charm/cache/pgun/cache_pmu_bkg_500ev.pkl" \
+    --genie-sig-cache "/eos/user/i/idioniso/snd-numu-charm/plots/hough_tuning/pgun/tuning_cache_genie_341ev.pkl" \
+    --pgun-sig-cache "/eos/user/i/idioniso/snd-numu-charm/plots/hough_tuning/pgun/tuning_cache_500ev.pkl" \
+    --genie-bkg-cache "/eos/user/i/idioniso/snd-numu-charm/plots/hough_tuning/pgun/cache_genie_bkg_500ev.pkl" \
+    --pmu-bkg-cache "/eos/user/i/idioniso/snd-numu-charm/plots/hough_tuning/pgun/cache_pmu_bkg_500ev.pkl" \
     --job-id "${JOB_ID}" \
     --n-jobs "${N_JOBS}" \
     --output-csv "${LOCAL_CSV}" \

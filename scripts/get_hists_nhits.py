@@ -294,12 +294,18 @@ def main():
             booked_all[("data", "data")] = book_category_histograms(df_data, hist_cfgs, "data")
 
     # -------------------------------------------------------------------------
-    # 4. Write Output ROOT File with Structured TDirectories
+    # 4. Trigger Event Loops & Write Output ROOT File with Structured TDirectories
     # -------------------------------------------------------------------------
-    print(f"\nExecuting event loops and writing histograms to: {output_file}")
+    print("\nTriggering event loop evaluations...")
+    # First extract all histograms into memory before opening/writing to the destination file
+    materialized = {}
+    for key, hist_dict in booked_all.items():
+        materialized[key] = {name: h_res.GetValue() for name, h_res in hist_dict.items()}
+
+    print(f"\nWriting histograms to: {output_file}")
     out_file = ROOT.TFile.Open(output_file, "RECREATE")
 
-    for (dir_path, _), hist_dict in booked_all.items():
+    for (dir_path, _), hist_dict in materialized.items():
         # Create nested TDirectory structure
         current_dir = out_file
         for part in dir_path.split("/"):
@@ -309,9 +315,8 @@ def main():
             current_dir = sub
 
         current_dir.cd()
-        for name, h_res in hist_dict.items():
-            h = h_res.GetValue()
-            h.Write()
+        for name, h in hist_dict.items():
+            current_dir.WriteTObject(h, name, "Overwrite")
 
     out_file.Close()
     print("Histogram generation complete!")

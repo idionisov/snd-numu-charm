@@ -22,9 +22,9 @@ histograms:
   - name: "n_scifi_hits"
     title: "Total SciFi Hits;N_{hits}^{SciFi};Events"
     column: "n_scifi_hits"
-    bins: 200
+    bins: 400
     xmin: 0.0
-    xmax: 2000.0
+    xmax: 4000.0
 
   - name: "n_ds_hits"
     title: "Total Downstream (DS) MuFilter Hits;N_{hits}^{DS};Events"
@@ -36,16 +36,16 @@ histograms:
   - name: "max_scifi_plane_hits"
     title: "SciFi Hits in Plane of Max Occupancy;N_{hits}^{max SciFi plane};Events"
     column: "max_scifi_plane_hits"
-    bins: 100
+    bins: 200
     xmin: 0.0
-    xmax: 500.0
+    xmax: 1000.0
 
   - name: "us_total_qdc"
     title: "Total Upstream (US) QDC Deposit;QDC_{tot}^{US};Events"
     column: "us_total_qdc"
-    bins: 150
+    bins: 190
     xmin: 0.0
-    xmax: 150000.0
+    xmax: 190000.0
 
   - name: "max_ds_plane_hits"
     title: "DS Hits in Plane of Max Occupancy;N_{hits}^{max DS plane};Events"

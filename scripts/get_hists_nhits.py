@@ -318,6 +318,105 @@ def main():
         for name, h in hist_dict.items():
             current_dir.WriteTObject(h, name, "Overwrite")
 
+    # -------------------------------------------------------------------------
+    # 5. Build Normalized Overlay Comparison TCanvases
+    # -------------------------------------------------------------------------
+    print("\nGenerating normalized overlay comparison TCanvases...")
+    d_canvases = out_file.GetDirectory("comparisons")
+    if not d_canvases:
+        d_canvases = out_file.mkdir("comparisons")
+
+    # Categories to overlay: (internal_key, legend_label, kColor, fill_style, is_marker)
+    # Distinct semi-transparent hatch patterns for visible overlapping distributions
+    overlay_specs = [
+        (("genie/background", "genie_bkg"), "GENIE Other Bkg", ROOT.kAzure + 1, 3004, False),
+        (("genie/indirect_fake", "indirect"), "GENIE Indirect Fake", ROOT.kOrange + 2, 3005, False),
+        (("genie/signal", "signal"), "GENIE Direct Signal", ROOT.kRed + 1, 3354, False),
+        (("pmu2022", "pmu"), "pmu2022 Muon Bkg", ROOT.kBlack, 0, True),
+    ]
+
+    ROOT.gROOT.SetBatch(True)
+    ROOT.gStyle.SetOptStat(0)
+
+    for h_cfg in hist_cfgs:
+        var_name = h_cfg["name"]
+        canvas_name = f"c_{var_name}_normalized"
+        canvas_title = f"Normalized Comparison: {h_cfg['title'].split(';')[0]}"
+
+        c = ROOT.TCanvas(canvas_name, canvas_title, 900, 700)
+        c.SetLeftMargin(0.12)
+        c.SetRightMargin(0.06)
+        c.SetTopMargin(0.08)
+        c.SetBottomMargin(0.12)
+
+        leg = ROOT.TLegend(0.55, 0.68, 0.90, 0.88)
+        leg.SetBorderSize(0)
+        leg.SetFillStyle(0)
+        leg.SetTextFont(42)
+        leg.SetTextSize(0.035)
+
+        h_clones = []
+        max_val = 0.0
+
+        for cat_key, label, color, fstyle, is_marker in overlay_specs:
+            if cat_key not in materialized:
+                continue
+            cat_dict = materialized[cat_key]
+            # Match the histogram for this variable
+            h_orig = None
+            for h_name, h_obj in cat_dict.items():
+                if h_name.endswith(f"_{var_name}"):
+                    h_orig = h_obj
+                    break
+            if not h_orig or h_orig.GetEntries() == 0:
+                continue
+
+            h_norm = h_orig.Clone(f"{h_orig.GetName()}_norm")
+            integral = h_norm.Integral()
+            if integral > 0:
+                h_norm.Scale(1.0 / integral)
+
+            h_norm.SetLineColor(color)
+            h_norm.SetLineWidth(2)
+            h_norm.SetLineStyle(1)  # Solid lines for all
+
+            if is_marker:
+                # Marker with Poisson/binomial error bars for low-statistics pmu sample
+                h_norm.SetMarkerStyle(20)
+                h_norm.SetMarkerSize(0.8)
+                h_norm.SetMarkerColor(color)
+                h_norm.SetFillStyle(0)
+            else:
+                # Visible overlapping hatched fill patterns
+                h_norm.SetFillColor(color)
+                h_norm.SetFillStyle(fstyle)
+
+            h_norm.GetYaxis().SetTitle("Normalized to unit area")
+            h_norm.GetYaxis().SetTitleOffset(1.3)
+            h_norm.GetXaxis().SetTitle(h_orig.GetXaxis().GetTitle())
+
+            curr_max = h_norm.GetMaximum()
+            if curr_max > max_val:
+                max_val = curr_max
+
+            h_clones.append((h_norm, label, is_marker))
+
+        if h_clones:
+            for idx, (h_norm, label, is_marker) in enumerate(h_clones):
+                h_norm.SetMaximum(max_val * 1.30)
+                h_norm.SetMinimum(0.0)
+                if is_marker:
+                    draw_opt = "E1 P" if idx == 0 else "E1 P SAME"
+                    leg.AddEntry(h_norm, label, "PL")
+                else:
+                    draw_opt = "HIST" if idx == 0 else "HIST SAME"
+                    leg.AddEntry(h_norm, label, "F")
+                h_norm.Draw(draw_opt)
+
+            leg.Draw()
+            d_canvases.cd()
+            c.Write()
+
     out_file.Close()
     print("Histogram generation complete!")
 

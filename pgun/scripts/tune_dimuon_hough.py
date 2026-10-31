@@ -1149,7 +1149,7 @@ def generate_parameter_grid(
         zCross_max_list = [float(x) for x in zCross_max]
 
     # Requested Linear Slope-Intercept binning factors
-    factors_linear = [0.75, 1.00, 1.30, 1.60, 1.80, 2.00, 2.25, 2.50, 2.60, 2.70, 2.75, 2.80, 2.90, 3.00, 3.50, 4.00]
+    factors_linear = [0.75, 1.00, 1.30, 1.60, 1.80, 2.00, 2.25, 2.50, 2.60, 2.70, 2.75, 2.80, 2.90, 3.00, 3.50, 4.00, 4.50, 5.00, 5.50, 6.00]
     base_ny_linear, base_nx_linear = 122, 220
 
     # Requested Normal representation binning factors
@@ -1508,9 +1508,9 @@ def plot_tuning_summary(results: List[Dict[str, Any]], output_plot_path: str = "
 
     # Filter results for best format, best smoothing, and best angle slice
     slice_res = [
-        r for r in results 
-        if r["params"]["h_format"] == fmt 
-        and r["params"]["smooth_full"] == bp["smooth_full"] 
+        r for r in results
+        if r["params"]["h_format"] == fmt
+        and r["params"]["smooth_full"] == bp["smooth_full"]
         and r["params"]["sigma"] == bp["sigma"]
         and r["params"]["truncate"] == bp["truncate"]
         and r["params"].get("max_angle") == bp.get("max_angle")
@@ -1771,7 +1771,10 @@ def main():
     print(f"\nGenerated parameter grid with {len(grid)} base configurations ({total_configs_display} total configs with tolerances, format: {args.hf}):")
     print(f"  - Method:                 {'Joint Pairwise Search (Tolerance-Grouped)' if args.pairwise else 'Greedy Sequential Search'}")
     if args.pairwise:
-        print(f"  - Max opening angles:     {args.max_opening_angles} rad")
+        print(f"  - Max opening angles:     {args.max_opening_angles} rad ({len(args.max_opening_angles)} values)")
+        print(f"  - Crossing z window:      [{zCross_min:.1f}, {zCross_max if isinstance(zCross_max, (int, float)) else zCross_max}] cm")
+        print(f"  - Max delta zCross (XZ-YZ): {delta_zCross_max if isinstance(delta_zCross_max, (int, float)) else delta_zCross_max} cm")
+        print(f"  - Max track sep at DS3:   {delta_zDS3_max:.1f} cm (z_ds3 = {z_ds3:.1f} cm)")
     print(f"  - Max angle cuts:         {args.max_angles} rad ({len(args.max_angles)} values)")
     print(f"  - Smoothing configs:      {len(args.sigmas)} sigmas {args.sigmas} x {len(args.truncates)} truncates {args.truncates} + {'no-smooth' if args.include_no_smooth else 'none'} = {n_smooth_combos} combinations")
     if args.hf in ("linearSlopeIntercept", "all"):

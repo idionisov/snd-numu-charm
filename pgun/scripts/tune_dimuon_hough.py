@@ -1127,11 +1127,11 @@ def generate_parameter_grid(
     z_ds3: float = 543.0,
 ) -> List[Dict[str, Any]]:
     """Build grid of parameter configurations with requested binning factors, max angles, and smoothing options."""
-    tolerances = [0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0]
+    tolerances = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.0]
     if max_angles is None:
-        max_angles = [0.180, 0.200, 0.220]
+        max_angles = [0.170, 0.180, 0.190, 0.200, 0.220]
     if max_opening_angles is None:
-        max_opening_angles = [0.180, 0.200, 0.220] if use_pairwise else [None]
+        max_opening_angles = [0.170, 0.180, 0.190, 0.200, 0.220] if use_pairwise else [None]
     z_target = z_plane
 
     if delta_zCross_max is None:
@@ -1149,7 +1149,7 @@ def generate_parameter_grid(
         zCross_max_list = [float(x) for x in zCross_max]
 
     # Requested Linear Slope-Intercept binning factors
-    factors_linear = [0.75, 1.00, 1.30, 1.60, 1.80, 2.00, 2.25, 2.50, 2.60, 2.70, 2.75, 2.80, 2.90, 3.00, 3.50, 4.00, 4.50, 5.00, 5.50, 6.00]
+    factors_linear = [0.75, 1.00, 1.30, 1.60, 1.80, 2.00, 2.25, 2.50, 2.60, 2.70, 2.75, 2.80, 2.90, 3.00, 3.50, 4.00, 4.50, 5.00, 5.50, 6.00, 6.50, 7.00, 7.50, 8.00]
     base_ny_linear, base_nx_linear = 122, 220
 
     # Requested Normal representation binning factors
@@ -1416,6 +1416,104 @@ def generate_parameter_grid(
 
 
 # ---------------------------------------------------------------------------
+# 3.5. Existing Results Cache / Deduplication Helper
+# ---------------------------------------------------------------------------
+
+def make_config_signature(p: Dict[str, Any], include_tolerance: bool = False) -> Tuple[Any, ...]:
+    """Generate a canonical hashable signature for a configuration dictionary or CSV row."""
+    def _round(val, decimals=4):
+        if val is None:
+            return None
+        try:
+            return round(float(val), decimals)
+        except (ValueError, TypeError):
+            return str(val)
+
+    # Boolean for smoothing
+    sf = p.get("smooth_full")
+    if isinstance(sf, str):
+        sf = sf.strip().lower() in ("true", "1", "yes")
+    else:
+        sf = bool(sf)
+
+    sig = (
+        str(p.get("format") or p.get("h_format")),
+        _round(p.get("binning_factor"), 4),
+        _round(p.get("max_angle"), 4),
+        _round(p.get("max_opening_angle"), 4) if p.get("max_opening_angle") is not None and str(p.get("max_opening_angle")).lower() != "inf" else None,
+        _round(p.get("delta_zCross_max"), 1),
+        _round(p.get("zCross_min"), 1),
+        _round(p.get("zCross_max"), 1),
+        _round(p.get("delta_zDS3_max"), 1),
+        _round(p.get("z_ds3"), 1),
+        sf,
+        _round(p.get("sigma"), 2) if sf else 0.0,
+        _round(p.get("truncate"), 2) if sf else 0.0,
+    )
+    if include_tolerance:
+        sig = sig + (_round(p.get("tolerance"), 2),)
+    return sig
+
+
+def load_existing_signatures(paths: List[str], group_tolerances: bool = True) -> set:
+    """Read CSV/pickle file(s) or directories and extract sets of already-computed configuration signatures."""
+    import glob
+    import csv
+
+    target_files = []
+    for path in paths:
+        if not path:
+            continue
+        if os.path.isdir(path):
+            target_files.extend(glob.glob(os.path.join(path, "*.csv")))
+            target_files.extend(glob.glob(os.path.join(path, "*.pkl")))
+        elif os.path.isfile(path):
+            target_files.append(path)
+        else:
+            # Maybe a wildcard pattern
+            matches = glob.glob(path)
+            if matches:
+                target_files.extend(matches)
+
+    target_files = sorted(list(set(target_files)))
+    if not target_files:
+        print(f"Notice: No existing files found for --skip-existing patterns: {paths}")
+        return set()
+
+    existing_sigs = set()
+    total_records = 0
+
+    for fpath in target_files:
+        if os.path.getsize(fpath) == 0:
+            continue
+        if fpath.endswith(".csv"):
+            try:
+                with open(fpath, "r", newline="") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        total_records += 1
+                        sig = make_config_signature(row, include_tolerance=(not group_tolerances))
+                        existing_sigs.add(sig)
+            except Exception as e:
+                print(f"Warning: Failed to parse existing CSV {fpath}: {e}")
+        elif fpath.endswith(".pkl"):
+            try:
+                with open(fpath, "rb") as f:
+                    data = pickle.load(f)
+                    if isinstance(data, list):
+                        for item in data:
+                            total_records += 1
+                            p = item.get("params", item)
+                            sig = make_config_signature(p, include_tolerance=(not group_tolerances))
+                            existing_sigs.add(sig)
+            except Exception as e:
+                print(f"Warning: Failed to parse existing pickle {fpath}: {e}")
+
+    print(f"Loaded {total_records} existing rows ({len(existing_sigs)} unique base signatures) from {len(target_files)} file(s) to skip.")
+    return existing_sigs
+
+
+# ---------------------------------------------------------------------------
 # 4. Scoreboard and Reporting
 # ---------------------------------------------------------------------------
 
@@ -1670,6 +1768,8 @@ def main():
                         help="Max crossing z coordinate (cm, default: 425 450 475 500)")
     parser.add_argument("--delta-zDS3-max", type=float, default=None, help="Max transverse separation at DS3 (cm)")
     parser.add_argument("--z-ds3", type=float, default=None, help="Z position of DS3 plane (cm)")
+    parser.add_argument("--skip-existing", nargs="+", default=None,
+                        help="Path(s) to existing merged CSV/pkl file(s) or job output folder(s) to skip already computed configurations")
     parser.add_argument("--no-plots", action="store_true", default=False, help="Skip generating response surface plots (useful for batch jobs)")
     args = parser.parse_args()
 
@@ -1761,6 +1861,15 @@ def main():
         delta_zDS3_max=delta_zDS3_max,
         z_ds3=z_ds3,
     )
+
+    # Optional deduplication against previously executed configurations
+    if args.skip_existing:
+        existing_sigs = load_existing_signatures(args.skip_existing, group_tolerances=args.pairwise)
+        if existing_sigs:
+            initial_count = len(grid)
+            grid = [c for c in grid if make_config_signature(c, include_tolerance=(not args.pairwise)) not in existing_sigs]
+            skipped_count = initial_count - len(grid)
+            print(f"Skipped {skipped_count} configurations already evaluated in existing cache. Remaining to evaluate: {len(grid)} base configs.")
 
     if args.job_id is not None and args.n_jobs is not None:
         total_in_grid = len(grid)

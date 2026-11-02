@@ -274,6 +274,7 @@ def prefilter_file(
     partition_id: int = 1,
     geofile: Optional[str] = None,
     par_file: Optional[str] = None,
+    force_tracking: bool = False,
 ) -> Dict[str, Any]:
     """
     Process a single ROOT file with RDataFrame, apply sequential cuts,
@@ -464,7 +465,7 @@ def prefilter_file(
             df_processed = df_processed.Define("pass_scifi_ds_timing_cut", "true")
 
         # Define Reconstructed DS Hough tracks observable and cut boolean
-        has_reco_tracks = dm.has_branch("Reco_MuonTracks")
+        has_reco_tracks = dm.has_branch("Reco_MuonTracks") and not force_tracking
         if has_reco_tracks:
             df_processed = df_processed.Define("n_ds_hough_tracks", ROOT.snd.DSHoughTrackCounter(), ["Reco_MuonTracks"])
             if cut_two_ds_tracks is not None:
@@ -746,7 +747,12 @@ def prefilter_file(
 
             chain = tree if tree else dm.get_chain()
             fout = ROOT.TFile.Open(output_file, "RECREATE")
-            out_tree = chain.CloneTree(0)
+            if dm.has_branch("Reco_MuonTracks") and run_onthefly_tracking:
+                chain.SetBranchStatus("Reco_MuonTracks", 0)
+                out_tree = chain.CloneTree(0)
+                chain.SetBranchStatus("Reco_MuonTracks", 1)
+            else:
+                out_tree = chain.CloneTree(0)
             if out_tree.GetListOfFriends():
                 out_tree.GetListOfFriends().Clear()
 
@@ -1285,6 +1291,7 @@ def process_pmu_stream(
         partition_id=0,
         geofile=args.geofile,
         par_file=args.par_file,
+        force_tracking=args.force_tracking,
     )
     pmu_elapsed = time.time() - pmu_start
 
@@ -1529,6 +1536,11 @@ def main():
         type=str,
         default=None,
         help="TrackingParams.xml file path for on-the-fly track reconstruction (defaults to config/TrackingParams.xml)",
+    )
+    parser.add_argument(
+        "--force-tracking",
+        action="store_true",
+        help="Force on-the-fly pairwise track reconstruction even if Reco_MuonTracks already exists in the input file.",
     )
 
     args = parser.parse_args()
@@ -2053,6 +2065,7 @@ def main():
             partition_id=file_part_id,
             geofile=args.geofile,
             par_file=args.par_file,
+            force_tracking=args.force_tracking,
         )
         elapsed_file = time.time() - file_start
 

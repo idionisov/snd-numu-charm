@@ -796,9 +796,16 @@ def get_geofile_for_run(
     """
     # 1. Local partition geofile (simulation)
     if input_path:
-        local_geo = os.path.join(os.path.dirname(os.path.abspath(input_path)), "geofile_full.Genie-TGeant4.root")
-        if os.path.exists(local_geo):
-            return local_geo
+        in_dir = os.path.dirname(os.path.abspath(input_path))
+        for g_candidate in ["geofile_full.Genie-TGeant4.root", "geofile_full.Ntuple-TGeant4.root"]:
+            local_geo = os.path.join(in_dir, g_candidate)
+            if os.path.exists(local_geo):
+                return local_geo
+        # Check any geofile_*.root in local dir
+        if os.path.isdir(in_dir):
+            for fname in os.listdir(in_dir):
+                if fname.startswith("geofile") and fname.endswith(".root"):
+                    return os.path.join(in_dir, fname)
 
     geo_table = load_geo_paths(geo_paths_csv)
 

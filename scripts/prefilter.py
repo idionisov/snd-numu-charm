@@ -84,6 +84,7 @@ from snd import (
     save_cutflow_root_file,
     merge_stage_histograms,
     shorten_cut_label,
+    get_geofile_for_run,
 )
 
 
@@ -271,6 +272,8 @@ def prefilter_file(
     record_failures: bool = False,
     csv_failed_only: bool = False,
     partition_id: int = 1,
+    geofile: Optional[str] = None,
+    par_file: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Process a single ROOT file with RDataFrame, apply sequential cuts,
@@ -522,7 +525,114 @@ def prefilter_file(
 
         # 6. Evaluate selected entry IDs from final filter stage
         final_stage = cut_nodes[-1]
-        passed_entry_list = sorted(list(final_stage["node"].Take['ULong64_t']('rdfentry_').GetValue()))
+        candidate_entries = sorted(list(final_stage["node"].Take['ULong64_t']('rdfentry_').GetValue()))
+
+        # Check if on-the-fly track reconstruction is needed
+        run_onthefly_tracking = (not has_reco_tracks) and (cut_two_ds_tracks is not None) and any(
+            c.get("filter") == "pass_two_ds_tracks_cut" and c.get("enabled", True) for c in active_cuts
+        )
+
+        reconstructed_tracks_map: Dict[int, Any] = {}
+        candidate_pass_map: Dict[int, bool] = {}
+        step7_count = 0
+        step7_raw = 0.0
+        step7_mc = 0.0
+
+        if run_onthefly_tracking:
+            # Disable implicit multi-threading for FairRoot / SndlhcMuonReco execution
+            ROOT.ROOT.DisableImplicitMT()
+
+            if not geofile:
+                geofile = get_geofile_for_run(input_path=input_file)
+            if not geofile or not os.path.exists(geofile):
+                in_dir = os.path.dirname(os.path.abspath(input_file))
+                for g_cand in ["geofile_full.Ntuple-TGeant4.root", "geofile_full.Genie-TGeant4.root"]:
+                    loc_g = os.path.join(in_dir, g_cand)
+                    if os.path.exists(loc_g):
+                        geofile = loc_g
+                        break
+            if not geofile or not os.path.exists(geofile):
+                raise RuntimeError(f"Geofile required for on-the-fly track reconstruction, but not found for: {input_file}")
+
+            if not par_file:
+                par_file = os.path.join(PROJECT_ROOT, "config", "TrackingParams.xml")
+            par_file = os.path.abspath(par_file)
+
+            import SndlhcGeo
+            import SndlhcMuonReco
+
+            reco_chain = ROOT.TChain(resolved_tree)
+            reco_chain.Add(input_file)
+            reco_chain.GetEvent(0)
+
+            snd_geo = SndlhcGeo.GeoInterface(geofile)
+            if hasattr(reco_chain, "EventHeader"):
+                if "Scifi" in snd_geo.modules:
+                    snd_geo.modules["Scifi"].InitEvent(reco_chain.EventHeader)
+                if "MuFilter" in snd_geo.modules:
+                    snd_geo.modules["MuFilter"].InitEvent(reco_chain.EventHeader)
+
+            run = ROOT.FairRunAna.Instance() if hasattr(ROOT.FairRunAna, "Instance") and ROOT.FairRunAna.Instance() else ROOT.FairRunAna()
+            ioman = ROOT.FairRootManager.Instance()
+            ioman.SetTreeName(reco_chain.GetName())
+            source = ROOT.FairFileSource(reco_chain.GetCurrentFile())
+            ioman.SetInChain(reco_chain)
+
+            xrdb = ROOT.FairRuntimeDb.instance()
+            xrdb.getContainer("FairBaseParSet").setStatic()
+            xrdb.getContainer("FairGeoParSet").setStatic()
+
+            reco = SndlhcMuonReco.MuonReco()
+            reco.SetTrackingCase("dimuon_DS")
+            reco.SetName("houghTransform_DS")
+            reco.SetParFile(par_file)
+            reco.SetHoughSpaceFormat("linearSlopeIntercept")
+            reco.Init()
+
+            tin_truth_wt = None
+            f_in_truth_wt = None
+            if has_weights and has_mctruth:
+                f_in_truth_wt = ROOT.TFile.Open(input_file, "READ")
+                tin_truth_wt = f_in_truth_wt.Get("mctruth") if f_in_truth_wt else None
+
+            passed_entry_list = []
+            for iev in candidate_entries:
+                reco_chain.GetEvent(iev)
+                reco.Exec(0)
+                passed_trks = bool(cut_two_ds_tracks.passCut(reco.kalman_tracks))
+                candidate_pass_map[iev] = passed_trks
+                if passed_trks:
+                    passed_entry_list.append(iev)
+                    step7_count += 1
+                    rw = 1.0
+                    mw = 1.0
+                    if tin_truth_wt:
+                        tin_truth_wt.GetEntry(iev)
+                        rw = float(getattr(tin_truth_wt, "raw_weight", 1.0))
+                        mw = float(getattr(tin_truth_wt, "mc_weight", 1.0))
+                    elif hasattr(reco_chain, "mc_weight"):
+                        mw = float(reco_chain.mc_weight)
+                        rw = float(getattr(reco_chain, "raw_weight", 1.0))
+                    step7_raw += rw
+                    step7_mc += mw
+
+                    # Store cloned tracks for filling into output tree
+                    tca = ROOT.TClonesArray("sndRecoTrack")
+                    n_trks = reco.kalman_tracks.GetEntries()
+                    for t_idx in range(n_trks):
+                        trk = reco.kalman_tracks.At(t_idx)
+                        trk_dest = tca.ConstructedAt(t_idx)
+                        ROOT.std.swap(trk, trk_dest)
+                    reconstructed_tracks_map[iev] = tca
+
+            if f_in_truth_wt:
+                try:
+                    f_in_truth_wt.Close()
+                except Exception:
+                    pass
+        else:
+            passed_entry_list = candidate_entries
+
         passed_entries = len(passed_entry_list)
         result["passed_entries"] = passed_entries
 
@@ -534,14 +644,22 @@ def prefilter_file(
         stage_hists = {}
         for stage in cut_nodes:
             cnt = int(stage["count"].GetValue())
+            s_raw = float(stage["raw_weight"].GetValue()) if has_weights else 0.0
+            s_mc = float(stage["mc_weight"].GetValue()) if has_weights else 0.0
+
+            if run_onthefly_tracking and (stage["id"] == "step7_two_ds_tracks" or "two_ds_tracks" in stage["id"]):
+                cnt = step7_count
+                s_raw = step7_raw
+                s_mc = step7_mc
+
             s_dict = {
                 "id": stage["id"],
                 "name": stage["name"],
                 "count": cnt,
             }
             if has_weights:
-                s_dict["raw_weight"] = float(stage["raw_weight"].GetValue())
-                s_dict["mc_weight"] = float(stage["mc_weight"].GetValue())
+                s_dict["raw_weight"] = s_raw
+                s_dict["mc_weight"] = s_mc
             cutflow_stats.append(s_dict)
 
             if record_cutflow:
@@ -595,7 +713,10 @@ def prefilter_file(
                 p_t = int(bool(t_col[i]))
                 p_v = int(bool(v_col[i]))
                 p_d = int(bool(d_col[i]))
-                p_tr = int(bool(tr_col[i]))
+                if run_onthefly_tracking:
+                    p_tr = int(candidate_pass_map.get(int(entries[i]), False))
+                else:
+                    p_tr = int(bool(tr_col[i]))
                 passed_all = int(p_t and p_v and p_d and p_tr)
                 if csv_failed_only and passed_all:
                     continue
@@ -629,9 +750,23 @@ def prefilter_file(
             if out_tree.GetListOfFriends():
                 out_tree.GetListOfFriends().Clear()
 
-            for iev in passed_entry_list:
-                chain.GetEntry(iev)
-                out_tree.Fill()
+            if run_onthefly_tracking:
+                fittedTracks = ROOT.TClonesArray("sndRecoTrack")
+                out_tree.Branch("Reco_MuonTracks", fittedTracks, 32000, 0)
+                for iev in passed_entry_list:
+                    chain.GetEntry(iev)
+                    fittedTracks.Delete()
+                    tca_src = reconstructed_tracks_map.get(iev)
+                    if tca_src:
+                        for t_idx in range(tca_src.GetEntries()):
+                            trk = tca_src.At(t_idx)
+                            trk_dest = fittedTracks.ConstructedAt(t_idx)
+                            ROOT.std.swap(trk, trk_dest)
+                    out_tree.Fill()
+            else:
+                for iev in passed_entry_list:
+                    chain.GetEntry(iev)
+                    out_tree.Fill()
 
             # If input file has mctruth tree, clone and fill it alongside cbmsim
             if has_mctruth:
@@ -1096,6 +1231,104 @@ def load_cutflow_stats_from_root(filepath: str) -> List[Dict[str, Any]]:
     return stats
 
 
+def process_pmu_stream(
+    input_pmu: Optional[str],
+    output_pmu: Optional[str],
+    pmu_cutflow: Optional[str],
+    cuts_dict: Dict[str, Any],
+    cutflow_cfg: Dict[str, Any],
+    args: argparse.Namespace,
+) -> Optional[Dict[str, Any]]:
+    """
+    Process passing muon background (PMU) file through prefilter, record cutflow, and append failures.
+    """
+    if not input_pmu:
+        return None
+    if not os.path.exists(input_pmu):
+        print(f"\n[Warning] PMU input file not found: {input_pmu}")
+        return None
+
+    print("\n" + "=" * 80)
+    print(" SND@LHC Passing Muon (PMU) Background Filtering")
+    print("=" * 80)
+    print(f" PMU Input:            {input_pmu}")
+    print(f" PMU Output:           {output_pmu if output_pmu else 'None'}")
+    print(f" PMU Cutflow:          {pmu_cutflow if pmu_cutflow else 'None'}")
+    print(f" PMU Scaling:          {args.pmu_scaling}")
+    thread_info = f"{args.jobs} threads (multi-threaded)" if args.jobs > 1 else "1 (single-threaded)"
+    print(f" RDataFrame Workers:   {thread_info}")
+    print("=" * 80)
+
+    pmu_start = time.time()
+    pmu_res = prefilter_file(
+        input_file=input_pmu,
+        output_file=output_pmu,
+        cut_scifi=cuts_dict.get("cut_scifi"),
+        cut_ds=cuts_dict.get("cut_ds"),
+        cut_veto=cuts_dict.get("cut_veto"),
+        cut_scifi_station=cuts_dict.get("cut_scifi_station"),
+        cut_ds_dimuon=cuts_dict.get("cut_ds_dimuon"),
+        cut_ds_activity=cuts_dict.get("cut_ds_activity"),
+        cut_scifi_ds_timing=cuts_dict.get("cut_scifi_ds_timing"),
+        cut_two_ds_tracks=cuts_dict.get("cut_two_ds_tracks"),
+        cut_ip1=cuts_dict.get("cut_ip1"),
+        cut_stable_beams=cuts_dict.get("cut_stable_beams"),
+        cutflow_config=cutflow_cfg,
+        record_cutflow=bool(pmu_cutflow),
+        tree_name=args.tree_name,
+        jobs=args.jobs,
+        max_events=args.max_events,
+        create_symlinks=not args.no_symlinks,
+        skip_empty=args.skip_empty,
+        record_failures=bool(args.failed_cuts_csv),
+        csv_failed_only=args.csv_failed_only,
+        partition_id=0,
+        geofile=args.geofile,
+        par_file=args.par_file,
+    )
+    pmu_elapsed = time.time() - pmu_start
+
+    if pmu_res["status"] == "OK":
+        print(f"  PMU Result: {pmu_res['passed_entries']}/{pmu_res['total_entries']} passed ({pmu_res['yield_pct']:.4f}%) in {pmu_elapsed:.1f}s")
+    elif pmu_res["status"] == "SKIPPED_EMPTY":
+        print(f"  PMU Result: 0/{pmu_res['total_entries']} passed (empty output skipped)")
+    else:
+        print(f"  PMU Result: ERROR: {pmu_res.get('error')}")
+
+    if args.failed_cuts_csv and pmu_res.get("failed_records"):
+        with open(args.failed_cuts_csv, "a") as f_csv:
+            for r in pmu_res["failed_records"]:
+                f_csv.write(
+                    f"{r['partition']},{r['event_number']},{r.get('category', 'pmu')},{r['entry']},"
+                    f"{r.get('mc_weight', 1.0):.6g},"
+                    f"{r['SciFi_DS_Timing']},{r['No_Veto_Hits']},{r['DS_Dimuon_Activity']},{r['Two_DS_Tracks']},{r['passed_all']}\n"
+                )
+            f_csv.flush()
+
+    if pmu_cutflow and pmu_res.get("cutflow_stats"):
+        save_cutflow_root_file(
+            output_filepath=pmu_cutflow,
+            cutflow_stats=pmu_res["cutflow_stats"],
+            stage_histograms=pmu_res.get("stage_histograms", {}),
+            scale_factor=args.pmu_scaling,
+        )
+        print(f"  PMU Cutflow Saved:   {pmu_cutflow}")
+
+    if pmu_res.get("cutflow_stats"):
+        print_cutflow_summary(pmu_res["cutflow_stats"], cutflow_filepath=pmu_cutflow)
+
+    print("=" * 80)
+    print(" PMU FILTERING SUMMARY")
+    print("=" * 80)
+    print(f" PMU Events Processed: {pmu_res.get('passed_entries', 0)}/{pmu_res.get('total_entries', 0)} passed ({pmu_res.get('yield_pct', 0.0):.4f}%)")
+    if pmu_cutflow:
+        print(f" PMU Cutflow ROOT:     {pmu_cutflow}")
+    print(f" PMU Elapsed Time:     {pmu_elapsed:.1f} seconds")
+    print("=" * 80)
+
+    return pmu_res
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Universal event prefiltering pipeline for SND@LHC data and MC using RDataFrame and DataManager.",
@@ -1105,8 +1338,29 @@ def main():
     parser.add_argument(
         "-i", "--input",
         type=str,
-        required=True,
+        default=None,
         help="Input file path or pattern with '%%s' placeholder (e.g. /path/to/files/%%s/sndsw_raw-0000.root)",
+    )
+    parser.add_argument(
+        "--input-pmu", "--pmu-input",
+        dest="input_pmu",
+        type=str,
+        default=None,
+        help="Input file path for passing muon (PMU) background sample to filter.",
+    )
+    parser.add_argument(
+        "--output-pmu", "--pmu-output",
+        dest="output_pmu",
+        type=str,
+        default=None,
+        help="Output file path for passing muon (PMU) filtered events.",
+    )
+    parser.add_argument(
+        "--pmu-cutflow", "--cutflow-pmu",
+        dest="pmu_cutflow",
+        type=str,
+        default=None,
+        help="Output ROOT file path for PMU cutflow counters and diagnostic histograms.",
     )
     parser.add_argument(
         "-o", "--output",
@@ -1264,6 +1518,18 @@ def main():
         default=1.0,
         help="Scaling factor for passing muon cutflow histograms.",
     )
+    parser.add_argument(
+        "-g", "--geofile",
+        type=str,
+        default=None,
+        help="Geometry file path for on-the-fly track reconstruction (auto-detected if omitted)",
+    )
+    parser.add_argument(
+        "-par", "--par-file",
+        type=str,
+        default=None,
+        help="TrackingParams.xml file path for on-the-fly track reconstruction (defaults to config/TrackingParams.xml)",
+    )
 
     args = parser.parse_args()
 
@@ -1297,31 +1563,11 @@ def main():
             for c in cutflow_cfg["cuts"]:
                 c["enabled"] = (c.get("id") in selected_ids or c.get("id") == "step0_raw")
 
-    if not args.output and not args.cutflow and not args.failed_cuts_csv:
-        print("[Error] Must specify -o/--output, --cutflow, or --cuts-csv.")
-        sys.exit(1)
+    if not args.input and not args.input_pmu:
+        parser.error("At least one of -i/--input or --input-pmu must be provided.")
 
-    # Resolve input files
-    if args.partitions:
-        from scripts.extract_simulation_truth import parse_partitions
-        selected_partitions = parse_partitions(args.partitions)
-        input_files = []
-        if selected_partitions is not None:
-            for p in selected_partitions:
-                p_str = str(p)
-                c_p = args.input.count("%s")
-                p_file = args.input % tuple(p_str for _ in range(c_p)) if c_p > 0 else args.input
-                if os.path.exists(p_file):
-                    input_files.append(p_file)
-                else:
-                    print(f"[Warning] Partition {p} input file not found: {p_file}")
-        else:
-            input_files = resolve_input_files(args.input, max_files=args.max_files)
-    else:
-        input_files = resolve_input_files(args.input, max_files=args.max_files)
-
-    if not input_files:
-        print(f"[Error] No files matched input pattern: {args.input}")
+    if not args.output and not args.cutflow and not args.failed_cuts_csv and not args.output_pmu and not args.pmu_cutflow:
+        print("[Error] Must specify -o/--output, --cutflow, --failed-cuts-csv, --output-pmu, or --pmu-cutflow.")
         sys.exit(1)
 
     # Instantiate cut objects from YAML configuration
@@ -1400,18 +1646,65 @@ def main():
         reversed=two_ds_cfg.get("reversed", False),
     )
 
+    cuts_dict = {
+        "cut_scifi": cut_scifi,
+        "cut_ds": cut_ds,
+        "cut_veto": cut_veto,
+        "cut_scifi_station": cut_scifi_station,
+        "cut_ds_dimuon": cut_ds_dimuon,
+        "cut_ds_activity": cut_ds_activity,
+        "cut_scifi_ds_timing": cut_scifi_ds_timing,
+        "cut_two_ds_tracks": cut_two_ds_tracks,
+        "cut_ip1": cut_ip1,
+        "cut_stable_beams": cut_stable_beams,
+    }
+
+    if not args.input:
+        if args.input_pmu:
+            process_pmu_stream(args.input_pmu, args.output_pmu, args.pmu_cutflow, cuts_dict, cutflow_cfg, args)
+            return
+        else:
+            print("[Error] Must specify -i/--input or --input-pmu.")
+            sys.exit(1)
+
+    # Resolve input files
+    if args.partitions:
+        from scripts.extract_simulation_truth import parse_partitions
+        selected_partitions = parse_partitions(args.partitions)
+        input_files = []
+        if selected_partitions is not None:
+            for p in selected_partitions:
+                p_str = str(p)
+                c_p = args.input.count("%s")
+                p_file = args.input % tuple(p_str for _ in range(c_p)) if c_p > 0 else args.input
+                if os.path.exists(p_file):
+                    input_files.append(p_file)
+                else:
+                    print(f"[Warning] Partition {p} input file not found: {p_file}")
+        else:
+            input_files = resolve_input_files(args.input, max_files=args.max_files)
+    else:
+        input_files = resolve_input_files(args.input, max_files=args.max_files)
+
+    if not input_files:
+        print(f"[Error] No files matched input pattern: {args.input}")
+        sys.exit(1)
+
     active_cut_list = [c["name"] for c in cutflow_cfg.get("cuts", []) if c.get("enabled", True)]
     active_cset = cutflow_cfg.get("active_cutset", args.cutset or "default")
 
     print("=" * 80)
     print(" SND@LHC Universal Event Prefilter")
     print("=" * 80)
-    print(f" Input Pattern:        {args.input}")
-    print(f" Output Pattern:       {args.output}")
+    if args.input:
+        print(f" Input Pattern:        {args.input}")
+    if args.output:
+        print(f" Output Pattern:       {args.output}")
     print(f" Files Matched:        {len(input_files)}")
     thread_info = f"{args.jobs} threads (multi-threaded)" if args.jobs > 1 else "1 (single-threaded)"
     print(f" RDataFrame Workers:   {thread_info}")
     print(f" Cutflow Output:       {args.cutflow if args.cutflow else 'Disabled (counters only)'}")
+    print(f" Geofile:              {args.geofile if args.geofile else 'Auto-detect'}")
     print(f" Config File:          {args.config}")
     print(f" Active Cutset:        {active_cset}")
     print(f" Active Cuts ({len(active_cut_list)}):")
@@ -1423,6 +1716,12 @@ def main():
         print(f" Signal Input Pattern:   {args.signal_input}")
     if args.indirect_input:
         print(f" Indirect Input Pattern: {args.indirect_input}")
+    if args.input_pmu:
+        print(f" PMU Input Pattern:      {args.input_pmu}")
+    if args.output_pmu:
+        print(f" PMU Output Pattern:     {args.output_pmu}")
+    if args.pmu_cutflow:
+        print(f" PMU Cutflow Output:     {args.pmu_cutflow}")
     if args.failed_cuts_csv:
         print(f" Failed Cuts CSV:        {args.failed_cuts_csv}")
     print(f" Symlink Auxiliary:      {not args.no_symlinks}")
@@ -1659,6 +1958,9 @@ def main():
             print(f" Combined Cutflow:     {args.cutflow}")
         print(f" Total Elapsed Time:   {total_elapsed:.1f} seconds")
         print("=" * 80)
+
+        if args.input_pmu:
+            process_pmu_stream(args.input_pmu, args.output_pmu, args.pmu_cutflow, cuts_dict, cutflow_cfg, args)
         return
 
     start_time = time.time()
@@ -1698,6 +2000,8 @@ def main():
                 max_events=args.max_events,
                 create_symlinks=False,
                 skip_empty=False,
+                geofile=args.geofile,
+                par_file=args.par_file,
             )
             if sig_res["status"] == "OK":
                 static_sig_stats = sig_res.get("cutflow_stats", [])
@@ -1747,6 +2051,8 @@ def main():
             record_failures=bool(args.failed_cuts_csv),
             csv_failed_only=args.csv_failed_only,
             partition_id=file_part_id,
+            geofile=args.geofile,
+            par_file=args.par_file,
         )
         elapsed_file = time.time() - file_start
 
@@ -1797,6 +2103,8 @@ def main():
                     max_events=args.max_events,
                     create_symlinks=False,
                     skip_empty=False,
+                    geofile=args.geofile,
+                    par_file=args.par_file,
                 )
                 if sig_res["status"] == "OK":
                     file_sig_stats = sig_res.get("cutflow_stats", [])
@@ -1893,6 +2201,9 @@ def main():
         print(f" Failed Cuts CSV:     {args.failed_cuts_csv}")
     print(f" Total Elapsed Time:  {total_elapsed:.1f} seconds")
     print("=" * 80)
+
+    if args.input_pmu:
+        process_pmu_stream(args.input_pmu, args.output_pmu, args.pmu_cutflow, cuts_dict, cutflow_cfg, args)
 
 
 if __name__ == "__main__":

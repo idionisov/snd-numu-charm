@@ -304,6 +304,7 @@ def process_single_file_worker(args_tuple):
         # Initialize or retrieve cached display engine
         global _WORKER_DISPLAY_CACHE
         cache_key = f"{geofile_to_use}_{color_by_qdc_and_density}_{max_density}_{max_qdc}"
+        draw_logo = args_tuple[24] if len(args_tuple) > 24 else False
         display = _WORKER_DISPLAY_CACHE.get(cache_key)
         if display is None:
             display = Snd2DEventDisplay(
@@ -311,6 +312,7 @@ def process_single_file_worker(args_tuple):
                 color_by_qdc_and_density=color_by_qdc_and_density,
                 max_density=max_density,
                 max_qdc=max_qdc,
+                draw_logo=draw_logo,
             )
             _WORKER_DISPLAY_CACHE[cache_key] = display
 
@@ -625,6 +627,12 @@ def main():
         default=None,
         help="Maximum MuFilter QDC for color scale [QDC units]",
     )
+    parser.add_argument(
+        "--draw-logo",
+        action="store_true",
+        default=False,
+        help="Draw SND@LHC experiment logo in the display",
+    )
 
     args = parser.parse_args()
 
@@ -760,6 +768,7 @@ def main():
             args.reco_muons,
             processor_cfg,
             args.truth_source,
+            args.draw_logo,
         ))
 
     total_saved = 0

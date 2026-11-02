@@ -172,7 +172,7 @@ class Snd2DEventDisplay:
         color_by_qdc_and_density: bool = True,
         max_density: int = 40,
         max_qdc: float = 3200.0,
-        draw_logo: bool = True,
+        draw_logo: bool = False,
         draw_text: bool = True,
     ):
         ROOT.gStyle.SetPalette(ROOT.kViridis)
@@ -219,7 +219,7 @@ class Snd2DEventDisplay:
                 node = vol.GetNode(i)
                 name = node.GetName()
                 path = f"{prefix}/{name}" if prefix else name
-                if "volFeBlockEnd" in name or "volFeBlock" in name or "volBlockBot" in name:
+                if "volFeBlockEnd" in name or "volFeBlock" in name:
                     self.nodes[path] = ROOT.kGreen - 6
                 elif any(b in name for b in ["subVetoBox", "subUSBox", "subDSBox", "volWallborder"]):
                     self.nodes[path] = ROOT.kGray + 1
@@ -333,7 +333,8 @@ class Snd2DEventDisplay:
             pad.cd()
 
         if self.draw_text:
-            pad_text = ROOT.TPad(f"info_{pad_num}", f"info_{pad_num}", 0.19, 0.1, 0.6, 0.3)
+            x_start = 0.10 if not (self.draw_logo and self.logo_path) else 0.19
+            pad_text = ROOT.TPad(f"info_{pad_num}", f"info_{pad_num}", x_start, 0.1, 0.6, 0.3)
             pad_text.SetBorderSize(0)
             pad_text.SetFillStyle(4000)
             pad_text.SetFillColorAlpha(0, 0)

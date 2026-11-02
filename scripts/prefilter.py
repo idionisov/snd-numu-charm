@@ -528,6 +528,17 @@ def prefilter_file(
         final_stage = cut_nodes[-1]
         candidate_entries = sorted(list(final_stage["node"].Take['ULong64_t']('rdfentry_').GetValue()))
 
+        # Evaluate failure columns now while ImplicitMT slots match the RDataFrame
+        failure_data = None
+        if record_failures:
+            fail_cols = ["rdfentry_"]
+            if df_processed.HasColumn("mc_weight"):
+                fail_cols.append("mc_weight")
+            for c_col in ["pass_scifi_ds_timing_cut", "pass_veto_cut", "pass_ds_dimuon_cut", "pass_two_ds_tracks_cut"]:
+                if df_processed.HasColumn(c_col):
+                    fail_cols.append(c_col)
+            failure_data = df_processed.AsNumpy(columns=fail_cols)
+
         # Check if on-the-fly track reconstruction is needed
         run_onthefly_tracking = (not has_reco_tracks) and (cut_two_ds_tracks is not None) and any(
             c.get("filter") == "pass_two_ds_tracks_cut" and c.get("enabled", True) for c in active_cuts
@@ -674,15 +685,8 @@ def prefilter_file(
         result["stage_histograms"] = stage_hists
 
         # Record failure metadata if requested
-        if record_failures:
-            cols = ["rdfentry_"]
-            if df_processed.HasColumn("mc_weight"):
-                cols.append("mc_weight")
-            for c_col in ["pass_scifi_ds_timing_cut", "pass_veto_cut", "pass_ds_dimuon_cut", "pass_two_ds_tracks_cut"]:
-                if df_processed.HasColumn(c_col):
-                    cols.append(c_col)
-
-            data = df_processed.AsNumpy(columns=cols)
+        if record_failures and failure_data:
+            data = failure_data
             n_ev = len(data["rdfentry_"])
             entries = data["rdfentry_"]
             weights = data.get("mc_weight", [1.0] * n_ev)

@@ -410,6 +410,20 @@ def main():
     for key, hist_dict in booked_all.items():
         materialized[key] = {name: h_res.GetValue() for name, h_res in hist_dict.items()}
 
+    # Rebinning factors for signal histograms to handle low statistics
+    signal_rebin_factors = {
+        "n_scifi_hits": 4,
+        "max_scifi_plane_hits": 2,
+        "us_total_qdc": 2,
+    }
+    if ("genie/signal", "signal") in materialized:
+        sig_dict = materialized[("genie/signal", "signal")]
+        for h_name, h_obj in sig_dict.items():
+            for var_key, factor in signal_rebin_factors.items():
+                if h_name.endswith(f"_{var_key}"):
+                    h_obj.Rebin(factor)
+                    break
+
     print(f"\nWriting histograms to: {output_file}")
     out_file = ROOT.TFile.Open(output_file, "RECREATE")
 
@@ -486,7 +500,7 @@ def main():
             h_norm = h_orig.Clone(f"{h_orig.GetName()}_norm")
             integral = h_norm.Integral()
             if integral > 0:
-                h_norm.Scale(1.0 / integral)
+                h_norm.Scale(1.0 / integral, "width")
 
             h_norm.SetLineColor(lcolor)
             h_norm.SetLineWidth(lwidth)
@@ -502,7 +516,7 @@ def main():
                 h_norm.SetFillColor(fcolor)
                 h_norm.SetFillStyle(fstyle)
 
-            h_norm.GetYaxis().SetTitle("Normalized to unit area")
+            h_norm.GetYaxis().SetTitle("Probability density")
             h_norm.GetYaxis().SetTitleOffset(1.3)
             h_norm.GetXaxis().SetTitle(h_orig.GetXaxis().GetTitle())
 

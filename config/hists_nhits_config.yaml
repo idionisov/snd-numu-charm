@@ -53,3 +53,66 @@ histograms:
     bins: 70
     xmin: 0.0
     xmax: 70.0
+
+  - name: "n_ds_h_hits"
+    title: "Downstream (DS) Horizontal Hits;N_{hits}^{DS (H)};Events"
+    column: "n_ds_h_hits"
+    bins: 80
+    xmin: 0.0
+    xmax: 320.0
+
+  - name: "n_ds_v_hits"
+    title: "Downstream (DS) Vertical Hits;N_{hits}^{DS (V)};Events"
+    column: "n_ds_v_hits"
+    bins: 60
+    xmin: 0.0
+    xmax: 240.0
+
+  - name: "ds_min_max_ratio_all"
+    title: "DS Hits Min/Max Plane Occupancy Ratio (H+V);N_{hits}^{min DS} / N_{hits}^{max DS};Events"
+    column: "ds_min_max_ratio_all"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0
+
+  - name: "ds_min_max_ratio_h"
+    title: "DS Hits Min/Max Plane Occupancy Ratio (Horizontal);N_{hits}^{min DS (H)} / N_{hits}^{max DS (H)};Events"
+    column: "ds_min_max_ratio_h"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0
+
+  - name: "ds_min_max_ratio_v"
+    title: "DS Hits Min/Max Plane Occupancy Ratio (Vertical);N_{hits}^{min DS (V)} / N_{hits}^{max DS (V)};Events"
+    column: "ds_min_max_ratio_v"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0
+
+  - name: "scifi_min_max_ratio_all"
+    title: "SciFi Hits Min/Max Plane Occupancy Ratio (H+V);N_{hits}^{min SciFi} / N_{hits}^{max SciFi};Events"
+    column: "scifi_min_max_ratio_all"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0
+
+  - name: "scifi_min_max_ratio_h"
+    title: "SciFi Hits Min/Max Plane Occupancy Ratio (Horizontal);N_{hits}^{min SciFi (H)} / N_{hits}^{max SciFi (H)};Events"
+    column: "scifi_min_max_ratio_h"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0
+
+  - name: "scifi_min_max_ratio_v"
+    title: "SciFi Hits Min/Max Plane Occupancy Ratio (Vertical);N_{hits}^{min SciFi (V)} / N_{hits}^{max SciFi (V)};Events"
+    column: "scifi_min_max_ratio_v"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0
+
+  - name: "us_qdc_min_max_ratio"
+    title: "US QDC Min/Max Plane Sum Ratio;QDC_{min}^{US} / QDC_{max}^{US};Events"
+    column: "us_qdc_min_max_ratio"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0

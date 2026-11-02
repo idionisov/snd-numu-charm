@@ -54,23 +54,46 @@ namespace HitMetrics {
         int max_scifi_plane_hits;
         double us_total_qdc;
         int max_ds_plane_hits;
+        int n_ds_h_hits;
+        int n_ds_v_hits;
+        double ds_min_max_ratio_all;
+        double ds_min_max_ratio_h;
+        double ds_min_max_ratio_v;
+        double scifi_min_max_ratio_all;
+        double scifi_min_max_ratio_h;
+        double scifi_min_max_ratio_v;
+        double us_qdc_min_max_ratio;
     };
 
+    inline double safe_ratio(double min_val, double max_val) {
+        if (max_val <= 0.0) return 0.0;
+        double r = min_val / max_val;
+        return (r >= 1.0) ? 0.999999 : ((r < 0.0) ? 0.0 : r);
+    }
+
     inline Metrics compute(const TClonesArray& scifiHits, const TClonesArray& mufiHits) {
-        Metrics m{0, 0, 0, 0.0, 0};
+        Metrics m{0, 0, 0, 0.0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
         // 1. SciFi Hits: 5 stations * 2 orientations (vert=0, horiz=1) -> 10 planes
         int scifi_plane_hits[10] = {0};
+        int scifi_h_hits[5] = {0};
+        int scifi_v_hits[5] = {0};
         int n_sf = scifiHits.GetEntries();
         for (int i = 0; i < n_sf; ++i) {
             auto* h = static_cast<sndScifiHit*>(scifiHits.At(i));
             if (!h || !h->isValid()) continue;
             m.n_scifi_hits++;
             int st = h->GetStation();
-            int o = h->isVertical() ? 0 : 1;
+            bool is_vert = h->isVertical();
+            int o = is_vert ? 0 : 1;
             if (st >= 1 && st <= 5) {
                 int p_idx = (st - 1) * 2 + o;
                 scifi_plane_hits[p_idx]++;
+                if (is_vert) {
+                    scifi_v_hits[st - 1]++;
+                } else {
+                    scifi_h_hits[st - 1]++;
+                }
             }
         }
         for (int p = 0; p < 10; ++p) {
@@ -79,9 +102,40 @@ namespace HitMetrics {
             }
         }
 
+        // SciFi occupancy ratios
+        int sf_all_min = scifi_plane_hits[0];
+        int sf_all_max = scifi_plane_hits[0];
+        for (int p = 1; p < 10; ++p) {
+            if (scifi_plane_hits[p] < sf_all_min) sf_all_min = scifi_plane_hits[p];
+            if (scifi_plane_hits[p] > sf_all_max) sf_all_max = scifi_plane_hits[p];
+        }
+        m.scifi_min_max_ratio_all = safe_ratio(sf_all_min, sf_all_max);
+
+        int sf_h_min = scifi_h_hits[0];
+        int sf_h_max = scifi_h_hits[0];
+        for (int p = 1; p < 5; ++p) {
+            if (scifi_h_hits[p] < sf_h_min) sf_h_min = scifi_h_hits[p];
+            if (scifi_h_hits[p] > sf_h_max) sf_h_max = scifi_h_hits[p];
+        }
+        m.scifi_min_max_ratio_h = safe_ratio(sf_h_min, sf_h_max);
+
+        int sf_v_min = scifi_v_hits[0];
+        int sf_v_max = scifi_v_hits[0];
+        for (int p = 1; p < 5; ++p) {
+            if (scifi_v_hits[p] < sf_v_min) sf_v_min = scifi_v_hits[p];
+            if (scifi_v_hits[p] > sf_v_max) sf_v_max = scifi_v_hits[p];
+        }
+        m.scifi_min_max_ratio_v = safe_ratio(sf_v_min, sf_v_max);
+
         // 2. MuFilter Hits: US (system 2) and DS (system 3)
-        // DS has stations 1-3 with 2 planes each (H/V) and station 4 with 1 plane (H) -> 7 planes
+        // US: 5 planes (0..4), all horizontal
+        double us_plane_qdc[5] = {0.0};
+
+        // DS has 3 horizontal planes (stations 0, 1, 2) and 4 vertical planes (stations 0, 1, 2, 3) -> 7 planes
         int ds_plane_hits[7] = {0};
+        int ds_h_hits[3] = {0};
+        int ds_v_hits[4] = {0};
+
         int n_mf = mufiHits.GetEntries();
         for (int i = 0; i < n_mf; ++i) {
             auto* h = static_cast<MuFilterHit*>(mufiHits.At(i));
@@ -97,10 +151,24 @@ namespace HitMetrics {
                 auto sigs = h->GetAllSignals();
                 for (const auto& kv : sigs) {
                     m.us_total_qdc += kv.second;
+                    if (plane_idx >= 0 && plane_idx < 5) {
+                        us_plane_qdc[plane_idx] += kv.second;
+                    }
                 }
             } else if (sys == 3) {
                 // Downstream
                 m.n_ds_hits++;
+                if (is_vert) {
+                    m.n_ds_v_hits++;
+                    if (plane_idx >= 0 && plane_idx < 4) {
+                        ds_v_hits[plane_idx]++;
+                    }
+                } else {
+                    m.n_ds_h_hits++;
+                    if (plane_idx >= 0 && plane_idx < 3) {
+                        ds_h_hits[plane_idx]++;
+                    }
+                }
                 if (plane_idx >= 0 && plane_idx < 4) {
                     int global_ds_plane = (plane_idx < 3) ? (plane_idx * 2 + o_idx) : 6;
                     if (global_ds_plane >= 0 && global_ds_plane < 7) {
@@ -114,6 +182,40 @@ namespace HitMetrics {
                 m.max_ds_plane_hits = ds_plane_hits[p];
             }
         }
+
+        // DS occupancy ratios
+        int ds_all_min = ds_plane_hits[0];
+        int ds_all_max = ds_plane_hits[0];
+        for (int p = 1; p < 7; ++p) {
+            if (ds_plane_hits[p] < ds_all_min) ds_all_min = ds_plane_hits[p];
+            if (ds_plane_hits[p] > ds_all_max) ds_all_max = ds_plane_hits[p];
+        }
+        m.ds_min_max_ratio_all = safe_ratio(ds_all_min, ds_all_max);
+
+        int ds_h_min = ds_h_hits[0];
+        int ds_h_max = ds_h_hits[0];
+        for (int p = 1; p < 3; ++p) {
+            if (ds_h_hits[p] < ds_h_min) ds_h_min = ds_h_hits[p];
+            if (ds_h_hits[p] > ds_h_max) ds_h_max = ds_h_hits[p];
+        }
+        m.ds_min_max_ratio_h = safe_ratio(ds_h_min, ds_h_max);
+
+        int ds_v_min = ds_v_hits[0];
+        int ds_v_max = ds_v_hits[0];
+        for (int p = 1; p < 4; ++p) {
+            if (ds_v_hits[p] < ds_v_min) ds_v_min = ds_v_hits[p];
+            if (ds_v_hits[p] > ds_v_max) ds_v_max = ds_v_hits[p];
+        }
+        m.ds_min_max_ratio_v = safe_ratio(ds_v_min, ds_v_max);
+
+        // US plane QDC min/max ratio
+        double qdc_min = us_plane_qdc[0];
+        double qdc_max = us_plane_qdc[0];
+        for (int p = 1; p < 5; ++p) {
+            if (us_plane_qdc[p] < qdc_min) qdc_min = us_plane_qdc[p];
+            if (us_plane_qdc[p] > qdc_max) qdc_max = us_plane_qdc[p];
+        }
+        m.us_qdc_min_max_ratio = safe_ratio(qdc_min, qdc_max);
 
         return m;
     }
@@ -151,6 +253,27 @@ def build_dataframe_with_friend(files: list[str], tree_name: str, friend_name: s
 
     dm = DataManager(source=ch)
     return dm, dm.get_rdataframe()
+
+
+def define_hit_metrics(df):
+    """Defines hit metric columns on RDataFrame."""
+    return (
+        df.Define("hit_metrics", "HitMetrics::compute(Digi_ScifiHits, Digi_MuFilterHits)")
+          .Define("n_scifi_hits", "hit_metrics.n_scifi_hits")
+          .Define("n_ds_hits", "hit_metrics.n_ds_hits")
+          .Define("max_scifi_plane_hits", "hit_metrics.max_scifi_plane_hits")
+          .Define("us_total_qdc", "hit_metrics.us_total_qdc")
+          .Define("max_ds_plane_hits", "hit_metrics.max_ds_plane_hits")
+          .Define("n_ds_h_hits", "hit_metrics.n_ds_h_hits")
+          .Define("n_ds_v_hits", "hit_metrics.n_ds_v_hits")
+          .Define("ds_min_max_ratio_all", "hit_metrics.ds_min_max_ratio_all")
+          .Define("ds_min_max_ratio_h", "hit_metrics.ds_min_max_ratio_h")
+          .Define("ds_min_max_ratio_v", "hit_metrics.ds_min_max_ratio_v")
+          .Define("scifi_min_max_ratio_all", "hit_metrics.scifi_min_max_ratio_all")
+          .Define("scifi_min_max_ratio_h", "hit_metrics.scifi_min_max_ratio_h")
+          .Define("scifi_min_max_ratio_v", "hit_metrics.scifi_min_max_ratio_v")
+          .Define("us_qdc_min_max_ratio", "hit_metrics.us_qdc_min_max_ratio")
+    )
 
 
 def book_category_histograms(df_node, hist_configs, prefix, weight_col=None):
@@ -225,12 +348,7 @@ def main():
     if args.max_events:
         df_genie = df_genie.Range(args.max_events)
 
-    df_genie = df_genie.Define("hit_metrics", "HitMetrics::compute(Digi_ScifiHits, Digi_MuFilterHits)") \
-                       .Define("n_scifi_hits", "hit_metrics.n_scifi_hits") \
-                       .Define("n_ds_hits", "hit_metrics.n_ds_hits") \
-                       .Define("max_scifi_plane_hits", "hit_metrics.max_scifi_plane_hits") \
-                       .Define("us_total_qdc", "hit_metrics.us_total_qdc") \
-                       .Define("max_ds_plane_hits", "hit_metrics.max_ds_plane_hits")
+    df_genie = define_hit_metrics(df_genie)
 
     has_truth = "mctruth.is_direct_charm_decay" in df_genie.GetColumnNames()
     has_weight = "mctruth.mc_weight" in df_genie.GetColumnNames()
@@ -258,12 +376,7 @@ def main():
             dm_pmu, df_pmu = build_dataframe_with_friend(pmu_files, "cbmsim", "mctruth")
             if args.max_events:
                 df_pmu = df_pmu.Range(args.max_events)
-            df_pmu = df_pmu.Define("hit_metrics", "HitMetrics::compute(Digi_ScifiHits, Digi_MuFilterHits)") \
-                           .Define("n_scifi_hits", "hit_metrics.n_scifi_hits") \
-                           .Define("n_ds_hits", "hit_metrics.n_ds_hits") \
-                           .Define("max_scifi_plane_hits", "hit_metrics.max_scifi_plane_hits") \
-                           .Define("us_total_qdc", "hit_metrics.us_total_qdc") \
-                           .Define("max_ds_plane_hits", "hit_metrics.max_ds_plane_hits")
+            df_pmu = define_hit_metrics(df_pmu)
 
             pmu_weight_col = "mctruth.mc_weight" if "mctruth.mc_weight" in df_pmu.GetColumnNames() else None
             booked_all[("pmu2022", "pmu")] = book_category_histograms(df_pmu, hist_cfgs, "pmu", pmu_weight_col)
@@ -284,12 +397,7 @@ def main():
             dm_data, df_data = build_dataframe_with_friend(data_files, tree_name, "")
             if args.max_events:
                 df_data = df_data.Range(args.max_events)
-            df_data = df_data.Define("hit_metrics", "HitMetrics::compute(Digi_ScifiHits, Digi_MuFilterHits)") \
-                             .Define("n_scifi_hits", "hit_metrics.n_scifi_hits") \
-                             .Define("n_ds_hits", "hit_metrics.n_ds_hits") \
-                             .Define("max_scifi_plane_hits", "hit_metrics.max_scifi_plane_hits") \
-                             .Define("us_total_qdc", "hit_metrics.us_total_qdc") \
-                             .Define("max_ds_plane_hits", "hit_metrics.max_ds_plane_hits")
+            df_data = define_hit_metrics(df_data)
 
             booked_all[("data", "data")] = book_category_histograms(df_data, hist_cfgs, "data")
 
@@ -326,17 +434,21 @@ def main():
     if not d_canvases:
         d_canvases = out_file.mkdir("comparisons")
 
-    # Categories to overlay: (internal_key, legend_label, kColor, fill_style, is_marker)
-    # Distinct semi-transparent hatch patterns for visible overlapping distributions
+    # Categories to overlay: (internal_key, legend_label, line_color, line_width, fill_color, fill_style, is_marker)
+    # Signal: blue, linewidth=4, no fill style
+    # GENIE bkg: red/orange, linewidth=2, brighter subtle hatched fill styles
+    # PMU: dark gray marker with error bars (no caps)
     overlay_specs = [
-        (("genie/background", "genie_bkg"), "GENIE Other Bkg", ROOT.kAzure + 1, 3004, False),
-        (("genie/indirect_fake", "indirect"), "GENIE Indirect Fake", ROOT.kOrange + 2, 3005, False),
-        (("genie/signal", "signal"), "GENIE Direct Signal", ROOT.kRed + 1, 3354, False),
-        (("pmu2022", "pmu"), "pmu2022 Muon Bkg", ROOT.kBlack, 0, True),
+        (("genie/background", "genie_bkg"), "GENIE Other Bkg", ROOT.kRed + 1, 2, ROOT.kRed - 9, 3004, False),
+        (("genie/indirect_fake", "indirect"), "GENIE Indirect Fake", ROOT.kOrange + 1, 2, ROOT.kOrange - 3, 3005, False),
+        (("genie/inclusive", "genie_inclusive"), "GENIE Inclusive", ROOT.kRed + 1, 2, ROOT.kRed - 9, 3004, False),
+        (("genie/signal", "signal"), "GENIE Direct Signal", ROOT.kBlue, 4, ROOT.kBlue, 0, False),
+        (("pmu2022", "pmu"), "pmu2022 Muon Bkg", ROOT.kGray + 2, 2, ROOT.kGray + 2, 0, True),
     ]
 
     ROOT.gROOT.SetBatch(True)
     ROOT.gStyle.SetOptStat(0)
+    ROOT.gStyle.SetEndErrorSize(0)
 
     for h_cfg in hist_cfgs:
         var_name = h_cfg["name"]
@@ -358,7 +470,7 @@ def main():
         h_clones = []
         max_val = 0.0
 
-        for cat_key, label, color, fstyle, is_marker in overlay_specs:
+        for cat_key, label, lcolor, lwidth, fcolor, fstyle, is_marker in overlay_specs:
             if cat_key not in materialized:
                 continue
             cat_dict = materialized[cat_key]
@@ -376,19 +488,18 @@ def main():
             if integral > 0:
                 h_norm.Scale(1.0 / integral)
 
-            h_norm.SetLineColor(color)
-            h_norm.SetLineWidth(2)
-            h_norm.SetLineStyle(1)  # Solid lines for all
+            h_norm.SetLineColor(lcolor)
+            h_norm.SetLineWidth(lwidth)
+            h_norm.SetLineStyle(1)
 
             if is_marker:
-                # Marker with Poisson/binomial error bars for low-statistics pmu sample
+                # Marker with Poisson/binomial error bars without caps
                 h_norm.SetMarkerStyle(20)
                 h_norm.SetMarkerSize(0.8)
-                h_norm.SetMarkerColor(color)
+                h_norm.SetMarkerColor(lcolor)
                 h_norm.SetFillStyle(0)
             else:
-                # Visible overlapping hatched fill patterns
-                h_norm.SetFillColor(color)
+                h_norm.SetFillColor(fcolor)
                 h_norm.SetFillStyle(fstyle)
 
             h_norm.GetYaxis().SetTitle("Normalized to unit area")
@@ -399,15 +510,18 @@ def main():
             if curr_max > max_val:
                 max_val = curr_max
 
-            h_clones.append((h_norm, label, is_marker))
+            h_clones.append((h_norm, label, is_marker, fstyle))
 
         if h_clones:
-            for idx, (h_norm, label, is_marker) in enumerate(h_clones):
+            for idx, (h_norm, label, is_marker, fstyle) in enumerate(h_clones):
                 h_norm.SetMaximum(max_val * 1.30)
                 h_norm.SetMinimum(0.0)
                 if is_marker:
                     draw_opt = "E1 P" if idx == 0 else "E1 P SAME"
                     leg.AddEntry(h_norm, label, "PL")
+                elif fstyle == 0:
+                    draw_opt = "HIST" if idx == 0 else "HIST SAME"
+                    leg.AddEntry(h_norm, label, "L")
                 else:
                     draw_opt = "HIST" if idx == 0 else "HIST SAME"
                     leg.AddEntry(h_norm, label, "F")

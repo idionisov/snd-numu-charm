@@ -108,6 +108,9 @@ namespace HitMetrics {
         double scifi_min_max_ratio_v;
         double us_qdc_min_max_ratio;
         double us_qdc_plane4_over_plane0;
+        int n_scifi_v_hits_pm2cm;
+        int n_scifi_h_hits_pm2cm;
+        int n_scifi_all_hits_pm2cm;
         double scifi_trk_iso_all;
         double scifi_trk_iso_h;
         double scifi_trk_iso_v;
@@ -120,7 +123,7 @@ namespace HitMetrics {
     }
 
     inline Metrics compute(const TClonesArray& scifiHits, const TClonesArray& mufiHits, const TClonesArray& recoTracks) {
-        Metrics m{0, 0, 0, 0.0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        Metrics m{0, 0, 0, 0.0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0.0, 0.0, 0.0};
 
         int n_trks = recoTracks.GetEntries();
         const auto& ch_vec = getScifiChannelVec();
@@ -187,6 +190,9 @@ namespace HitMetrics {
             }
         }
 
+        m.n_scifi_v_hits_pm2cm = n_sf_iso_v;
+        m.n_scifi_h_hits_pm2cm = n_sf_iso_h;
+        m.n_scifi_all_hits_pm2cm = n_sf_iso_all;
         m.scifi_trk_iso_all = (m.n_scifi_hits > 0) ? (static_cast<double>(n_sf_iso_all) / m.n_scifi_hits) : 0.0;
         m.scifi_trk_iso_h = (n_sf_h > 0) ? (static_cast<double>(n_sf_iso_h) / n_sf_h) : 0.0;
         m.scifi_trk_iso_v = (n_sf_v > 0) ? (static_cast<double>(n_sf_iso_v) / n_sf_v) : 0.0;
@@ -375,6 +381,9 @@ def define_hit_metrics(df):
           .Define("scifi_min_max_ratio_v", "hit_metrics.scifi_min_max_ratio_v")
           .Define("us_qdc_min_max_ratio", "hit_metrics.us_qdc_min_max_ratio")
           .Define("us_qdc_plane4_over_plane0", "hit_metrics.us_qdc_plane4_over_plane0")
+          .Define("n_scifi_v_hits_pm2cm", "hit_metrics.n_scifi_v_hits_pm2cm")
+          .Define("n_scifi_h_hits_pm2cm", "hit_metrics.n_scifi_h_hits_pm2cm")
+          .Define("n_scifi_all_hits_pm2cm", "hit_metrics.n_scifi_all_hits_pm2cm")
           .Define("scifi_trk_iso_all", "hit_metrics.scifi_trk_iso_all")
           .Define("scifi_trk_iso_h", "hit_metrics.scifi_trk_iso_h")
           .Define("scifi_trk_iso_v", "hit_metrics.scifi_trk_iso_v")
@@ -397,6 +406,53 @@ def book_category_histograms(df_node, hist_configs, prefix, weight_col=None):
             booked[name] = df_node.Histo1D(model, col, weight_col)
         else:
             booked[name] = df_node.Histo1D(model, col)
+    return booked
+
+
+def get_2d_pairs(hist_configs):
+    """Generate all distinct variable pairs (x, y) for 2D correlation histograms."""
+    pairs = []
+    n = len(hist_configs)
+    for i in range(n):
+        for j in range(i + 1, n):
+            cfg_x = hist_configs[i]
+            cfg_y = hist_configs[j]
+            # Ensure n_scifi_v_hits_pm2cm vs n_ds_v_hits puts n_scifi_v_hits_pm2cm on x-axis
+            if cfg_y["name"] == "n_scifi_v_hits_pm2cm" and "ds" in cfg_x["name"]:
+                cfg_x, cfg_y = cfg_y, cfg_x
+            pairs.append((cfg_x, cfg_y))
+    return pairs
+
+
+def book_category_histograms_2d(df_node, pairs_2d, prefix, default_bins=35, weight_col=None):
+    """Book 2D histograms from variable pairs on an RNode."""
+    booked = {}
+    for cfg_x, cfg_y in pairs_2d:
+        col_x = cfg_x["column"]
+        col_y = cfg_y["column"]
+        var_x = cfg_x["name"]
+        var_y = cfg_y["name"]
+        pair_key = (var_x, var_y)
+        name = f"h2_{prefix}_{var_x}_vs_{var_y}"
+
+        # Extract axis labels from titles (format: "Title;X-axis;Y-axis")
+        title_x = cfg_x["title"].split(";")[1] if ";" in cfg_x["title"] else var_x
+        title_y = cfg_y["title"].split(";")[1] if ";" in cfg_y["title"] else var_y
+        full_title = f"{prefix}: {title_y} vs {title_x};{title_x};{title_y}"
+
+        bins_x = int(cfg_x.get("bins_2d", default_bins))
+        xmin = float(cfg_x["xmin"])
+        xmax = float(cfg_x["xmax"])
+
+        bins_y = int(cfg_y.get("bins_2d", default_bins))
+        ymin = float(cfg_y["xmin"])
+        ymax = float(cfg_y["xmax"])
+
+        model = ROOT.RDF.TH2DModel(name, full_title, bins_x, xmin, xmax, bins_y, ymin, ymax)
+        if weight_col and weight_col in df_node.GetColumnNames():
+            booked[pair_key] = df_node.Histo2D(model, col_x, col_y, weight_col)
+        else:
+            booked[pair_key] = df_node.Histo2D(model, col_x, col_y)
     return booked
 
 
@@ -461,7 +517,13 @@ def main():
         print("Warning: Geometry file not found. SciFi track isolation window calculations will default to 0.")
 
     hist_cfgs = config.get("histograms", [])
+    config_2d = config.get("histograms_2d", {})
+    enable_2d = config_2d.get("enable_all_pairs", True)
+    default_bins_2d = config_2d.get("default_bins", 35)
+    pairs_2d = get_2d_pairs(hist_cfgs) if enable_2d else []
+
     booked_all = {}
+    booked_all_2d = {}
 
     # -------------------------------------------------------------------------
     # 1. Process GENIE Sample
@@ -489,9 +551,16 @@ def main():
         booked_all[("genie/signal", "signal")] = book_category_histograms(df_genie_signal, hist_cfgs, "signal", weight_col)
         booked_all[("genie/indirect_fake", "indirect")] = book_category_histograms(df_genie_indirect, hist_cfgs, "indirect", weight_col)
         booked_all[("genie/background", "genie_bkg")] = book_category_histograms(df_genie_bkg, hist_cfgs, "genie_bkg", weight_col)
+
+        if enable_2d:
+            booked_all_2d[("genie/signal", "signal")] = book_category_histograms_2d(df_genie_signal, pairs_2d, "signal", default_bins_2d, weight_col)
+            booked_all_2d[("genie/indirect_fake", "indirect")] = book_category_histograms_2d(df_genie_indirect, pairs_2d, "indirect", default_bins_2d, weight_col)
+            booked_all_2d[("genie/background", "genie_bkg")] = book_category_histograms_2d(df_genie_bkg, pairs_2d, "genie_bkg", default_bins_2d, weight_col)
     else:
         print("Warning: 'mctruth' branch not found in GENIE sample; booking as inclusive.")
         booked_all[("genie/inclusive", "genie_inclusive")] = book_category_histograms(df_genie, hist_cfgs, "genie_inclusive", weight_col)
+        if enable_2d:
+            booked_all_2d[("genie/inclusive", "genie_inclusive")] = book_category_histograms_2d(df_genie, pairs_2d, "genie_inclusive", default_bins_2d, weight_col)
 
     # -------------------------------------------------------------------------
     # 2. Process PMU Sample (Optional)
@@ -507,6 +576,8 @@ def main():
 
             pmu_weight_col = "mctruth.mc_weight" if "mctruth.mc_weight" in df_pmu.GetColumnNames() else None
             booked_all[("pmu2022", "pmu")] = book_category_histograms(df_pmu, hist_cfgs, "pmu", pmu_weight_col)
+            if enable_2d:
+                booked_all_2d[("pmu2022", "pmu")] = book_category_histograms_2d(df_pmu, pairs_2d, "pmu", default_bins_2d, pmu_weight_col)
 
     # -------------------------------------------------------------------------
     # 3. Process Collision Data Sample (Optional)
@@ -527,6 +598,8 @@ def main():
             df_data = define_hit_metrics(df_data)
 
             booked_all[("data", "data")] = book_category_histograms(df_data, hist_cfgs, "data")
+            if enable_2d:
+                booked_all_2d[("data", "data")] = book_category_histograms_2d(df_data, pairs_2d, "data", default_bins_2d)
 
     # -------------------------------------------------------------------------
     # 4. Trigger Event Loops & Write Output ROOT File with Structured TDirectories
@@ -536,6 +609,10 @@ def main():
     materialized = {}
     for key, hist_dict in booked_all.items():
         materialized[key] = {name: h_res.GetValue() for name, h_res in hist_dict.items()}
+
+    materialized_2d = {}
+    for key, hist2d_dict in booked_all_2d.items():
+        materialized_2d[key] = {pair: h_res.GetValue() for pair, h_res in hist2d_dict.items()}
 
     # Rebinning factors for signal histograms to handle low statistics
     signal_rebin_factors = {
@@ -671,6 +748,160 @@ def main():
             leg.Draw()
             d_canvases.cd()
             c.Write()
+
+    # -------------------------------------------------------------------------
+    # 6. Write 2D Histograms under <category>/2d/
+    # -------------------------------------------------------------------------
+    if materialized_2d:
+        print("\nWriting 2D correlation histograms...")
+        for (dir_path, prefix), hist2d_dict in materialized_2d.items():
+            current_dir = out_file
+            for part in dir_path.split("/"):
+                sub = current_dir.GetDirectory(part)
+                if not sub:
+                    sub = current_dir.mkdir(part)
+                current_dir = sub
+            d_2d = current_dir.GetDirectory("2d")
+            if not d_2d:
+                d_2d = current_dir.mkdir("2d")
+            d_2d.cd()
+            for (var_x, var_y), h2 in hist2d_dict.items():
+                h2_name = f"h2_{prefix}_{var_x}_vs_{var_y}"
+                d_2d.WriteTObject(h2, h2_name, "Overwrite")
+
+    # -------------------------------------------------------------------------
+    # 7. Build 2D Comparison TCanvases & Correlation Matrices
+    # -------------------------------------------------------------------------
+    if materialized_2d and pairs_2d:
+        print("\nGenerating 2D comparison TCanvases...")
+        d_canvases_2d = d_canvases.GetDirectory("2d")
+        if not d_canvases_2d:
+            d_canvases_2d = d_canvases.mkdir("2d")
+
+        ROOT.gStyle.SetPalette(ROOT.kViridis)
+
+        pads_spec = [
+            (("genie/signal", "signal"), "GENIE Direct Signal", 1),
+            (("genie/background", "genie_bkg"), "GENIE Other Bkg", 2),
+            (("genie/indirect_fake", "indirect"), "GENIE Indirect Fake", 3),
+            (("pmu2022", "pmu"), "pmu2022 Muon Bkg", 4),
+        ]
+
+        for cfg_x, cfg_y in pairs_2d:
+            var_x = cfg_x["name"]
+            var_y = cfg_y["name"]
+            pair_key = (var_x, var_y)
+            c2 = ROOT.TCanvas(f"c2d_{var_x}_vs_{var_y}", f"2D Comparison: {var_y} vs {var_x}", 1200, 950)
+            c2.Divide(2, 2)
+
+            has_any = False
+            for cat_key, cat_title, pad_idx in pads_spec:
+                if cat_key not in materialized_2d:
+                    continue
+                h2_orig = materialized_2d[cat_key].get(pair_key)
+                if not h2_orig or h2_orig.GetEntries() == 0:
+                    continue
+
+                has_any = True
+                pad = c2.cd(pad_idx)
+                pad.SetLeftMargin(0.12)
+                pad.SetRightMargin(0.14)
+                pad.SetBottomMargin(0.12)
+                pad.SetTopMargin(0.10)
+
+                h2_draw = h2_orig.Clone(f"{h2_orig.GetName()}_pad")
+                r = h2_draw.GetCorrelationFactor()
+                h2_draw.SetTitle(f"{cat_title} (r = {r:+.2f})")
+                h2_draw.Draw("COLZ")
+
+            if has_any:
+                d_canvases_2d.cd()
+                c2.Write()
+            ROOT.gROOT.GetListOfCanvases().Remove(c2)
+            c2.Close()
+
+        # Build summary correlation matrices
+        print("\nGenerating correlation matrices...")
+        num_vars = len(hist_cfgs)
+        var_names = [c["name"] for c in hist_cfgs]
+
+        for cat_key, cat_name in [
+            (("genie/signal", "signal"), "signal"),
+            (("genie/background", "genie_bkg"), "background"),
+            (("pmu2022", "pmu"), "pmu2022"),
+        ]:
+            if cat_key not in materialized_2d:
+                continue
+            h_corr = ROOT.TH2D(f"h2_corr_matrix_{cat_name}", f"Correlation Matrix: {cat_name.upper()};Variable X;Variable Y",
+                               num_vars, 0, num_vars, num_vars, 0, num_vars)
+            for idx_v, vname in enumerate(var_names):
+                h_corr.GetXaxis().SetBinLabel(idx_v + 1, vname)
+                h_corr.GetYaxis().SetBinLabel(idx_v + 1, vname)
+
+            for i in range(num_vars):
+                h_corr.SetBinContent(i + 1, i + 1, 1.0)
+
+            cat_dict = materialized_2d[cat_key]
+            for cfg_x, cfg_y in pairs_2d:
+                pair = (cfg_x["name"], cfg_y["name"])
+                if pair in cat_dict:
+                    h2 = cat_dict[pair]
+                    if h2.GetEntries() > 0:
+                        r = h2.GetCorrelationFactor()
+                        ix = var_names.index(cfg_x["name"])
+                        iy = var_names.index(cfg_y["name"])
+                        h_corr.SetBinContent(ix + 1, iy + 1, r)
+                        h_corr.SetBinContent(iy + 1, ix + 1, r)
+
+            c_corr = ROOT.TCanvas(f"c_corr_matrix_{cat_name}", f"Correlation Matrix - {cat_name}", 1300, 1100)
+            c_corr.SetLeftMargin(0.22)
+            c_corr.SetBottomMargin(0.22)
+            c_corr.SetRightMargin(0.14)
+            c_corr.SetTopMargin(0.08)
+            h_corr.SetMinimum(-1.0)
+            h_corr.SetMaximum(1.0)
+            h_corr.GetXaxis().LabelsOption("v")
+            h_corr.Draw("COLZ")
+            d_canvases.cd()
+            c_corr.Write()
+            ROOT.gROOT.GetListOfCanvases().Remove(c_corr)
+            c_corr.Close()
+
+        # Correlation Difference Matrix (Signal - Background)
+        if ("genie/signal", "signal") in materialized_2d and ("genie/background", "genie_bkg") in materialized_2d:
+            h_diff = ROOT.TH2D("h2_corr_matrix_diff_sig_minus_bkg", "Correlation Matrix Difference (Signal - Background);Variable X;Variable Y",
+                               num_vars, 0, num_vars, num_vars, 0, num_vars)
+            for idx_v, vname in enumerate(var_names):
+                h_diff.GetXaxis().SetBinLabel(idx_v + 1, vname)
+                h_diff.GetYaxis().SetBinLabel(idx_v + 1, vname)
+
+            sig_dict = materialized_2d[("genie/signal", "signal")]
+            bkg_dict = materialized_2d[("genie/background", "genie_bkg")]
+            for cfg_x, cfg_y in pairs_2d:
+                pair = (cfg_x["name"], cfg_y["name"])
+                if pair in sig_dict and pair in bkg_dict:
+                    h2_sig = sig_dict[pair]
+                    h2_bkg = bkg_dict[pair]
+                    if h2_sig.GetEntries() > 0 and h2_bkg.GetEntries() > 0:
+                        delta_r = h2_sig.GetCorrelationFactor() - h2_bkg.GetCorrelationFactor()
+                        ix = var_names.index(cfg_x["name"])
+                        iy = var_names.index(cfg_y["name"])
+                        h_diff.SetBinContent(ix + 1, iy + 1, delta_r)
+                        h_diff.SetBinContent(iy + 1, ix + 1, delta_r)
+
+            c_diff = ROOT.TCanvas("c_corr_matrix_diff_sig_minus_bkg", "Correlation Difference (Signal - Background)", 1300, 1100)
+            c_diff.SetLeftMargin(0.22)
+            c_diff.SetBottomMargin(0.22)
+            c_diff.SetRightMargin(0.14)
+            c_diff.SetTopMargin(0.08)
+            h_diff.SetMinimum(-2.0)
+            h_diff.SetMaximum(2.0)
+            h_diff.GetXaxis().LabelsOption("v")
+            h_diff.Draw("COLZ")
+            d_canvases.cd()
+            c_diff.Write()
+            ROOT.gROOT.GetListOfCanvases().Remove(c_diff)
+            c_diff.Close()
 
     out_file.Close()
     print("Histogram generation complete!")

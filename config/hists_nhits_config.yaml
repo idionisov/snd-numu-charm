@@ -25,6 +25,7 @@ histograms:
     bins: 400
     xmin: 0.0
     xmax: 4000.0
+    bins_2d: 40
 
   - name: "n_ds_hits"
     title: "Total Downstream (DS) MuFilter Hits;N_{hits}^{DS};Events"
@@ -32,6 +33,7 @@ histograms:
     bins: 100
     xmin: 0.0
     xmax: 500.0
+    bins_2d: 35
 
   - name: "max_scifi_plane_hits"
     title: "SciFi Hits in Plane of Max Occupancy;N_{hits}^{max SciFi plane};Events"
@@ -39,6 +41,7 @@ histograms:
     bins: 200
     xmin: 0.0
     xmax: 1000.0
+    bins_2d: 35
 
   - name: "us_total_qdc"
     title: "Total Upstream (US) QDC Deposit;QDC_{tot}^{US};Events"
@@ -46,6 +49,7 @@ histograms:
     bins: 190
     xmin: 0.0
     xmax: 190000.0
+    bins_2d: 35
 
   - name: "max_ds_plane_hits"
     title: "DS Hits in Plane of Max Occupancy;N_{hits}^{max DS plane};Events"
@@ -53,6 +57,7 @@ histograms:
     bins: 70
     xmin: 0.0
     xmax: 70.0
+    bins_2d: 30
 
   - name: "n_ds_h_hits"
     title: "Downstream (DS) Horizontal Hits;N_{hits}^{DS (H)};Events"
@@ -60,6 +65,7 @@ histograms:
     bins: 80
     xmin: 0.0
     xmax: 320.0
+    bins_2d: 35
 
   - name: "n_ds_v_hits"
     title: "Downstream (DS) Vertical Hits;N_{hits}^{DS (V)};Events"
@@ -67,6 +73,7 @@ histograms:
     bins: 60
     xmin: 0.0
     xmax: 240.0
+    bins_2d: 35
 
   - name: "ds_min_max_ratio_all"
     title: "DS Hits Min/Max Plane Occupancy Ratio (H+V);N_{hits}^{min DS} / N_{hits}^{max DS};Events"
@@ -74,6 +81,7 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 1.0
+    bins_2d: 25
 
   - name: "ds_min_max_ratio_h"
     title: "DS Hits Min/Max Plane Occupancy Ratio (Horizontal);N_{hits}^{min DS (H)} / N_{hits}^{max DS (H)};Events"
@@ -81,6 +89,7 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 1.0
+    bins_2d: 25
 
   - name: "ds_min_max_ratio_v"
     title: "DS Hits Min/Max Plane Occupancy Ratio (Vertical);N_{hits}^{min DS (V)} / N_{hits}^{max DS (V)};Events"
@@ -88,6 +97,7 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 1.0
+    bins_2d: 25
 
   - name: "scifi_min_max_ratio_all"
     title: "SciFi Hits Min/Max Plane Occupancy Ratio (H+V);N_{hits}^{min SciFi} / N_{hits}^{max SciFi};Events"
@@ -95,6 +105,7 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 1.0
+    bins_2d: 25
 
   - name: "scifi_min_max_ratio_h"
     title: "SciFi Hits Min/Max Plane Occupancy Ratio (Horizontal);N_{hits}^{min SciFi (H)} / N_{hits}^{max SciFi (H)};Events"
@@ -102,6 +113,7 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 1.0
+    bins_2d: 25
 
   - name: "scifi_min_max_ratio_v"
     title: "SciFi Hits Min/Max Plane Occupancy Ratio (Vertical);N_{hits}^{min SciFi (V)} / N_{hits}^{max SciFi (V)};Events"
@@ -109,6 +121,7 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 1.0
+    bins_2d: 25
 
   - name: "us_qdc_min_max_ratio"
     title: "US QDC Min/Max Plane Sum Ratio;QDC_{min}^{US} / QDC_{max}^{US};Events"
@@ -116,6 +129,7 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 1.0
+    bins_2d: 25
 
   - name: "us_qdc_plane4_over_plane0"
     title: "US QDC Plane 4 / Plane 0 Ratio;QDC_{US4} / QDC_{US0};Events"
@@ -123,6 +137,31 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 5.0
+    bins_2d: 25
+
+  - name: "n_scifi_v_hits_pm2cm"
+    title: "Vertical SciFi Hits in #pm 2 cm Window;N_{hits}^{#pm 2cm (V)};Events"
+    column: "n_scifi_v_hits_pm2cm"
+    bins: 80
+    xmin: 0.0
+    xmax: 80.0
+    bins_2d: 35
+
+  - name: "n_scifi_h_hits_pm2cm"
+    title: "Horizontal SciFi Hits in #pm 2 cm Window;N_{hits}^{#pm 2cm (H)};Events"
+    column: "n_scifi_h_hits_pm2cm"
+    bins: 80
+    xmin: 0.0
+    xmax: 80.0
+    bins_2d: 35
+
+  - name: "n_scifi_all_hits_pm2cm"
+    title: "Total SciFi Hits in #pm 2 cm Window;N_{hits}^{#pm 2cm};Events"
+    column: "n_scifi_all_hits_pm2cm"
+    bins: 100
+    xmin: 0.0
+    xmax: 150.0
+    bins_2d: 35
 
   - name: "scifi_trk_iso_all"
     title: "SciFi Hit Track Window Fraction (H+V);N_{hits}^{#pm 2cm} / N_{hits}^{SciFi};Events"
@@ -130,6 +169,7 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 1.0
+    bins_2d: 25
 
   - name: "scifi_trk_iso_h"
     title: "SciFi Hit Track Window Fraction (Horizontal);N_{hits}^{#pm 2cm (H)} / N_{hits}^{SciFi (H)};Events"
@@ -137,6 +177,7 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 1.0
+    bins_2d: 25
 
   - name: "scifi_trk_iso_v"
     title: "SciFi Hit Track Window Fraction (Vertical);N_{hits}^{#pm 2cm (V)} / N_{hits}^{SciFi (V)};Events"
@@ -144,4 +185,10 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 1.0
+    bins_2d: 25
+
+# 2D Histograms Configuration
+histograms_2d:
+  enable_all_pairs: true
+  default_bins: 35
 

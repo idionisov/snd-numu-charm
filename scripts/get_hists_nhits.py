@@ -40,14 +40,58 @@ def declare_cpp_hit_metrics():
 
 #include <TClonesArray.h>
 #include <map>
+#include <vector>
 #include <algorithm>
 #include <cmath>
 #include "Scifi.h"
 #include "MuFilter.h"
 #include "sndScifiHit.h"
 #include "MuFilterHit.h"
+#include "sndRecoTrack.h"
 
 namespace HitMetrics {
+    struct ChannelInfo {
+        float z{0.0f};
+        float pos{0.0f};
+        bool is_vert{false};
+        bool valid{false};
+    };
+
+    inline std::vector<ChannelInfo>& getScifiChannelVec() {
+        static std::vector<ChannelInfo> vec;
+        return vec;
+    }
+
+    inline void init_scifi_geometry() {
+        Scifi* scifi = dynamic_cast<Scifi*>(gROOT->GetListOfGlobals()->FindObject("Scifi"));
+        if (!scifi) return;
+        auto& vec = getScifiChannelVec();
+        if (vec.size() < 6000000) {
+            vec.assign(6000000, ChannelInfo{});
+        }
+        TVector3 left, right;
+        for (int s = 1; s <= 5; ++s) {
+            for (int o = 0; o <= 1; ++o) {
+                for (int m = 0; m <= 2; ++m) {
+                    for (int sipm = 0; sipm <= 3; ++sipm) {
+                        for (int ch = 0; ch < 128; ++ch) {
+                            int detID = s * 1000000 + o * 100000 + m * 10000 + sipm * 1000 + ch;
+                            scifi->GetSiPMPosition(detID, left, right);
+                            ChannelInfo info;
+                            info.z = 0.5f * (left.Z() + right.Z());
+                            info.is_vert = (o == 1);
+                            info.pos = info.is_vert ? 0.5f * (left.X() + right.X()) : 0.5f * (left.Y() + right.Y());
+                            info.valid = true;
+                            if (detID < (int)vec.size()) {
+                                vec[detID] = info;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     struct Metrics {
         int n_scifi_hits;
         int n_ds_hits;
@@ -63,6 +107,10 @@ namespace HitMetrics {
         double scifi_min_max_ratio_h;
         double scifi_min_max_ratio_v;
         double us_qdc_min_max_ratio;
+        double us_qdc_plane4_over_plane0;
+        double scifi_trk_iso_all;
+        double scifi_trk_iso_h;
+        double scifi_trk_iso_v;
     };
 
     inline double safe_ratio(double min_val, double max_val) {
@@ -71,8 +119,16 @@ namespace HitMetrics {
         return (r >= 1.0) ? 0.999999 : ((r < 0.0) ? 0.0 : r);
     }
 
-    inline Metrics compute(const TClonesArray& scifiHits, const TClonesArray& mufiHits) {
-        Metrics m{0, 0, 0, 0.0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    inline Metrics compute(const TClonesArray& scifiHits, const TClonesArray& mufiHits, const TClonesArray& recoTracks) {
+        Metrics m{0, 0, 0, 0.0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+
+        int n_trks = recoTracks.GetEntries();
+        const auto& ch_vec = getScifiChannelVec();
+        int n_sf_h = 0;
+        int n_sf_v = 0;
+        int n_sf_iso_all = 0;
+        int n_sf_iso_h = 0;
+        int n_sf_iso_v = 0;
 
         // 1. SciFi Hits: 5 stations * 2 orientations (vert=0, horiz=1) -> 10 planes
         int scifi_plane_hits[10] = {0};
@@ -95,12 +151,45 @@ namespace HitMetrics {
                     scifi_h_hits[st - 1]++;
                 }
             }
+            if (is_vert) {
+                n_sf_v++;
+            } else {
+                n_sf_h++;
+            }
+
+            int detID = h->GetDetectorID();
+            bool in_window = false;
+            if (n_trks > 0 && detID < (int)ch_vec.size() && ch_vec[detID].valid) {
+                const auto& ch = ch_vec[detID];
+                for (int t = 0; t < n_trks; ++t) {
+                    auto* trk = static_cast<sndRecoTrack*>(recoTracks.At(t));
+                    if (!trk) continue;
+                    TVector3 trkPos = trk->getPointAtZ(ch.z);
+                    float dist = is_vert ? std::abs(trkPos.X() - ch.pos) : std::abs(trkPos.Y() - ch.pos);
+                    if (dist <= 2.0f) {
+                        in_window = true;
+                        break;
+                    }
+                }
+            }
+            if (in_window) {
+                n_sf_iso_all++;
+                if (is_vert) {
+                    n_sf_iso_v++;
+                } else {
+                    n_sf_iso_h++;
+                }
+            }
         }
         for (int p = 0; p < 10; ++p) {
             if (scifi_plane_hits[p] > m.max_scifi_plane_hits) {
                 m.max_scifi_plane_hits = scifi_plane_hits[p];
             }
         }
+
+        m.scifi_trk_iso_all = (m.n_scifi_hits > 0) ? (static_cast<double>(n_sf_iso_all) / m.n_scifi_hits) : 0.0;
+        m.scifi_trk_iso_h = (n_sf_h > 0) ? (static_cast<double>(n_sf_iso_h) / n_sf_h) : 0.0;
+        m.scifi_trk_iso_v = (n_sf_v > 0) ? (static_cast<double>(n_sf_iso_v) / n_sf_v) : 0.0;
 
         // SciFi occupancy ratios
         int sf_all_min = scifi_plane_hits[0];
@@ -216,8 +305,14 @@ namespace HitMetrics {
             if (us_plane_qdc[p] > qdc_max) qdc_max = us_plane_qdc[p];
         }
         m.us_qdc_min_max_ratio = safe_ratio(qdc_min, qdc_max);
+        m.us_qdc_plane4_over_plane0 = (us_plane_qdc[0] > 0.0) ? (us_plane_qdc[4] / us_plane_qdc[0]) : 0.0;
 
         return m;
+    }
+
+    inline Metrics compute(const TClonesArray& scifiHits, const TClonesArray& mufiHits) {
+        TClonesArray emptyArr("sndRecoTrack", 0);
+        return compute(scifiHits, mufiHits, emptyArr);
     }
 }
 
@@ -257,8 +352,14 @@ def build_dataframe_with_friend(files: list[str], tree_name: str, friend_name: s
 
 def define_hit_metrics(df):
     """Defines hit metric columns on RDataFrame."""
+    cols = [str(c) for c in df.GetColumnNames()]
+    if "Reco_MuonTracks" in cols:
+        df_defined = df.Define("hit_metrics", "HitMetrics::compute(Digi_ScifiHits, Digi_MuFilterHits, Reco_MuonTracks)")
+    else:
+        df_defined = df.Define("hit_metrics", "HitMetrics::compute(Digi_ScifiHits, Digi_MuFilterHits)")
+
     return (
-        df.Define("hit_metrics", "HitMetrics::compute(Digi_ScifiHits, Digi_MuFilterHits)")
+        df_defined
           .Define("n_scifi_hits", "hit_metrics.n_scifi_hits")
           .Define("n_ds_hits", "hit_metrics.n_ds_hits")
           .Define("max_scifi_plane_hits", "hit_metrics.max_scifi_plane_hits")
@@ -273,6 +374,10 @@ def define_hit_metrics(df):
           .Define("scifi_min_max_ratio_h", "hit_metrics.scifi_min_max_ratio_h")
           .Define("scifi_min_max_ratio_v", "hit_metrics.scifi_min_max_ratio_v")
           .Define("us_qdc_min_max_ratio", "hit_metrics.us_qdc_min_max_ratio")
+          .Define("us_qdc_plane4_over_plane0", "hit_metrics.us_qdc_plane4_over_plane0")
+          .Define("scifi_trk_iso_all", "hit_metrics.scifi_trk_iso_all")
+          .Define("scifi_trk_iso_h", "hit_metrics.scifi_trk_iso_h")
+          .Define("scifi_trk_iso_v", "hit_metrics.scifi_trk_iso_v")
     )
 
 
@@ -313,6 +418,8 @@ def main():
                         help="Number of worker threads (overrides config)")
     parser.add_argument("-n", "--max-events", type=int, default=None,
                         help="Maximum events to process per sample")
+    parser.add_argument("-g", "--geo", default=None,
+                        help="Path to geometry file (auto-detected if omitted)")
     args = parser.parse_args()
 
     # Load configuration
@@ -332,6 +439,26 @@ def main():
         os.makedirs(out_dir, exist_ok=True)
 
     declare_cpp_hit_metrics()
+
+    # Determine and initialize geometry
+    geo_path = args.geo
+    if not geo_path:
+        for c in [
+            "/eos/user/i/idioniso/snd-numu-charm/data/pmu2022/geofile_full.Ntuple-TGeant4.root",
+            "/eos/experiment/sndlhc/convertedData/physics/2022/geofile_sndlhc_TI18_V4_2022.root",
+        ]:
+            if os.path.exists(c):
+                geo_path = c
+                break
+
+    if geo_path and os.path.exists(geo_path):
+        import SndlhcGeo
+        print(f"Initializing geometry from: {geo_path}")
+        _geo_interface = SndlhcGeo.GeoInterface(geo_path)
+        ROOT.HitMetrics.init_scifi_geometry()
+        print("Initialized SciFi channel geometry lookup table.")
+    else:
+        print("Warning: Geometry file not found. SciFi track isolation window calculations will default to 0.")
 
     hist_cfgs = config.get("histograms", [])
     booked_all = {}

@@ -116,3 +116,32 @@ histograms:
     bins: 50
     xmin: 0.0
     xmax: 1.0
+
+  - name: "us_qdc_plane4_over_plane0"
+    title: "US QDC Plane 4 / Plane 0 Ratio;QDC_{US4} / QDC_{US0};Events"
+    column: "us_qdc_plane4_over_plane0"
+    bins: 50
+    xmin: 0.0
+    xmax: 5.0
+
+  - name: "scifi_trk_iso_all"
+    title: "SciFi Hit Track Window Fraction (H+V);N_{hits}^{#pm 2cm} / N_{hits}^{SciFi};Events"
+    column: "scifi_trk_iso_all"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0
+
+  - name: "scifi_trk_iso_h"
+    title: "SciFi Hit Track Window Fraction (Horizontal);N_{hits}^{#pm 2cm (H)} / N_{hits}^{SciFi (H)};Events"
+    column: "scifi_trk_iso_h"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0
+
+  - name: "scifi_trk_iso_v"
+    title: "SciFi Hit Track Window Fraction (Vertical);N_{hits}^{#pm 2cm (V)} / N_{hits}^{SciFi (V)};Events"
+    column: "scifi_trk_iso_v"
+    bins: 50
+    xmin: 0.0
+    xmax: 1.0
+

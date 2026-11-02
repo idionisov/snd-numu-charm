@@ -408,6 +408,7 @@ class Snd2DEventDisplay:
         """Extracts truth information from tree event, optionally falling back to truth_tree."""
         truth = {
             "nu_e": 0.0,
+            "nu_pdg": 0,
             "vtx": (0.0, 0.0, -9999.0),
             "charm_pdg": 0,
             "decay_length_3d": 0.0,
@@ -440,6 +441,8 @@ class Snd2DEventDisplay:
                 truth["dimuon_mass"] = float(src.dimuon_mass)
             if truth["dimuon_opening_angle_mrad"] == 0.0 and hasattr(src, "dimuon_opening_angle_mrad"):
                 truth["dimuon_opening_angle_mrad"] = float(src.dimuon_opening_angle_mrad)
+            if truth["nu_pdg"] == 0 and hasattr(src, "nu_pdg"):
+                truth["nu_pdg"] = int(src.nu_pdg)
             if not truth["has_candidate"] and hasattr(src, "has_candidate"):
                 truth["has_candidate"] = bool(src.has_candidate)
             if "is_cc" not in truth and hasattr(src, "is_cc"):
@@ -458,6 +461,18 @@ class Snd2DEventDisplay:
 
         # Fallback to direct MCTrack inspection when flat truth branches are not present or incomplete
         mctrk_source = truth_tree if (truth_tree is not None and hasattr(truth_tree, "MCTrack") and truth_tree.MCTrack.GetEntries() > 0) else tree
+        if truth["nu_pdg"] == 0 and hasattr(mctrk_source, "MCTrack") and len(mctrk_source.MCTrack) > 0:
+            truth["nu_pdg"] = int(mctrk_source.MCTrack[0].GetPdgCode())
+
+        abs_in_pdg = abs(truth.get("nu_pdg", 0))
+        is_neutrino = abs_in_pdg in [12, 14, 16]
+        truth["is_neutrino"] = is_neutrino
+        if not is_neutrino and abs_in_pdg > 0:
+            truth["is_cc"] = False
+            truth["is_nc"] = False
+            if abs_in_pdg == 13:
+                truth["is_muon_sim"] = True
+
         if (truth["nu_e"] == 0.0 or truth["vtx"][2] < -9000.0 or truth["charm_pdg"] == 0) and hasattr(mctrk_source, "MCTrack") and len(mctrk_source.MCTrack) > 0:
             nu_trk = mctrk_source.MCTrack[0]
             if truth["nu_e"] == 0.0:
@@ -1295,6 +1310,12 @@ class Snd2DEventDisplay:
 
             if truth.get("is_particle_gun"):
                 topo_tag = "Particle Gun (#mu^{+}#mu^{-})"
+            elif truth.get("is_muon_sim"):
+                mu_name = "#mu^{-}" if truth.get("nu_pdg") == 13 else "#mu^{+}"
+                topo_tag = f"Muon Background ({mu_name})"
+            elif not truth.get("is_neutrino", True) and truth.get("nu_pdg", 0) != 0:
+                p_name = PDG_NAMES.get(truth.get("nu_pdg", 0), f"PDG {truth.get('nu_pdg', 0)}")
+                topo_tag = f"Incoming {p_name}"
             elif has_cand:
                 topo_tag = f"{nu_prefix} CC Dimuon + Charm"
             elif has_charm:
@@ -1313,6 +1334,13 @@ class Snd2DEventDisplay:
                 pave_info.AddText(f"Origin Vertex: ({vtx[0]:.1f}, {vtx[1]:.1f}, {vtx[2]:.1f}) cm  |  #theta_{{12}} = {truth.get('dimuon_opening_angle_mrad', 0.0):.1f} mrad")
                 pave_info.AddText(f"#mu_{{1}} (Track 0, Blue): p = {truth['mu1_p']:.1f} GeV/c")
                 pave_info.AddText(f"#mu_{{2}} (Track 1, Red): p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
+            elif not truth.get("is_neutrino", True) and truth.get("nu_pdg", 0) != 0:
+                mu_name = "#mu" if truth.get("is_muon_sim") else PDG_NAMES.get(truth.get("nu_pdg", 0), "Particle")
+                pave_info.AddText(f"p_{{{mu_name}}} = {truth['nu_e']:.1f} GeV/c  |  Entry: ({vtx[0]:.1f}, {vtx[1]:.1f}, {vtx[2]:.1f}) cm")
+                if truth["mu1_p"] > 0:
+                    pave_info.AddText(f"#mu_{{1}}: p = {truth['mu1_p']:.1f} GeV/c")
+                if truth["mu2_p"] > 0:
+                    pave_info.AddText(f"#mu_{{2}}: p = {truth['mu2_p']:.1f} GeV/c  |  M_{{#mu#mu}} = {truth['dimuon_mass']:.2f} GeV/c^{{2}}")
             else:
                 pave_info.AddText(f"E_{{#nu}} = {truth['nu_e']:.1f} GeV  |  Vertex: ({vtx[0]:.1f}, {vtx[1]:.1f}, {vtx[2]:.1f}) cm")
 

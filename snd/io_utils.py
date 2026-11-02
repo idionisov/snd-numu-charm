@@ -501,26 +501,41 @@ def resolve_mctruth_directory_hierarchy(
     # Fallback to discover nu_pdg from MCTrack[0] if still 0
     if nu_pdg == 0 and hasattr(tree, "MCTrack") and len(tree.MCTrack) > 0:
         nu_pdg = tree.MCTrack[0].GetPdgCode()
-        for trk in tree.MCTrack:
-            if trk.GetMotherId() == 0 and abs(trk.GetPdgCode()) in [11, 13, 15]:
-                is_cc = True
-                break
-        if not is_cc:
-            is_nc = True
+        if abs(nu_pdg) in [12, 14, 16]:
+            for trk in tree.MCTrack:
+                if trk.GetMotherId() == 0 and abs(trk.GetPdgCode()) in [11, 13, 15]:
+                    is_cc = True
+                    break
+            if not is_cc:
+                is_nc = True
 
-    # 2. Flavor Tier
+    # 2. Flavor / Incoming Particle Tier
     abs_nu = abs(nu_pdg)
+    is_neutrino = abs_nu in [12, 14, 16]
+
     if abs_nu == 14:
         flavor_dir = "numu"
     elif abs_nu == 12:
         flavor_dir = "nue"
     elif abs_nu == 16:
         flavor_dir = "nutau"
+    elif abs_nu == 13:
+        flavor_dir = "mu_13"
+    elif abs_nu == 11:
+        flavor_dir = "e_11"
+    elif abs_nu == 15:
+        flavor_dir = "tau_15"
+    elif abs_nu > 0:
+        raw_name = pdg_to_name(abs_nu)
+        clean_name = raw_name.replace("+", "").replace("-", "").replace("_", "").lower()
+        flavor_dir = f"part_{abs_nu}" if clean_name.startswith("pdg") else f"{clean_name}_{abs_nu}"
     else:
-        flavor_dir = f"nu_{abs_nu}" if abs_nu > 0 else "unknown"
+        flavor_dir = "unknown"
 
     # 3. Current Tier
-    if is_cc:
+    if not is_neutrino and abs_nu > 0:
+        current_dir = "other"
+    elif is_cc:
         current_dir = "CC"
     elif is_nc:
         current_dir = "NC"

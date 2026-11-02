@@ -222,6 +222,7 @@ def run_single_partition(
     par_file: Optional[str] = None,
     extra_args: Optional[List[str]] = None,
     save_logs: bool = False,
+    timeout: Optional[int] = 360,
     lock: Optional[threading.Lock] = None,
 ) -> Dict[str, Any]:
     """
@@ -296,7 +297,7 @@ def run_single_partition(
             stderr=subprocess.STDOUT,
             text=True,
             env=sub_env,
-            timeout=180,
+            timeout=timeout if (timeout is not None and timeout > 0) else None,
         )
         elapsed = time.time() - start_time
         result["elapsed_sec"] = elapsed
@@ -491,6 +492,12 @@ def main():
         help="Save stdout/stderr to '<output_file>.log' for each partition",
     )
     parser.add_argument(
+        "--timeout",
+        type=int,
+        default=360,
+        help="Subprocess execution timeout in seconds per partition (default: 360, set <=0 for no timeout)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         default=False,
@@ -652,6 +659,7 @@ def main():
             par_file=args.par_file,
             extra_args=extra_args,
             save_logs=args.save_logs,
+            timeout=args.timeout,
             lock=print_lock,
         )
 

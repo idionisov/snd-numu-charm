@@ -474,14 +474,23 @@ def load_cutflow_config(config_path: Optional[str] = None, cutset: Optional[str]
     cutsets = cfg.get("cutsets", {})
     if cutsets:
         active_cutset_name = cutset or cfg.get("default_cutset", "essentials")
+        resolved_name = None
         if active_cutset_name in cutsets:
-            cset = cutsets[active_cutset_name]
+            resolved_name = active_cutset_name
+        else:
+            norm_map = {k.replace("_", "").lower(): k for k in cutsets}
+            norm_key = active_cutset_name.replace("_", "").lower()
+            if norm_key in norm_map:
+                resolved_name = norm_map[norm_key]
+
+        if resolved_name:
+            cset = cutsets[resolved_name]
             allowed_cut_ids = set(cset.get("cuts", cset) if isinstance(cset, dict) else cset)
             for c in cfg.get("cuts", []):
                 c_id = c.get("id")
                 if c_id:
                     c["enabled"] = (c_id in allowed_cut_ids)
-            cfg["active_cutset"] = active_cutset_name
+            cfg["active_cutset"] = resolved_name
         else:
             valid_csets = list(cutsets.keys())
             raise ValueError(f"Unknown cutset '{active_cutset_name}'. Available cutsets in {config_path}: {valid_csets}")

@@ -1689,16 +1689,33 @@ def main():
         selected_partitions = parse_partitions(args.partitions)
         input_files = []
         if selected_partitions is not None:
+            c_p = args.input.count("%s") if args.input else 0
+            resolved_parts = []
             for p in selected_partitions:
                 p_str = str(p)
-                c_p = args.input.count("%s")
                 p_file = args.input % tuple(p_str for _ in range(c_p)) if c_p > 0 else args.input
+                if not os.path.exists(p_file) and c_p > 0:
+                    p_str_4d = f"{p:04d}"
+                    p_file_4d = args.input % tuple(p_str_4d for _ in range(c_p))
+                    if os.path.exists(p_file_4d):
+                        p_str = p_str_4d
+                        p_file = p_file_4d
                 if os.path.exists(p_file):
                     input_files.append(p_file)
+                    resolved_parts.append(p_str)
                 else:
                     print(f"[Warning] Partition {p} input file not found: {p_file}")
+            selected_partitions = resolved_parts
         else:
             input_files = resolve_input_files(args.input, max_files=args.max_files)
+            if args.input and "%s" in args.input:
+                discovered_parts = []
+                for inf in input_files:
+                    caps = extract_captures(inf, args.input)
+                    if caps:
+                        discovered_parts.append(caps[0])
+                if discovered_parts:
+                    selected_partitions = discovered_parts
     else:
         input_files = resolve_input_files(args.input, max_files=args.max_files)
 
@@ -1745,11 +1762,6 @@ def main():
     print("=" * 80)
 
     if args.partitions:
-        from scripts.extract_simulation_truth import parse_partitions
-        selected_partitions = parse_partitions(args.partitions)
-        if selected_partitions is None:
-            selected_partitions = list(range(1, 1001))
-
         csv_all = not args.csv_failed_only
 
         # Check if CSV output requested

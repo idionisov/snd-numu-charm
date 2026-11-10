@@ -17,7 +17,7 @@ cutsets:
       - step6_ds_dimuon
       - step7_two_ds_tracks
 
-  hough_tuning:
+  hough_tuning: &hough_tuning_anchor
     description: "Preselection cuts up through DS Dimuon activity (excluding Two DS Tracks)"
     cuts:
       - step0_raw
@@ -27,6 +27,7 @@ cutsets:
       - step4_scifi_ds_timing
       - step5_veto_hits
       - step6_ds_dimuon
+  houghTuning: *hough_tuning_anchor
 
 cuts:
   - id: "step0_raw"

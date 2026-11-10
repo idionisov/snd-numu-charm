@@ -157,6 +157,11 @@ cython_debug/
 # =====================
 .pypirc
 
+# Condor stuff
+htcondor/dagman/
+htcondor/**/*.txt
+htcondor/**/*.cc
+
 agy_sndmutri.sh
 slides
 .zed

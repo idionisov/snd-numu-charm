@@ -413,12 +413,7 @@ def prefilter_file(
 
             if cut_event_deltat is None:
                 dt_cfg = next((c for c in cuts_list if c.get("filter") == "pass_event_deltat_cut" or "deltat" in c.get("id", "")), {})
-                chain = dm.get_chain()
-                n_extract = total_entries
-                event_times = []
-                for iev in range(n_extract):
-                    chain.GetEntry(iev)
-                    event_times.append(chain.EventHeader.GetEventTime())
+                event_times = df.Take['long']("EventHeader.fEventTime").GetValue()
                 cut_event_deltat = EventDeltatCut(
                     min_delta_t=dt_cfg.get("min_delta_t", 100),
                     event_times=event_times,

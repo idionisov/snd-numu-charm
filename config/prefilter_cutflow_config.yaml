@@ -18,7 +18,7 @@ cutsets:
       - "step5_veto_hits"
       - "step6_ds_dimuon"
       - "step7_two_ds_tracks"
-  hough_tuning:
+  hough_tuning: &hough_tuning_anchor
     description: "Prefilter cutset without the final 2 DS tracks requirement for Hough tuning"
     cuts:
       - "step0_raw"
@@ -28,6 +28,7 @@ cutsets:
       - "step4_scifi_ds_timing"
       - "step5_veto_hits"
       - "step6_ds_dimuon"
+  houghTuning: *hough_tuning_anchor
 
 # Incremental Cutflow Selection Sequence
 # Each cut is applied sequentially after the preceding one.

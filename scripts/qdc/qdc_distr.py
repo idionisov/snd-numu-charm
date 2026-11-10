@@ -6,19 +6,23 @@ Extract and compare comprehensive QDC and hit occupancy distributions across:
   1. Collision Data (--input-data)
   2. PMU Muon Background Simulation (--input-pmu)
   3. GENIE Neutrino Simulation (--input-genie)
-     - Inclusive & Background
-     - Charm Dimuon Signal (numu -> charm -> 2nd muon) with wider bins
+     - Inclusive
+     - Direct Charm Dimuon Signal (numu -> charm -> 2nd muon) [wider bins]
+     - Indirect Charm Fake Signal (charm -> hadrons -> muon) [wider bins]
+     - Background (other neutrino interactions)
 
 Features:
+  - Fine binning across all distributions, with automatic rebinning applied to
+    the low-statistics GENIE direct signal and indirect fake signal.
   - System total, per plane (all planes filled together into one distribution),
     plane of max occupancy, and per hit QDC distributions for US, DS, and SciFi.
   - Total and per plane hit occupancy distributions for Veto, SciFi, US, and DS.
   - Veto delayed hits (> 300 ps after earliest SciFi hit).
   - Informative 2D correlation histograms for each category.
-  - Hierarchical TDirectory organization in output ROOT file.
-  - Superimposed normalized comparison TCanvases for all distributions
-    (Data: markers with error bars, Sims: colored histograms, Signal: colored markers with error bars).
-  - Both linear and log-Y scale comparison canvases.
+  - Dedicated 'lower_end/' TDirectory containing fine-grained pedestal/noise distributions
+    (QDC_hit^US [-10, 10], QDC_hit^SciFi [-1, 1], QDC_hit^DS [-10, 20]) and normalized
+    comparison canvases of pmu2022 against collision data.
+  - Superimposed normalized comparison TCanvases for all distributions in linear & log-Y scales.
 
 Usage:
   python3 scripts/qdc/qdc_distr.py \
@@ -99,7 +103,7 @@ struct Metrics {
     ROOT::RVec<int> ds_plane_hits;         // 7 planes
     ROOT::RVec<int> scifi_plane_hits;      // 10 planes
 
-    // Per hit QDC
+    // Per hit QDC (preserves negative pedestal/noise values)
     ROOT::RVec<double> us_hit_qdc;
     ROOT::RVec<double> ds_hit_qdc;
     ROOT::RVec<double> scifi_hit_qdc;
@@ -132,7 +136,7 @@ inline Metrics compute(const TClonesArray& scifiHits, const TClonesArray& mufiHi
         }
 
         double qdc = static_cast<double>(h->GetSignal(0));
-        if (qdc > 0.0) {
+        if (qdc > -900.0) { // Keep all signals including pedestal / noise
             m.scifi_total_qdc += qdc;
             m.scifi_hit_qdc.push_back(qdc);
         }
@@ -144,7 +148,7 @@ inline Metrics compute(const TClonesArray& scifiHits, const TClonesArray& mufiHi
             int p_idx = (st - 1) * 2 + o;
             if (p_idx >= 0 && p_idx < 10) {
                 m.scifi_plane_hits[p_idx]++;
-                if (qdc > 0.0) {
+                if (qdc > -900.0) {
                     m.scifi_plane_qdc[p_idx] += qdc;
                 }
             }
@@ -201,12 +205,15 @@ inline Metrics compute(const TClonesArray& scifiHits, const TClonesArray& mufiHi
             if (plane_idx >= 0 && plane_idx < 5) {
                 m.us_plane_hits[plane_idx]++;
             }
-            auto sigs = h->GetAllSignals();
+            // Include all signals including negative pedestal/noise (positive = false)
+            auto sigs = h->GetAllSignals(true, false);
             double hit_qdc = 0.0;
+            bool has_sig = false;
             for (const auto& kv : sigs) {
                 hit_qdc += kv.second;
+                has_sig = true;
             }
-            if (hit_qdc > 0.0) {
+            if (has_sig) {
                 m.us_total_qdc += hit_qdc;
                 m.us_hit_qdc.push_back(hit_qdc);
                 if (plane_idx >= 0 && plane_idx < 5) {
@@ -219,12 +226,15 @@ inline Metrics compute(const TClonesArray& scifiHits, const TClonesArray& mufiHi
             if (global_ds_plane >= 0 && global_ds_plane < 7) {
                 m.ds_plane_hits[global_ds_plane]++;
             }
-            auto sigs = h->GetAllSignals();
+            // Include all signals including negative pedestal/noise (positive = false)
+            auto sigs = h->GetAllSignals(true, false);
             double hit_qdc = 0.0;
+            bool has_sig = false;
             for (const auto& kv : sigs) {
                 hit_qdc += kv.second;
+                has_sig = true;
             }
-            if (hit_qdc > 0.0) {
+            if (has_sig) {
                 m.ds_total_qdc += hit_qdc;
                 m.ds_hit_qdc.push_back(hit_qdc);
                 if (global_ds_plane >= 0 && global_ds_plane < 7) {
@@ -294,7 +304,7 @@ def resolve_file_list(pattern: str) -> List[str]:
 
 
 def build_dataframe_with_friend(files: List[str], tree_name: str, friend_name: str = "mctruth"):
-    """Construct a persistent TChain backing with friend mctruth tree, returning (ch, ch_mc, df)."""
+    """Construct persistent TChain backing with friend mctruth tree, returning (ch, ch_mc, df)."""
     ch = ROOT.TChain(tree_name)
     ch_mc = ROOT.TChain(friend_name) if friend_name else None
 
@@ -343,116 +353,116 @@ def define_qdc_metrics(df, is_data: bool = False):
     )
 
 
-# Histogram specifications
+# Main 1D Histogram specifications (refined x-ranges and narrower bin widths)
 HIST_CONFIGS_1D = [
     # QDC distributions
     {
         "name": "us_total_qdc",
         "title": "Total Upstream (US) QDC;QDC_{tot}^{US} [a.u.];Events",
         "column": "us_total_qdc",
-        "bins": 190,
+        "bins": 380,
         "xmin": 0.0,
         "xmax": 190000.0,
-        "sig_rebin": 2,
+        "sig_rebin": 4,
     },
     {
         "name": "us_plane_qdc",
         "title": "US QDC per Plane (all planes);QDC_{plane}^{US} [a.u.];Entries",
         "column": "us_plane_qdc",
-        "bins": 150,
+        "bins": 600,
         "xmin": 0.0,
         "xmax": 60000.0,
-        "sig_rebin": 2,
+        "sig_rebin": 4,
     },
     {
         "name": "us_max_plane_qdc",
         "title": "US QDC in Plane of Max Occupancy;QDC_{max-occ plane}^{US} [a.u.];Events",
         "column": "us_max_plane_qdc",
-        "bins": 150,
+        "bins": 600,
         "xmin": 0.0,
         "xmax": 60000.0,
-        "sig_rebin": 2,
+        "sig_rebin": 4,
     },
     {
         "name": "us_hit_qdc",
         "title": "US QDC per Hit;QDC_{hit}^{US} [a.u.];Hits",
         "column": "us_hit_qdc",
-        "bins": 150,
+        "bins": 500,
         "xmin": 0.0,
         "xmax": 5000.0,
-        "sig_rebin": 2,
+        "sig_rebin": 4,
     },
     {
         "name": "ds_total_qdc",
         "title": "Total Downstream (DS) QDC;QDC_{tot}^{DS} [a.u.];Events",
         "column": "ds_total_qdc",
-        "bins": 150,
+        "bins": 600,
         "xmin": 0.0,
-        "xmax": 150000.0,
-        "sig_rebin": 2,
+        "xmax": 60000.0,
+        "sig_rebin": 4,
     },
     {
         "name": "ds_plane_qdc",
         "title": "DS QDC per Plane (all planes);QDC_{plane}^{DS} [a.u.];Entries",
         "column": "ds_plane_qdc",
-        "bins": 150,
+        "bins": 400,
         "xmin": 0.0,
-        "xmax": 40000.0,
-        "sig_rebin": 2,
+        "xmax": 20000.0,
+        "sig_rebin": 4,
     },
     {
         "name": "ds_max_plane_qdc",
         "title": "DS QDC in Plane of Max Occupancy;QDC_{max-occ plane}^{DS} [a.u.];Events",
         "column": "ds_max_plane_qdc",
-        "bins": 150,
+        "bins": 400,
         "xmin": 0.0,
-        "xmax": 40000.0,
-        "sig_rebin": 2,
+        "xmax": 20000.0,
+        "sig_rebin": 4,
     },
     {
         "name": "ds_hit_qdc",
         "title": "DS QDC per Hit;QDC_{hit}^{DS} [a.u.];Hits",
         "column": "ds_hit_qdc",
-        "bins": 150,
+        "bins": 500,
         "xmin": 0.0,
-        "xmax": 3000.0,
-        "sig_rebin": 2,
+        "xmax": 500.0,
+        "sig_rebin": 5,
     },
     {
         "name": "scifi_total_qdc",
         "title": "Total SciFi QDC;QDC_{tot}^{SciFi} [a.u.];Events",
         "column": "scifi_total_qdc",
-        "bins": 200,
+        "bins": 400,
         "xmin": 0.0,
-        "xmax": 50000.0,
-        "sig_rebin": 2,
+        "xmax": 20000.0,
+        "sig_rebin": 4,
     },
     {
         "name": "scifi_plane_qdc",
         "title": "SciFi QDC per Plane (all planes);QDC_{plane}^{SciFi} [a.u.];Entries",
         "column": "scifi_plane_qdc",
-        "bins": 150,
+        "bins": 600,
         "xmin": 0.0,
-        "xmax": 15000.0,
-        "sig_rebin": 2,
+        "xmax": 30000.0,
+        "sig_rebin": 4,
     },
     {
         "name": "scifi_max_plane_qdc",
         "title": "SciFi QDC in Plane of Max Occupancy;QDC_{max-occ plane}^{SciFi} [a.u.];Events",
         "column": "scifi_max_plane_qdc",
-        "bins": 150,
+        "bins": 800,
         "xmin": 0.0,
-        "xmax": 15000.0,
-        "sig_rebin": 2,
+        "xmax": 40000.0,
+        "sig_rebin": 4,
     },
     {
         "name": "scifi_hit_qdc",
         "title": "SciFi QDC per Hit;QDC_{hit}^{SciFi} [a.u.];Hits",
         "column": "scifi_hit_qdc",
-        "bins": 100,
+        "bins": 300,
         "xmin": 0.0,
-        "xmax": 100.0,
-        "sig_rebin": 2,
+        "xmax": 30.0,
+        "sig_rebin": 5,
     },
 
     # Number of hits distributions
@@ -478,7 +488,7 @@ HIST_CONFIGS_1D = [
         "name": "scifi_total_hits",
         "title": "Total SciFi Hits;N_{hits}^{SciFi};Events",
         "column": "scifi_total_hits",
-        "bins": 200,
+        "bins": 500,
         "xmin": 0.0,
         "xmax": 2000.0,
         "sig_rebin": 4,
@@ -487,55 +497,55 @@ HIST_CONFIGS_1D = [
         "name": "scifi_plane_hits",
         "title": "SciFi Hits per Plane (all planes);N_{hits / plane}^{SciFi};Entries",
         "column": "scifi_plane_hits",
-        "bins": 150,
+        "bins": 300,
         "xmin": 0.0,
         "xmax": 300.0,
-        "sig_rebin": 2,
+        "sig_rebin": 3,
     },
     {
         "name": "scifi_max_plane_hits",
         "title": "SciFi Hits in Plane of Max Occupancy;N_{hits}^{max SciFi plane};Events",
         "column": "scifi_max_plane_hits",
-        "bins": 150,
+        "bins": 400,
         "xmin": 0.0,
         "xmax": 400.0,
-        "sig_rebin": 2,
+        "sig_rebin": 4,
     },
     {
         "name": "us_total_hits",
         "title": "Total US Hits;N_{hits}^{US};Events",
         "column": "us_total_hits",
-        "bins": 100,
+        "bins": 55,
         "xmin": 0.0,
-        "xmax": 100.0,
-        "sig_rebin": 2,
+        "xmax": 55.0,
+        "sig_rebin": 5,
     },
     {
         "name": "us_plane_hits",
         "title": "US Hits per Plane (all planes);N_{hits / plane}^{US};Entries",
         "column": "us_plane_hits",
-        "bins": 50,
+        "bins": 12,
         "xmin": 0.0,
-        "xmax": 50.0,
-        "sig_rebin": 2,
+        "xmax": 12.0,
+        "sig_rebin": 1,
     },
     {
         "name": "us_max_plane_hits",
         "title": "US Hits in Plane of Max Occupancy;N_{hits}^{max US plane};Events",
         "column": "us_max_plane_hits",
-        "bins": 50,
+        "bins": 12,
         "xmin": 0.0,
-        "xmax": 50.0,
-        "sig_rebin": 2,
+        "xmax": 12.0,
+        "sig_rebin": 1,
     },
     {
         "name": "ds_total_hits",
         "title": "Total DS Hits;N_{hits}^{DS};Events",
         "column": "ds_total_hits",
-        "bins": 100,
+        "bins": 200,
         "xmin": 0.0,
         "xmax": 200.0,
-        "sig_rebin": 2,
+        "sig_rebin": 4,
     },
     {
         "name": "ds_plane_hits",
@@ -557,28 +567,56 @@ HIST_CONFIGS_1D = [
     },
 ]
 
+# Lower-end hit QDC specifications (fine pedestal and noise peak examination)
+HIST_CONFIGS_LOWER_END = [
+    {
+        "name": "us_hit_qdc_low",
+        "title": "US QDC per Hit (Lower End);QDC_{hit}^{US} [a.u.];Hits",
+        "column": "us_hit_qdc",
+        "bins": 200,
+        "xmin": -10.0,
+        "xmax": 10.0,
+    },
+    {
+        "name": "scifi_hit_qdc_low",
+        "title": "SciFi QDC per Hit (Lower End);QDC_{hit}^{SciFi} [a.u.];Hits",
+        "column": "scifi_hit_qdc",
+        "bins": 200,
+        "xmin": -1.0,
+        "xmax": 1.0,
+    },
+    {
+        "name": "ds_hit_qdc_low",
+        "title": "DS QDC per Hit (Lower End);QDC_{hit}^{DS} [a.u.];Hits",
+        "column": "ds_hit_qdc",
+        "bins": 300,
+        "xmin": -10.0,
+        "xmax": 20.0,
+    },
+]
+
 # Informative 2D histogram pairings
 HIST_CONFIGS_2D = [
-    ("scifi_total_hits", "us_total_qdc", 40, 0.0, 2000.0, 40, 0.0, 190000.0, "Total US QDC vs Total SciFi Hits;N_{hits}^{SciFi};QDC_{tot}^{US}"),
-    ("us_total_qdc", "ds_total_qdc", 40, 0.0, 190000.0, 40, 0.0, 150000.0, "Total DS QDC vs Total US QDC;QDC_{tot}^{US};QDC_{tot}^{DS}"),
-    ("us_total_hits", "us_total_qdc", 40, 0.0, 100.0, 40, 0.0, 190000.0, "Total US QDC vs Total US Hits;N_{hits}^{US};QDC_{tot}^{US}"),
-    ("ds_total_hits", "ds_total_qdc", 40, 0.0, 200.0, 40, 0.0, 150000.0, "Total DS QDC vs Total DS Hits;N_{hits}^{DS};QDC_{tot}^{DS}"),
-    ("scifi_total_hits", "scifi_total_qdc", 40, 0.0, 2000.0, 40, 0.0, 50000.0, "Total SciFi QDC vs Total SciFi Hits;N_{hits}^{SciFi};QDC_{tot}^{SciFi}"),
-    ("scifi_total_hits", "ds_total_hits", 40, 0.0, 2000.0, 40, 0.0, 200.0, "Total DS Hits vs Total SciFi Hits;N_{hits}^{SciFi};N_{hits}^{DS}"),
-    ("scifi_total_hits", "us_total_hits", 40, 0.0, 2000.0, 40, 0.0, 100.0, "Total US Hits vs Total SciFi Hits;N_{hits}^{SciFi};N_{hits}^{US}"),
-    ("us_total_hits", "ds_total_hits", 40, 0.0, 100.0, 40, 0.0, 200.0, "Total DS Hits vs Total US Hits;N_{hits}^{US};N_{hits}^{DS}"),
-    ("scifi_max_plane_hits", "us_max_plane_qdc", 40, 0.0, 400.0, 40, 0.0, 60000.0, "US Max Plane QDC vs SciFi Max Plane Hits;N_{hits}^{max SciFi plane};QDC_{max-occ plane}^{US}"),
-    ("veto_total_hits", "veto_delayed_hits", 20, 0.0, 20.0, 20, 0.0, 20.0, "Delayed Veto Hits vs Total Veto Hits;N_{hits}^{Veto};N_{hits}^{Veto delayed}"),
+    ("scifi_total_hits", "us_total_qdc", 50, 0.0, 2000.0, 50, 0.0, 190000.0, "Total US QDC vs Total SciFi Hits;N_{hits}^{SciFi};QDC_{tot}^{US}"),
+    ("us_total_qdc", "ds_total_qdc", 50, 0.0, 190000.0, 50, 0.0, 60000.0, "Total DS QDC vs Total US QDC;QDC_{tot}^{US};QDC_{tot}^{DS}"),
+    ("us_total_hits", "us_total_qdc", 55, 0.0, 55.0, 50, 0.0, 190000.0, "Total US QDC vs Total US Hits;N_{hits}^{US};QDC_{tot}^{US}"),
+    ("ds_total_hits", "ds_total_qdc", 50, 0.0, 200.0, 50, 0.0, 60000.0, "Total DS QDC vs Total DS Hits;N_{hits}^{DS};QDC_{tot}^{DS}"),
+    ("scifi_total_hits", "scifi_total_qdc", 50, 0.0, 2000.0, 50, 0.0, 20000.0, "Total SciFi QDC vs Total SciFi Hits;N_{hits}^{SciFi};QDC_{tot}^{SciFi}"),
+    ("scifi_total_hits", "ds_total_hits", 50, 0.0, 2000.0, 50, 0.0, 200.0, "Total DS Hits vs Total SciFi Hits;N_{hits}^{SciFi};N_{hits}^{DS}"),
+    ("scifi_total_hits", "us_total_hits", 50, 0.0, 2000.0, 55, 0.0, 55.0, "Total US Hits vs Total SciFi Hits;N_{hits}^{SciFi};N_{hits}^{US}"),
+    ("us_total_hits", "ds_total_hits", 55, 0.0, 55.0, 50, 0.0, 200.0, "Total DS Hits vs Total US Hits;N_{hits}^{US};N_{hits}^{DS}"),
+    ("scifi_max_plane_hits", "us_max_plane_qdc", 50, 0.0, 400.0, 50, 0.0, 60000.0, "US Max Plane QDC vs SciFi Max Plane Hits;N_{hits}^{max SciFi plane};QDC_{max-occ plane}^{US}"),
+    ("veto_total_hits", "veto_delayed_hits", 30, 0.0, 30.0, 30, 0.0, 30.0, "Delayed Veto Hits vs Total Veto Hits;N_{hits}^{Veto};N_{hits}^{Veto delayed}"),
 ]
 
 
-def book_1d_histograms(df, prefix: str, weight_col: Optional[str] = None):
+def book_1d_histograms(df, prefix: str, configs: List[Dict[str, Any]], weight_col: Optional[str] = None):
     """Book 1D histograms using RDataFrame."""
     booked = {}
     cols = [str(c) for c in df.GetColumnNames()]
     use_weight = bool(weight_col and weight_col in cols)
 
-    for cfg in HIST_CONFIGS_1D:
+    for cfg in configs:
         name = f"h_{prefix}_{cfg['name']}"
         title = f"{prefix}: {cfg['title']}"
         model = ROOT.RDF.TH1DModel(name, title, cfg["bins"], cfg["xmin"], cfg["xmax"])
@@ -642,6 +680,7 @@ def main():
 
     booked_all_1d: Dict[Tuple[str, str], Any] = {}
     booked_all_2d: Dict[Tuple[str, str], Any] = {}
+    booked_low_end: Dict[Tuple[str, str], Any] = {}
     chain_holders: List[Any] = []
 
     # -------------------------------------------------------------------------
@@ -663,8 +702,9 @@ def main():
                 df_data = df_data.Range(args.max_events)
             df_data = define_qdc_metrics(df_data, is_data=True)
 
-            booked_all_1d[("data", "data")] = book_1d_histograms(df_data, "data")
+            booked_all_1d[("data", "data")] = book_1d_histograms(df_data, "data", HIST_CONFIGS_1D)
             booked_all_2d[("data", "data")] = book_2d_histograms(df_data, "data")
+            booked_low_end[("data", "data")] = book_1d_histograms(df_data, "data", HIST_CONFIGS_LOWER_END)
         else:
             print(f"Warning: No collision data files found for {args.input_data}")
 
@@ -684,13 +724,14 @@ def main():
 
             cols = [str(c) for c in df_pmu.GetColumnNames()]
             pmu_weight = "mctruth.mc_weight" if "mctruth.mc_weight" in cols else ("mc_weight" if "mc_weight" in cols else None)
-            booked_all_1d[("pmu2022", "pmu")] = book_1d_histograms(df_pmu, "pmu", pmu_weight)
+            booked_all_1d[("pmu2022", "pmu")] = book_1d_histograms(df_pmu, "pmu", HIST_CONFIGS_1D, pmu_weight)
             booked_all_2d[("pmu2022", "pmu")] = book_2d_histograms(df_pmu, "pmu", pmu_weight)
+            booked_low_end[("pmu2022", "pmu")] = book_1d_histograms(df_pmu, "pmu", HIST_CONFIGS_LOWER_END, pmu_weight)
         else:
             print(f"Warning: No PMU files found for {args.input_pmu}")
 
     # -------------------------------------------------------------------------
-    # 3. GENIE Simulation Sample (Inclusive, Signal, and Background)
+    # 3. GENIE Simulation Sample (Inclusive, Signal, Indirect Fake, and Background)
     # -------------------------------------------------------------------------
     if args.input_genie:
         genie_files = resolve_file_list(args.input_genie)
@@ -706,33 +747,44 @@ def main():
             cols = [str(c) for c in df_genie.GetColumnNames()]
             genie_weight = "mctruth.mc_weight" if "mctruth.mc_weight" in cols else ("mc_weight" if "mc_weight" in cols else None)
 
-            # Signal definition: numu -> charm -> 2nd muon
-            has_truth = "mctruth.charm_has_direct_muon" in cols
-            if has_truth:
+            has_direct = "mctruth.charm_has_direct_muon" in cols
+            has_indirect = "mctruth.has_charm_hadronic_downstream_muon" in cols
+
+            if has_direct:
                 sig_cut = "mctruth.is_cc == 1 && mctruth.has_charm == 1 && mctruth.charm_has_direct_muon == 1"
-                bkg_cut = "!(mctruth.is_cc == 1 && mctruth.has_charm == 1 && mctruth.charm_has_direct_muon == 1)"
+                if has_indirect:
+                    indirect_cut = "mctruth.is_cc == 1 && mctruth.has_charm == 1 && mctruth.charm_has_direct_muon == 0 && mctruth.has_charm_hadronic_downstream_muon == 1"
+                    bkg_cut = f"!({sig_cut}) && !({indirect_cut})"
+                else:
+                    indirect_cut = None
+                    bkg_cut = f"!({sig_cut})"
 
                 df_genie_inc = df_genie
                 df_genie_sig = df_genie.Filter(sig_cut, "GENIE Charm Dimuon Signal")
                 df_genie_bkg = df_genie.Filter(bkg_cut, "GENIE Background")
 
-                booked_all_1d[("genie/inclusive", "genie_inc")] = book_1d_histograms(df_genie_inc, "genie_inc", genie_weight)
+                booked_all_1d[("genie/inclusive", "genie_inc")] = book_1d_histograms(df_genie_inc, "genie_inc", HIST_CONFIGS_1D, genie_weight)
                 booked_all_2d[("genie/inclusive", "genie_inc")] = book_2d_histograms(df_genie_inc, "genie_inc", genie_weight)
 
-                booked_all_1d[("genie/signal", "genie_sig")] = book_1d_histograms(df_genie_sig, "genie_sig", genie_weight)
+                booked_all_1d[("genie/signal", "genie_sig")] = book_1d_histograms(df_genie_sig, "genie_sig", HIST_CONFIGS_1D, genie_weight)
                 booked_all_2d[("genie/signal", "genie_sig")] = book_2d_histograms(df_genie_sig, "genie_sig", genie_weight)
 
-                booked_all_1d[("genie/background", "genie_bkg")] = book_1d_histograms(df_genie_bkg, "genie_bkg", genie_weight)
+                booked_all_1d[("genie/background", "genie_bkg")] = book_1d_histograms(df_genie_bkg, "genie_bkg", HIST_CONFIGS_1D, genie_weight)
                 booked_all_2d[("genie/background", "genie_bkg")] = book_2d_histograms(df_genie_bkg, "genie_bkg", genie_weight)
+
+                if indirect_cut:
+                    df_genie_ind = df_genie.Filter(indirect_cut, "GENIE Indirect Fake Signal")
+                    booked_all_1d[("genie/indirect_fake", "genie_ind")] = book_1d_histograms(df_genie_ind, "genie_ind", HIST_CONFIGS_1D, genie_weight)
+                    booked_all_2d[("genie/indirect_fake", "genie_ind")] = book_2d_histograms(df_genie_ind, "genie_ind", genie_weight)
             else:
                 print("Warning: 'mctruth' branch not found in GENIE sample; booking as inclusive.")
-                booked_all_1d[("genie/inclusive", "genie_inc")] = book_1d_histograms(df_genie, "genie_inc", genie_weight)
+                booked_all_1d[("genie/inclusive", "genie_inc")] = book_1d_histograms(df_genie, "genie_inc", HIST_CONFIGS_1D, genie_weight)
                 booked_all_2d[("genie/inclusive", "genie_inc")] = book_2d_histograms(df_genie, "genie_inc", genie_weight)
         else:
             print(f"Warning: No GENIE files found for {args.input_genie}")
 
     # -------------------------------------------------------------------------
-    # 4. Materialize Histograms & Apply Signal Rebinning
+    # 4. Materialize Histograms & Apply Rebinning to Low-Statistics Categories
     # -------------------------------------------------------------------------
     print("\nTriggering event loop evaluations...")
     materialized_1d = {}
@@ -743,14 +795,19 @@ def main():
     for key, h2_dict in booked_all_2d.items():
         materialized_2d[key] = {pair_name: h2_res.GetValue() for pair_name, h2_res in h2_dict.items()}
 
-    # Rebin signal histograms for low statistics
+    materialized_low_end = {}
+    for key, h_dict in booked_low_end.items():
+        materialized_low_end[key] = {var_name: h_res.GetValue() for var_name, h_res in h_dict.items()}
+
+    # Rebin signal and indirect fake histograms for low statistics
     sig_rebin_map = {cfg["name"]: cfg.get("sig_rebin", 1) for cfg in HIST_CONFIGS_1D}
-    if ("genie/signal", "genie_sig") in materialized_1d:
-        sig_dict = materialized_1d[("genie/signal", "genie_sig")]
-        for var_name, h_obj in sig_dict.items():
-            factor = sig_rebin_map.get(var_name, 1)
-            if factor > 1:
-                h_obj.Rebin(factor)
+    for rebinned_key in [("genie/signal", "genie_sig"), ("genie/indirect_fake", "genie_ind")]:
+        if rebinned_key in materialized_1d:
+            cat_dict = materialized_1d[rebinned_key]
+            for var_name, h_obj in cat_dict.items():
+                factor = sig_rebin_map.get(var_name, 1)
+                if factor > 1:
+                    h_obj.Rebin(factor)
 
     # -------------------------------------------------------------------------
     # 5. Write ROOT File with Structured TDirectories
@@ -804,6 +861,7 @@ def main():
         (("pmu2022", "pmu"), "pmu2022 Muon Sim", ROOT.kAzure + 1, 2, False, 0, 0.0, ROOT.kAzure + 1),
         (("genie/background", "genie_bkg"), "GENIE Other / Bkg", ROOT.kOrange + 7, 2, False, 0, 0.0, ROOT.kOrange + 7),
         (("genie/inclusive", "genie_inc"), "GENIE Inclusive", ROOT.kRed + 1, 2, False, 0, 0.0, ROOT.kRed + 1),
+        (("genie/indirect_fake", "genie_ind"), "GENIE Indirect Fake", ROOT.kViolet + 1, 2, False, 0, 0.0, ROOT.kViolet + 1),
         (("genie/signal", "genie_sig"), "GENIE Charm Signal (#nu_{#mu}#rightarrow c#rightarrow 2^{nd}#mu)", ROOT.kMagenta + 2, 2, True, 21, 0.9, ROOT.kMagenta + 2),
     ]
 
@@ -823,11 +881,11 @@ def main():
         c.SetTopMargin(0.08)
         c.SetBottomMargin(0.12)
 
-        leg = ROOT.TLegend(0.46, 0.68, 0.92, 0.89)
+        leg = ROOT.TLegend(0.46, 0.66, 0.92, 0.89)
         leg.SetBorderSize(0)
         leg.SetFillStyle(0)
         leg.SetTextFont(42)
-        leg.SetTextSize(0.033)
+        leg.SetTextSize(0.031)
 
         h_clones = []
         max_val = 0.0
@@ -900,11 +958,11 @@ def main():
             c_log.SetBottomMargin(0.12)
             c_log.SetLogy(1)
 
-            leg_log = ROOT.TLegend(0.46, 0.68, 0.92, 0.89)
+            leg_log = ROOT.TLegend(0.46, 0.66, 0.92, 0.89)
             leg_log.SetBorderSize(0)
             leg_log.SetFillStyle(0)
             leg_log.SetTextFont(42)
-            leg_log.SetTextSize(0.033)
+            leg_log.SetTextSize(0.031)
 
             log_min = max(1e-7, min_pos_val * 0.5) if min_pos_val < 1e20 else 1e-6
             for idx, (h_norm, label, is_marker) in enumerate(h_clones):
@@ -922,6 +980,149 @@ def main():
             leg_log.Draw()
             d_canvases_log.cd()
             c_log.Write()
+
+    # -------------------------------------------------------------------------
+    # 7. Dedicated 'lower_end/' Directory: PMU2022 vs Collision Data
+    # -------------------------------------------------------------------------
+    print("\nWriting lower-end distributions & comparisons (PMU vs Collision Data)...")
+    d_lower = out_file.GetDirectory("lower_end")
+    if not d_lower:
+        d_lower = out_file.mkdir("lower_end")
+
+    # Save lower end histograms for data and pmu2022
+    for cat_name in ["data", "pmu2022"]:
+        key = (cat_name, "data" if cat_name == "data" else "pmu")
+        if key in materialized_low_end:
+            d_sub = d_lower.GetDirectory(cat_name)
+            if not d_sub:
+                d_sub = d_lower.mkdir(cat_name)
+            d_sub.cd()
+            for h_name, h_obj in materialized_low_end[key].items():
+                d_sub.WriteTObject(h_obj, h_obj.GetName(), "Overwrite")
+
+    d_lower_comp = d_lower.GetDirectory("comparisons")
+    if not d_lower_comp:
+        d_lower_comp = d_lower.mkdir("comparisons")
+
+    d_lower_comp_log = d_lower_comp.GetDirectory("log")
+    if not d_lower_comp_log:
+        d_lower_comp_log = d_lower_comp.mkdir("log")
+
+    low_specs = [
+        (("data", "data"), "Collision Data", ROOT.kBlack, 2, True, 20, 0.8, ROOT.kBlack),
+        (("pmu2022", "pmu"), "pmu2022 Muon Sim", ROOT.kAzure + 1, 2, False, 0, 0.0, ROOT.kAzure + 1),
+    ]
+
+    for cfg in HIST_CONFIGS_LOWER_END:
+        var_name = cfg["name"]
+        c_name = f"c_{var_name}_normalized"
+        c_title = f"Lower End Comparison: {cfg['title'].split(';')[0]}"
+
+        # Linear canvas
+        c_low = ROOT.TCanvas(c_name, c_title, 950, 700)
+        c_low.SetLeftMargin(0.12)
+        c_low.SetRightMargin(0.06)
+        c_low.SetTopMargin(0.08)
+        c_low.SetBottomMargin(0.12)
+
+        leg_low = ROOT.TLegend(0.55, 0.72, 0.90, 0.88)
+        leg_low.SetBorderSize(0)
+        leg_low.SetFillStyle(0)
+        leg_low.SetTextFont(42)
+        leg_low.SetTextSize(0.035)
+
+        clones = []
+        max_v = 0.0
+        min_pos_v = 1e30
+
+        for cat_key, label, lcolor, lwidth, is_marker, mstyle, msize, mcolor in low_specs:
+            if cat_key not in materialized_low_end:
+                continue
+            cat_dict = materialized_low_end[cat_key]
+            if var_name not in cat_dict:
+                continue
+            h_orig = cat_dict[var_name]
+            if not h_orig or h_orig.GetEntries() == 0:
+                continue
+
+            h_norm = h_orig.Clone(f"{h_orig.GetName()}_norm")
+            integral = h_norm.Integral()
+            if integral > 0:
+                h_norm.Scale(1.0 / integral, "width")
+
+            h_norm.SetLineColor(lcolor)
+            h_norm.SetLineWidth(lwidth)
+            h_norm.SetLineStyle(1)
+
+            if is_marker:
+                h_norm.SetMarkerStyle(mstyle)
+                h_norm.SetMarkerSize(msize)
+                h_norm.SetMarkerColor(mcolor)
+                h_norm.SetFillStyle(0)
+            else:
+                h_norm.SetFillStyle(0)
+
+            h_norm.GetYaxis().SetTitle("Probability Density [1 / unit]")
+            h_norm.GetYaxis().SetTitleOffset(1.3)
+            h_norm.GetXaxis().SetTitle(h_orig.GetXaxis().GetTitle())
+
+            curr_m = h_norm.GetMaximum()
+            if curr_m > max_v:
+                max_v = curr_m
+
+            for b in range(1, h_norm.GetNbinsX() + 1):
+                val = h_norm.GetBinContent(b)
+                if val > 0.0 and val < min_pos_v:
+                    min_pos_v = val
+
+            clones.append((h_norm, label, is_marker))
+
+        if clones:
+            for idx, (h_norm, label, is_marker) in enumerate(clones):
+                h_norm.SetMaximum(max_v * 1.35)
+                h_norm.SetMinimum(0.0)
+                if is_marker:
+                    draw_opt = "E1 P" if idx == 0 else "E1 P SAME"
+                    leg_low.AddEntry(h_norm, label, "PL")
+                else:
+                    draw_opt = "HIST" if idx == 0 else "HIST SAME"
+                    leg_low.AddEntry(h_norm, label, "L")
+                h_norm.Draw(draw_opt)
+
+            leg_low.Draw()
+            d_lower_comp.cd()
+            c_low.Write()
+
+            # Log canvas
+            c_low_log = ROOT.TCanvas(f"{c_name}_logy", f"{c_title} (Log Scale)", 950, 700)
+            c_low_log.SetLeftMargin(0.12)
+            c_low_log.SetRightMargin(0.06)
+            c_low_log.SetTopMargin(0.08)
+            c_low_log.SetBottomMargin(0.12)
+            c_low_log.SetLogy(1)
+
+            leg_low_log = ROOT.TLegend(0.55, 0.72, 0.90, 0.88)
+            leg_low_log.SetBorderSize(0)
+            leg_low_log.SetFillStyle(0)
+            leg_low_log.SetTextFont(42)
+            leg_low_log.SetTextSize(0.035)
+
+            log_min_v = max(1e-7, min_pos_v * 0.5) if min_pos_v < 1e20 else 1e-6
+            for idx, (h_norm, label, is_marker) in enumerate(clones):
+                h_log_clone = h_norm.Clone(f"{h_norm.GetName()}_logclone")
+                h_log_clone.SetMaximum(max_v * 5.0)
+                h_log_clone.SetMinimum(log_min_v)
+                if is_marker:
+                    draw_opt = "E1 P" if idx == 0 else "E1 P SAME"
+                    leg_low_log.AddEntry(h_log_clone, label, "PL")
+                else:
+                    draw_opt = "HIST" if idx == 0 else "HIST SAME"
+                    leg_low_log.AddEntry(h_log_clone, label, "L")
+                h_log_clone.Draw(draw_opt)
+
+            leg_low_log.Draw()
+            d_lower_comp_log.cd()
+            c_low_log.Write()
 
     out_file.Close()
     elapsed = time.time() - t_start

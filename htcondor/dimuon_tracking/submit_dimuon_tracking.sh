@@ -19,8 +19,8 @@ mkdir -p out err log
 
 ARGS_FILE="${SCRIPT_DIR}/args_nu14_volTarget_1000.txt"
 TMP_ARGS=""
-FLAVOUR="longlunch"
-FORCE="0"
+FLAVOUR="workday"
+FORCE="1"
 DRY_RUN="0"
 STORE_EVENTS="all"
 SKIP_DISPLAYS="0"

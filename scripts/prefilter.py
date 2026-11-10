@@ -1953,7 +1953,8 @@ def main():
                     eta_sec = (len(tasks) - completed_count) / max(rate, 0.001)
                     eta_str = str(timedelta(seconds=int(eta_sec)))
 
-                    print(f"[{completed_count:4d}/{len(tasks)}] Part {part:4d}: Main {m_pass:2d}/{m_tot:2d} | Sig {s_pass:1d}/{s_tot:1d} | Ind {i_pass:1d}/{i_tot:1d} ({p_res['time']:.1f}s, ETA: {eta_str})")
+                    part_str = str(part)
+                print(f"[{completed_count:4d}/{len(tasks)}] Part {part_str:>4s}: Main {m_pass}/{m_tot} | Sig {s_pass}/{s_tot} | Ind {i_pass}/{i_tot} ({p_res['time']:.1f}s, ETA: {eta_str})")
         else:
             for t in tasks:
                 completed_count += 1
@@ -1973,7 +1974,8 @@ def main():
                 eta_sec = (len(tasks) - completed_count) / max(rate, 0.001)
                 eta_str = str(timedelta(seconds=int(eta_sec)))
 
-                print(f"[{completed_count:4d}/{len(tasks)}] Part {part:4d}: Main {m_pass:2d}/{m_tot:2d} | Sig {s_pass:1d}/{s_tot:1d} | Ind {i_pass:1d}/{i_tot:1d} ({p_res['time']:.1f}s, ETA: {eta_str})")
+                part_str = str(part)
+                print(f"[{completed_count:4d}/{len(tasks)}] Part {part_str:>4s}: Main {m_pass}/{m_tot} | Sig {s_pass}/{s_tot} | Ind {i_pass}/{i_tot} ({p_res['time']:.1f}s, ETA: {eta_str})")
 
         total_elapsed = time.time() - p_start_time
         overall_main_yield = (tot_main_out / tot_main_in * 100.0) if tot_main_in > 0 else 0.0

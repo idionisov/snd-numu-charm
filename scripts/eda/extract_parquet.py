@@ -10,7 +10,7 @@ Output Columns:
   - Event metadata: event_id, category, is_signal, mc_weight
   - Hit metrics (SciFi & MuFilter): all 21 occupancy/isolation variables
   - Track line parameters (Track 0 & Track 1): start/stop (x,y,z), slopes, angles, chi2/ndf
-  - Relative track topology: opening angle, DOCA between tracks
+  - Relative track topology: opening angle
 """
 
 from __future__ import annotations
@@ -330,20 +330,7 @@ namespace EdaExtract {
         float trk1_chi2_ndf{0.0f};
 
         float tracks_opening_angle{0.0f};
-        float tracks_doca{0.0f};
     };
-
-    inline float compute_doca_lines(const TVector3& p1, const TVector3& d1, const TVector3& p2, const TVector3& d2) {
-        TVector3 u = d1.Unit();
-        TVector3 v = d2.Unit();
-        TVector3 w0 = p1 - p2;
-        TVector3 cross = u.Cross(v);
-        double cross_mag = cross.Mag();
-        if (cross_mag > 1e-6) {
-            return std::abs(w0.Dot(cross)) / cross_mag;
-        }
-        return (w0 - u * (w0.Dot(u))).Mag();
-    }
 
     inline TrackMetrics compute_track_metrics(const TClonesArray& recoTracks) {
         TrackMetrics tm{};
@@ -394,7 +381,6 @@ namespace EdaExtract {
                 if (t0) {
                     TVector3 m0 = t0->getTrackMom();
                     tm.tracks_opening_angle = m0.Angle(m1);
-                    tm.tracks_doca = compute_doca_lines(t0->getStart(), m0, t1->getStart(), m1);
                 }
             }
         }
@@ -473,7 +459,6 @@ def define_features(df):
           .Define("trk1_chi2_ndf", "trk_metrics.trk1_chi2_ndf")
           # Multi-Track Topology
           .Define("tracks_opening_angle", "trk_metrics.tracks_opening_angle")
-          .Define("tracks_doca", "trk_metrics.tracks_doca")
     )
 
 
@@ -498,7 +483,7 @@ FEATURE_COLUMNS = [
     "trk1_slope_xz", "trk1_slope_yz",
     "trk1_angle_xz", "trk1_angle_yz",
     "trk1_chi2", "trk1_ndf", "trk1_chi2_ndf",
-    "tracks_opening_angle", "tracks_doca",
+    "tracks_opening_angle",
 ]
 
 

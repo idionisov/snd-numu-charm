@@ -29,6 +29,18 @@ cutsets:
       - step6_ds_dimuon
   houghTuning: *hough_tuning_anchor
 
+  b2nob1Muons:
+    description: "Downstream to upstream muons in B2noB1 non-colliding bunch crossings"
+    cuts:
+      - step0_raw
+      - step1_b2nob1
+      - step2_stable_beams
+      - step3_event_deltat
+      - step4_scifi_ds_timing_inv
+      - step5_veto_hits_any
+      - step6_scifi_activity
+      - step7_scifi_track_veto_doca
+
 cuts:
   - id: "step0_raw"
     name: "All Events"

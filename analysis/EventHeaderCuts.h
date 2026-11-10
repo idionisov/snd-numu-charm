@@ -35,6 +35,33 @@ public:
     void setReversed(bool r) { fReversed = r; }
 };
 
+class EventHeaderB2noB1Cut {
+private:
+    bool fReversed{false};
+
+public:
+    EventHeaderB2noB1Cut() = default;
+    explicit EventHeaderB2noB1Cut(bool reversed) : fReversed(reversed) {}
+
+    virtual ~EventHeaderB2noB1Cut() = default;
+
+    // Callable operator for ROOT RDataFrame:
+    // df.Filter(EventHeaderB2noB1Cut(), {"EventHeader"})
+    bool operator()(const SNDLHCEventHeader& header) const {
+        return passCut(&header);
+    }
+
+    bool passCut(const SNDLHCEventHeader* header) const {
+        if (!header) return fReversed ? true : false;
+        auto* h = const_cast<SNDLHCEventHeader*>(header);
+        bool is_b2 = h->isB2noB1();
+        return fReversed ? !is_b2 : is_b2;
+    }
+
+    bool isReversed() const { return fReversed; }
+    void setReversed(bool r) { fReversed = r; }
+};
+
 class StableBeamsCut {
 private:
     int fBeamMode{static_cast<int>(LhcBeamMode::StableBeams)}; // 11
@@ -107,6 +134,8 @@ public:
 namespace analysis_cuts {
     using EventHeaderIP1Cut = snd::EventHeaderIP1Cut;
     using eventHeaderIP1Cut = snd::EventHeaderIP1Cut;
+    using EventHeaderB2noB1Cut = snd::EventHeaderB2noB1Cut;
+    using eventHeaderB2noB1Cut = snd::EventHeaderB2noB1Cut;
     using StableBeamsCut = snd::StableBeamsCut;
     using stableBeamsCut = snd::StableBeamsCut;
     using EventDeltatCut = snd::EventDeltatCut;

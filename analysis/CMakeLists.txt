@@ -18,6 +18,8 @@ set(ANALYSIS_HEADERS
   DSActivityCut.h
   DSHoughTrackCut.h
   EventHeaderCuts.h
+  SciFiHitActivityCut.h
+  SciFiTrackVetoDocaCut.h
 )
 
 set(ANALYSIS_SRCS

@@ -39,8 +39,11 @@
 #pragma link C++ class snd::DSHoughTrackCut+;
 #pragma link C++ class snd::DSHoughTrackCounter+;
 #pragma link C++ class snd::EventHeaderIP1Cut+;
+#pragma link C++ class snd::EventHeaderB2noB1Cut+;
 #pragma link C++ class snd::StableBeamsCut+;
 #pragma link C++ class snd::EventDeltatCut+;
+#pragma link C++ class snd::SciFiHitActivityCut+;
+#pragma link C++ class snd::SciFiTrackVetoDocaCut+;
 #pragma link C++ namespace snd::analysis_cuts;
 #pragma link C++ class snd::analysis_cuts::AvgScifiFiducialCut+;
 #pragma link C++ class snd::analysis_cuts::AvgDSFiducialCut+;
@@ -51,7 +54,10 @@
 #pragma link C++ class snd::analysis_cuts::DSHoughTrackCut+;
 #pragma link C++ class snd::analysis_cuts::DSHoughTrackCounter+;
 #pragma link C++ class snd::analysis_cuts::EventHeaderIP1Cut+;
+#pragma link C++ class snd::analysis_cuts::EventHeaderB2noB1Cut+;
 #pragma link C++ class snd::analysis_cuts::StableBeamsCut+;
 #pragma link C++ class snd::analysis_cuts::EventDeltatCut+;
+#pragma link C++ class snd::analysis_cuts::SciFiHitActivityCut+;
+#pragma link C++ class snd::analysis_cuts::SciFiTrackVetoDocaCut+;
 
 #endif

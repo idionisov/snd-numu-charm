@@ -277,16 +277,18 @@ def get_scifi_ds_time_cut(
     min_delta_t: float = 0.0,
     require_valid: bool = True,
     reversed: bool = False,
+    inverted: bool = False,
 ) -> ROOT.snd.SciFiDSTimeCut:
     """
     Instantiate and return the C++ snd::SciFiDSTimeCut object for RDataFrame.
-    Requires latest DS hit time > earliest SciFi hit time + min_delta_t.
+    Requires latest DS hit time > earliest SciFi hit time + min_delta_t (or inverted: latest SciFi > earliest DS).
     """
     load_trident_libraries()
     return ROOT.snd.SciFiDSTimeCut(
         float(min_delta_t),
         bool(require_valid),
         bool(reversed),
+        bool(inverted),
     )
 
 
@@ -297,11 +299,13 @@ class SciFiDSTimeCut:
         min_delta_t: float = 0.0,
         require_valid: bool = True,
         reversed: bool = False,
+        inverted: bool = False,
     ):
         return get_scifi_ds_time_cut(
             min_delta_t=min_delta_t,
             require_valid=require_valid,
             reversed=reversed,
+            inverted=inverted,
         )
 
 
@@ -392,6 +396,103 @@ class EventHeaderIP1Cut:
     """Python wrapper for snd::EventHeaderIP1Cut."""
     def __new__(cls, reversed: bool = False):
         return get_event_header_ip1_cut(reversed=reversed)
+
+
+def get_event_header_b2nob1_cut(
+    reversed: bool = False,
+) -> ROOT.snd.EventHeaderB2noB1Cut:
+    """
+    Instantiate and return the C++ snd::EventHeaderB2noB1Cut object for RDataFrame.
+    Requires EventHeader.isB2noB1() == True.
+    """
+    load_trident_libraries()
+    return ROOT.snd.EventHeaderB2noB1Cut(bool(reversed))
+
+
+class EventHeaderB2noB1Cut:
+    """Python wrapper for snd::EventHeaderB2noB1Cut."""
+    def __new__(cls, reversed: bool = False):
+        return get_event_header_b2nob1_cut(reversed=reversed)
+
+
+def get_scifi_hit_activity_cut(
+    min_h: int = 3,
+    min_v: int = 3,
+    max_total: int = 50,
+    require_valid: bool = True,
+    reversed: bool = False,
+) -> ROOT.snd.SciFiHitActivityCut:
+    """
+    Instantiate and return the C++ snd::SciFiHitActivityCut object for RDataFrame.
+    Requires >= min_h H hits, >= min_v V hits, and < max_total total SciFi hits.
+    """
+    load_trident_libraries()
+    return ROOT.snd.SciFiHitActivityCut(
+        int(min_h),
+        int(min_v),
+        int(max_total),
+        bool(require_valid),
+        bool(reversed),
+    )
+
+
+class SciFiHitActivityCut:
+    """Python wrapper for snd::SciFiHitActivityCut."""
+    def __new__(
+        cls,
+        min_h: int = 3,
+        min_v: int = 3,
+        max_total: int = 50,
+        require_valid: bool = True,
+        reversed: bool = False,
+    ):
+        return get_scifi_hit_activity_cut(
+            min_h=min_h,
+            min_v=min_v,
+            max_total=max_total,
+            require_valid=require_valid,
+            reversed=reversed,
+        )
+
+
+def get_scifi_track_veto_doca_cut(
+    max_chi2_ndf: float = 5.0,
+    max_doca: float = 6.0,
+    track_type: int = 11,
+    require_valid: bool = False,
+    reversed: bool = False,
+) -> ROOT.snd.SciFiTrackVetoDocaCut:
+    """
+    Instantiate and return the C++ snd::SciFiTrackVetoDocaCut object for RDataFrame.
+    Requires at least one SciFi track with chi2/ndf <= max_chi2_ndf and DOCA to an activated Veto bar <= max_doca cm.
+    """
+    load_trident_libraries()
+    return ROOT.snd.SciFiTrackVetoDocaCut(
+        float(max_chi2_ndf),
+        float(max_doca),
+        int(track_type),
+        bool(require_valid),
+        bool(reversed),
+    )
+
+
+class SciFiTrackVetoDocaCut:
+    """Python wrapper for snd::SciFiTrackVetoDocaCut."""
+    def __new__(
+        cls,
+        max_chi2_ndf: float = 5.0,
+        max_doca: float = 6.0,
+        track_type: int = 11,
+        require_valid: bool = False,
+        reversed: bool = False,
+    ):
+        return get_scifi_track_veto_doca_cut(
+            max_chi2_ndf=max_chi2_ndf,
+            max_doca=max_doca,
+            track_type=track_type,
+            require_valid=require_valid,
+            reversed=reversed,
+        )
 
 
 def get_stable_beams_cut(

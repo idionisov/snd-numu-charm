@@ -73,8 +73,11 @@ from snd import (
     DSActivityCut,
     DSHoughTrackCut,
     EventHeaderIP1Cut,
+    EventHeaderB2noB1Cut,
     StableBeamsCut,
     EventDeltatCut,
+    SciFiHitActivityCut,
+    SciFiTrackVetoDocaCut,
     load_trident_libraries,
     resolve_input_files,
     extract_captures,
@@ -260,8 +263,11 @@ def prefilter_file(
     cut_scifi_ds_timing: Optional[ROOT.snd.SciFiDSTimeCut] = None,
     cut_two_ds_tracks: Optional[ROOT.snd.DSHoughTrackCut] = None,
     cut_ip1: Optional[ROOT.snd.EventHeaderIP1Cut] = None,
+    cut_b2nob1: Optional[ROOT.snd.EventHeaderB2noB1Cut] = None,
     cut_stable_beams: Optional[ROOT.snd.StableBeamsCut] = None,
     cut_event_deltat: Optional[ROOT.snd.EventDeltatCut] = None,
+    cut_scifi_activity: Optional[ROOT.snd.SciFiHitActivityCut] = None,
+    cut_scifi_track_veto_doca: Optional[ROOT.snd.SciFiTrackVetoDocaCut] = None,
     cutflow_config: Optional[Dict[str, Any]] = None,
     record_cutflow: bool = False,
     tree_name: Optional[str] = None,
@@ -395,6 +401,11 @@ def prefilter_file(
             else:
                 df_processed = df_processed.Define("pass_ip1_cut", "true")
 
+            if cut_b2nob1 is not None:
+                df_processed = df_processed.Define("pass_b2nob1_cut", cut_b2nob1, ["EventHeader"])
+            else:
+                df_processed = df_processed.Define("pass_b2nob1_cut", "true")
+
             if cut_stable_beams is not None:
                 df_processed = df_processed.Define("pass_stable_beams_cut", cut_stable_beams, ["EventHeader"])
             else:
@@ -416,6 +427,7 @@ def prefilter_file(
             df_processed = df_processed.Define("pass_event_deltat_cut", cut_event_deltat, ["rdfentry_"])
         else:
             df_processed = df_processed.Define("pass_ip1_cut", "true")
+            df_processed = df_processed.Define("pass_b2nob1_cut", "true")
             df_processed = df_processed.Define("pass_stable_beams_cut", "true")
             df_processed = df_processed.Define("pass_event_deltat_cut", "true")
 
@@ -424,6 +436,12 @@ def prefilter_file(
             df_processed = df_processed.Define("pass_scifi_fiducial", cut_scifi, ["Digi_ScifiHits"])
         else:
             df_processed = df_processed.Define("pass_scifi_fiducial", "true")
+
+        # Define SciFi hit activity boolean
+        if cut_scifi_activity is not None:
+            df_processed = df_processed.Define("pass_scifi_activity_cut", cut_scifi_activity, ["Digi_ScifiHits"])
+        else:
+            df_processed = df_processed.Define("pass_scifi_activity_cut", "true")
 
         # Define DS fiducial boolean
         if has_mufi and cut_ds is not None:
@@ -435,10 +453,13 @@ def prefilter_file(
         if has_mufi and cut_veto is not None:
             if has_scifi:
                 df_processed = df_processed.Define("pass_veto_cut", cut_veto, ["Digi_MuFilterHits", "Digi_ScifiHits"])
+                df_processed = df_processed.Define("pass_veto_hits_any_cut", cut_veto, ["Digi_MuFilterHits", "Digi_ScifiHits"])
             else:
                 df_processed = df_processed.Define("pass_veto_cut", cut_veto, ["Digi_MuFilterHits"])
+                df_processed = df_processed.Define("pass_veto_hits_any_cut", cut_veto, ["Digi_MuFilterHits"])
         else:
             df_processed = df_processed.Define("pass_veto_cut", "true")
+            df_processed = df_processed.Define("pass_veto_hits_any_cut", "true")
 
         # Define SciFi station cut boolean
         if cut_scifi_station is not None:
@@ -461,10 +482,12 @@ def prefilter_file(
         # Define SciFi to DS timing boolean
         if has_mufi and cut_scifi_ds_timing is not None:
             df_processed = df_processed.Define("pass_scifi_ds_timing_cut", cut_scifi_ds_timing, ["Digi_ScifiHits", "Digi_MuFilterHits"])
+            df_processed = df_processed.Define("pass_scifi_ds_timing_inv_cut", cut_scifi_ds_timing, ["Digi_ScifiHits", "Digi_MuFilterHits"])
         else:
             df_processed = df_processed.Define("pass_scifi_ds_timing_cut", "true")
+            df_processed = df_processed.Define("pass_scifi_ds_timing_inv_cut", "true")
 
-        # Define Reconstructed DS Hough tracks observable and cut boolean
+        # Define Reconstructed Hough tracks observable and cut booleans
         has_reco_tracks = dm.has_branch("Reco_MuonTracks") and not force_tracking
         if has_reco_tracks:
             df_processed = df_processed.Define("n_ds_hough_tracks", ROOT.snd.DSHoughTrackCounter(), ["Reco_MuonTracks"])
@@ -472,9 +495,14 @@ def prefilter_file(
                 df_processed = df_processed.Define("pass_two_ds_tracks_cut", cut_two_ds_tracks, ["Reco_MuonTracks"])
             else:
                 df_processed = df_processed.Define("pass_two_ds_tracks_cut", "true")
+            if cut_scifi_track_veto_doca is not None:
+                df_processed = df_processed.Define("pass_scifi_track_veto_doca_cut", cut_scifi_track_veto_doca, ["Reco_MuonTracks", "Digi_MuFilterHits"])
+            else:
+                df_processed = df_processed.Define("pass_scifi_track_veto_doca_cut", "true")
         else:
             df_processed = df_processed.Define("n_ds_hough_tracks", "0")
             df_processed = df_processed.Define("pass_two_ds_tracks_cut", "true")
+            df_processed = df_processed.Define("pass_scifi_track_veto_doca_cut", "true")
 
         # 5. Build incremental cut nodes and book histograms
         hist_configs = cutflow_config.get("histograms", []) if cutflow_config else []
@@ -540,9 +568,13 @@ def prefilter_file(
             failure_data = df_processed.AsNumpy(columns=fail_cols)
 
         # Check if on-the-fly track reconstruction is needed
-        run_onthefly_tracking = (not has_reco_tracks) and (cut_two_ds_tracks is not None) and any(
+        need_ds_tracking = (cut_two_ds_tracks is not None) and any(
             c.get("filter") == "pass_two_ds_tracks_cut" and c.get("enabled", True) for c in active_cuts
         )
+        need_scifi_tracking = (cut_scifi_track_veto_doca is not None) and any(
+            c.get("filter") == "pass_scifi_track_veto_doca_cut" and c.get("enabled", True) for c in active_cuts
+        )
+        run_onthefly_tracking = (not has_reco_tracks) and (need_ds_tracking or need_scifi_tracking)
 
         reconstructed_tracks_map: Dict[int, Any] = {}
         candidate_pass_map: Dict[int, bool] = {}
@@ -594,9 +626,10 @@ def prefilter_file(
             xrdb.getContainer("FairBaseParSet").setStatic()
             xrdb.getContainer("FairGeoParSet").setStatic()
 
+            tracking_case = "passing_mu_Sf" if need_scifi_tracking else "dimuon_DS"
             reco = SndlhcMuonReco.MuonReco()
-            reco.SetTrackingCase("dimuon_DS")
-            reco.SetName("houghTransform_DS")
+            reco.SetTrackingCase(tracking_case)
+            reco.SetName(f"houghTransform_{tracking_case}")
             reco.SetParFile(par_file)
             reco.SetHoughSpaceFormat("linearSlopeIntercept")
             reco.Init()
@@ -611,7 +644,10 @@ def prefilter_file(
             for iev in candidate_entries:
                 reco_chain.GetEvent(iev)
                 reco.Exec(0)
-                passed_trks = bool(cut_two_ds_tracks.passCut(reco.kalman_tracks))
+                if need_scifi_tracking:
+                    passed_trks = bool(cut_scifi_track_veto_doca.passCut(reco.kalman_tracks, reco_chain.Digi_MuFilterHits))
+                else:
+                    passed_trks = bool(cut_two_ds_tracks.passCut(reco.kalman_tracks))
                 candidate_pass_map[iev] = passed_trks
                 if passed_trks:
                     passed_entry_list.append(iev)
@@ -659,7 +695,7 @@ def prefilter_file(
             s_raw = float(stage["raw_weight"].GetValue()) if has_weights else 0.0
             s_mc = float(stage["mc_weight"].GetValue()) if has_weights else 0.0
 
-            if run_onthefly_tracking and (stage["id"] == "step7_two_ds_tracks" or "two_ds_tracks" in stage["id"]):
+            if run_onthefly_tracking and (stage["id"] in ["step7_two_ds_tracks", "step7_scifi_track_veto_doca"] or "two_ds_tracks" in stage["id"] or "doca" in stage["id"]):
                 cnt = step7_count
                 s_raw = step7_raw
                 s_mc = step7_mc
@@ -1592,6 +1628,9 @@ def main():
     ip1_cfg = next((c for c in cuts_list if c.get("filter") == "pass_ip1_cut" or "ip1" in c.get("id", "")), {})
     cut_ip1 = EventHeaderIP1Cut(reversed=ip1_cfg.get("reversed", False))
 
+    b2_cfg = next((c for c in cuts_list if c.get("filter") == "pass_b2nob1_cut" or "b2nob1" in c.get("id", "")), {})
+    cut_b2nob1 = EventHeaderB2noB1Cut(reversed=b2_cfg.get("reversed", False)) if b2_cfg else None
+
     sb_cfg = next((c for c in cuts_list if c.get("filter") == "pass_stable_beams_cut" or "stable_beams" in c.get("id", "")), {})
     cut_stable_beams = StableBeamsCut(beam_mode=sb_cfg.get("beam_mode", 11), reversed=sb_cfg.get("reversed", False))
 
@@ -1604,6 +1643,15 @@ def main():
         reversed=scifi_cfg.get("reversed", False),
     )
 
+    scifi_act_cfg = next((c for c in cuts_list if c.get("filter") == "pass_scifi_activity_cut" or "scifi_activity" in c.get("id", "")), {})
+    cut_scifi_activity = SciFiHitActivityCut(
+        min_h=scifi_act_cfg.get("min_h", 3),
+        min_v=scifi_act_cfg.get("min_v", 3),
+        max_total=scifi_act_cfg.get("max_total", 50),
+        require_valid=scifi_act_cfg.get("require_valid", True),
+        reversed=scifi_act_cfg.get("reversed", False),
+    ) if scifi_act_cfg else None
+
     ds_cfg = next((c for c in cuts_list if c.get("filter") == "pass_ds_fiducial" or "ds_fiducial" in c.get("id", "")), {})
     cut_ds = AvgDSFiducialCut(
         vertical_min=ds_cfg.get("vertical_min", 70.0),
@@ -1613,7 +1661,7 @@ def main():
         reversed=ds_cfg.get("reversed", False),
     )
 
-    veto_cfg = next((c for c in cuts_list if c.get("filter") == "pass_veto_cut" or "veto" in c.get("id", "")), {})
+    veto_cfg = next((c for c in cuts_list if c.get("enabled", True) and ("veto" in c.get("id", "") or "veto" in c.get("filter", ""))), {})
     cut_veto = VetoCut(
         min_hits=veto_cfg.get("min_hits", 0),
         max_hits=veto_cfg.get("max_hits", 0),
@@ -1647,11 +1695,12 @@ def main():
         reversed=ds_act_cfg.get("reversed", False),
     )
 
-    timing_cfg = next((c for c in cuts_list if c.get("filter") == "pass_scifi_ds_timing_cut" or "timing" in c.get("id", "")), {})
+    timing_cfg = next((c for c in cuts_list if c.get("enabled", True) and ("timing" in c.get("id", "") or "timing" in c.get("filter", ""))), {})
     cut_scifi_ds_timing = SciFiDSTimeCut(
         min_delta_t=timing_cfg.get("min_delta_t", 0.0),
         require_valid=timing_cfg.get("require_valid", True),
         reversed=timing_cfg.get("reversed", False),
+        inverted=timing_cfg.get("inverted", False),
     )
 
     two_ds_cfg = next((c for c in cuts_list if c.get("filter") == "pass_two_ds_tracks_cut" or "two_ds_tracks" in c.get("id", "") or "hough" in c.get("id", "")), {})
@@ -1660,7 +1709,16 @@ def main():
         max_tracks=two_ds_cfg.get("max_tracks", 2),
         track_type=two_ds_cfg.get("track_type", 13),
         reversed=two_ds_cfg.get("reversed", False),
-    )
+    ) if two_ds_cfg else None
+
+    doca_cfg = next((c for c in cuts_list if c.get("filter") == "pass_scifi_track_veto_doca_cut" or "doca" in c.get("id", "")), {})
+    cut_scifi_track_veto_doca = SciFiTrackVetoDocaCut(
+        max_chi2_ndf=doca_cfg.get("max_chi2_ndf", 5.0),
+        max_doca=doca_cfg.get("max_doca", 6.0),
+        track_type=doca_cfg.get("track_type", 11),
+        require_valid=doca_cfg.get("require_valid", False),
+        reversed=doca_cfg.get("reversed", False),
+    ) if doca_cfg else None
 
     cuts_dict = {
         "cut_scifi": cut_scifi,
@@ -1672,7 +1730,10 @@ def main():
         "cut_scifi_ds_timing": cut_scifi_ds_timing,
         "cut_two_ds_tracks": cut_two_ds_tracks,
         "cut_ip1": cut_ip1,
+        "cut_b2nob1": cut_b2nob1,
         "cut_stable_beams": cut_stable_beams,
+        "cut_scifi_activity": cut_scifi_activity,
+        "cut_scifi_track_veto_doca": cut_scifi_track_veto_doca,
     }
 
     if not args.input:
@@ -2020,7 +2081,10 @@ def main():
                 cut_scifi_ds_timing=cut_scifi_ds_timing,
                 cut_two_ds_tracks=cut_two_ds_tracks,
                 cut_ip1=cut_ip1,
+                cut_b2nob1=cut_b2nob1,
                 cut_stable_beams=cut_stable_beams,
+                cut_scifi_activity=cut_scifi_activity,
+                cut_scifi_track_veto_doca=cut_scifi_track_veto_doca,
                 cutflow_config=cutflow_cfg,
                 record_cutflow=False,
                 tree_name=args.tree_name,
@@ -2068,7 +2132,10 @@ def main():
             cut_scifi_ds_timing=cut_scifi_ds_timing,
             cut_two_ds_tracks=cut_two_ds_tracks,
             cut_ip1=cut_ip1,
+            cut_b2nob1=cut_b2nob1,
             cut_stable_beams=cut_stable_beams,
+            cut_scifi_activity=cut_scifi_activity,
+            cut_scifi_track_veto_doca=cut_scifi_track_veto_doca,
             cutflow_config=cutflow_cfg,
             record_cutflow=(args.cutflow is not None),
             tree_name=args.tree_name,

@@ -29,6 +29,17 @@ cutsets:
       - "step5_veto_hits"
       - "step6_ds_dimuon"
   houghTuning: *hough_tuning_anchor
+  b2nob1Muons:
+    description: "Downstream to upstream muons in B2noB1 non-colliding bunch crossings"
+    cuts:
+      - "step0_raw"
+      - "step1_b2nob1"
+      - "step2_stable_beams"
+      - "step3_event_deltat"
+      - "step4_scifi_ds_timing_inv"
+      - "step5_veto_hits_any"
+      - "step6_scifi_activity"
+      - "step7_scifi_track_veto_doca"
 
 # Incremental Cutflow Selection Sequence
 # Each cut is applied sequentially after the preceding one.
@@ -47,6 +58,13 @@ cuts:
     enabled: true
     data_only: true
     description: "Select collision bunch crossings from LHC IP1 (EventHeader.isIP1() == true)"
+
+  - id: "step1_b2nob1"
+    name: "LHC B2noB1"
+    filter: "pass_b2nob1_cut"
+    enabled: false
+    data_only: true
+    description: "Select non-colliding beam 2 bunch crossings from LHC B2noB1 (EventHeader.isB2noB1() == true)"
 
   - id: "step2_stable_beams"
     name: "Stable Beams"
@@ -74,6 +92,16 @@ cuts:
     require_valid: true
     reversed: false
 
+  - id: "step4_scifi_ds_timing_inv"
+    name: "SciFi-DS Inverted Timing"
+    filter: "pass_scifi_ds_timing_inv_cut"
+    enabled: false
+    description: "Require latest SciFi hit time > earliest DS hit time (downstream to upstream time sequence)"
+    min_delta_t: 0.0
+    require_valid: true
+    reversed: false
+    inverted: true
+
   - id: "step5_veto_hits"
     name: "No Veto Hits"
     filter: "pass_veto_cut"
@@ -84,6 +112,16 @@ cuts:
     require_valid: false
     time_threshold: 0.3
     use_timing: true
+
+  - id: "step5_veto_hits_any"
+    name: "At Least 1 Veto Hit"
+    filter: "pass_veto_hits_any_cut"
+    enabled: false
+    description: "Require at least one activated Veto hit without latency constraints"
+    min_hits: 1
+    max_hits: -1
+    require_valid: false
+    use_timing: false
 
   - id: "step6_ds_dimuon"
     name: "DS Dimuon"
@@ -97,6 +135,17 @@ cuts:
     require_valid: false
     reversed: false
 
+  - id: "step6_scifi_activity"
+    name: "SciFi Hit Multiplicity"
+    filter: "pass_scifi_activity_cut"
+    enabled: false
+    description: "Require >=3 horizontal hits, >=3 vertical hits, and <50 total SciFi hits"
+    min_h: 3
+    min_v: 3
+    max_total: 50
+    require_valid: true
+    reversed: false
+
   - id: "step7_two_ds_tracks"
     name: "Two DS Tracks"
     filter: "pass_two_ds_tracks_cut"
@@ -105,6 +154,17 @@ cuts:
     min_tracks: 2
     max_tracks: 2
     track_type: 13
+    reversed: false
+
+  - id: "step7_scifi_track_veto_doca"
+    name: "SciFi Track Veto DOCA"
+    filter: "pass_scifi_track_veto_doca_cut"
+    enabled: false
+    description: "Require reconstructed SciFi track with chi2/ndf <= 5 and DOCA to an activated Veto bar <= 6 cm"
+    max_chi2_ndf: 5.0
+    max_doca: 6.0
+    track_type: 11
+    require_valid: false
     reversed: false
 
   # Optional / Disabled Cuts

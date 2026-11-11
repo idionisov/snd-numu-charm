@@ -106,6 +106,13 @@ fi
 trap '[ -n "${TMP_ARGS}" ] && rm -f "${TMP_ARGS}"' EXIT
 
 if [ ! -f "${ARGS_FILE}" ]; then
+    # Auto-generate if default args file was not found
+    if [ "${ARGS_FILE}" = "${SCRIPT_DIR}/args_run6596_287.txt" ]; then
+        seq -f "%04g" 0 286 > "${ARGS_FILE}"
+    fi
+fi
+
+if [ ! -f "${ARGS_FILE}" ]; then
     echo "ERROR: Args file not found: ${ARGS_FILE}" >&2
     exit 1
 fi

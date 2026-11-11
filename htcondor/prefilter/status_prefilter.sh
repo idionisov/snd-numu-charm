@@ -14,6 +14,7 @@ fi
 
 echo ""
 echo "=== Output Directories Summary ==="
+OUT_RUN6596="/eos/user/i/idioniso/snd-numu-charm/prefiltered/2023/b2nob1Muons/run006596"
 OUT_MAIN="/eos/user/i/idioniso/snd-numu-charm/prefiltered/newP8/essentials"
 OUT_DIR="/eos/user/i/idioniso/snd-numu-charm/prefiltered/newP8/essentials-direct"
 OUT_IND="/eos/user/i/idioniso/snd-numu-charm/prefiltered/newP8/essentials-indirect"
@@ -27,6 +28,11 @@ count_files() {
     fi
 }
 
-echo "Main filtered files    : $(count_files "$OUT_MAIN") / 1000"
-echo "Direct filtered files  : $(count_files "$OUT_DIR") / 1000"
-echo "Indirect filtered files: $(count_files "$OUT_IND") / 1000"
+if [ -d "$OUT_RUN6596" ]; then
+    echo "Run 6596 (b2nob1Muons) : $(count_files "$OUT_RUN6596") / 287 files"
+fi
+if [ -d "$OUT_MAIN" ]; then
+    echo "Main MC filtered files : $(count_files "$OUT_MAIN") files"
+    echo "Direct MC filtered     : $(count_files "$OUT_DIR") files"
+    echo "Indirect MC filtered   : $(count_files "$OUT_IND") files"
+fi

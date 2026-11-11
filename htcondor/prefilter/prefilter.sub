@@ -1,13 +1,9 @@
 # ==============================================================================
-# HTCondor Submit File: SND@LHC Stage 6 - Event Prefiltering (Essentials)
+# HTCondor Submit File: SND@LHC Event Prefiltering (Single Partition per Job)
 #
 # Process per partition:
-#   Inputs : sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root
-#            sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonDirect.root
-#            sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth_charmDimuonIndirect.root
-#   Outputs: prefiltered/newP8/essentials/<p>/...
-#            prefiltered/newP8/essentials-direct/<p>/...
-#            prefiltered/newP8/essentials-indirect/<p>/...
+#   Inputs : /eos/experiment/sndlhc/convertedData/physics/2023/run_006596/sndsw_raw-%s.root
+#   Outputs: /eos/user/i/idioniso/snd-numu-charm/prefiltered/2023/b2nob1Muons/run006596/sndsw_raw-%s.root
 #
 # Usage:
 #   condor_submit prefilter.sub
@@ -18,11 +14,11 @@ base_dir                = /afs/cern.ch/work/i/idioniso/snd-numu-charm/htcondor/p
 initialdir              = $(base_dir)
 
 flavour                 = $(flavour:microcentury)
-args_file               = $(args_file:$(base_dir)/args_nu14_volTarget_1000.txt)
+args_file               = $(args_file:$(base_dir)/args_run6596_287.txt)
 
-input_pattern           = $(input_pattern:/eos/user/i/idioniso/snd-numu-charm/data/newP8/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root)
-output_pattern          = $(output_pattern:/eos/user/i/idioniso/snd-numu-charm/prefiltered/newP8/essentials/%s/sndLHC.Genie-TGeant4_MCEB_dig_2MuTrks_truth.root)
-cutset                  = $(cutset:essentials)
+input_pattern           = $(input_pattern:/eos/experiment/sndlhc/convertedData/physics/2023/run_006596/sndsw_raw-%s.root)
+output_pattern          = $(output_pattern:/eos/user/i/idioniso/snd-numu-charm/prefiltered/2023/b2nob1Muons/run006596/sndsw_raw-%s.root)
+cutset                  = $(cutset:b2nob1Muons)
 
 executable              = $(base_dir)/run_prefilter_partition.sh
 arguments               = $(partition) $(input_pattern) $(output_pattern) $(cutset)
@@ -45,8 +41,8 @@ when_to_transfer_output = ON_EXIT
 transfer_input_files    = $(base_dir)/sndswEnv.sh, /afs/cern.ch/user/i/idioniso/ddfUtils
 
 request_cpus            = 1
-request_memory          = 2GB
-request_disk            = 2GB
+request_memory          = 4GB
+request_disk            = 4GB
 max_retries             = 2
 
 queue partition from $(args_file)

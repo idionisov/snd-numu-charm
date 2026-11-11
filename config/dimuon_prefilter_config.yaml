@@ -30,7 +30,7 @@ cutsets:
   houghTuning: *hough_tuning_anchor
 
   b2nob1Muons: &b2nob1_anchor
-    description: "Downstream to upstream muons in B2noB1 non-colliding bunch crossings with reconstructed SciFi track"
+    description: "Downstream to upstream muons in B2noB1 non-colliding bunch crossings with 1 simple SciFi track and DOCA <= 3cm to Veto"
     cuts:
       - step0_raw
       - step1_b2nob1
@@ -39,7 +39,8 @@ cutsets:
       - step4_scifi_ds_timing_inv
       - step5_veto_hits_any
       - step6_scifi_activity
-      - step7_scifi_track_veto_doca
+      - step7_one_scifi_track
+      - step8_scifi_track_veto_doca
   b2nob1MuonsNoTrack: &b2nob1_notrack_anchor
     description: "Downstream to upstream muons in B2noB1 non-colliding bunch crossings without track reconstruction"
     cuts:
@@ -125,3 +126,25 @@ cuts:
     track_type: 13
     reversed: false
     description: "Require exactly two reconstructed DS Hough transform tracks (track_type=13)"
+
+
+  - id: "step7_one_scifi_track"
+    name: "One SciFi Track"
+    filter: "pass_one_scifi_track_cut"
+    enabled: false
+    min_tracks: 1
+    max_tracks: 1
+    track_type: 1
+    reversed: false
+    description: "Require exactly one reconstructed SciFi simple tracking track (track_type=1)"
+
+  - id: "step8_scifi_track_veto_doca"
+    name: "SciFi Track Veto DOCA"
+    filter: "pass_scifi_track_veto_doca_cut"
+    enabled: false
+    max_chi2_ndf: 999.0
+    max_doca: 3.0
+    track_type: 1
+    require_valid: false
+    reversed: false
+    description: "Require reconstructed SciFi track crossing within 3 cm of an activated Veto bar (DOCA <= 3.0 cm)"

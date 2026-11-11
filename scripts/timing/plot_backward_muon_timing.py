@@ -73,6 +73,7 @@ ROOT.gStyle.SetOptStat("emruo")
 
 DEFAULT_INPUT_DIR = "/eos/user/i/idioniso/snd-numu-charm/prefiltered/2023/b2nob1Muons/run006596"
 DEFAULT_INPUT_PATTERN = os.path.join(DEFAULT_INPUT_DIR, "sndsw_raw-*.root")
+DEFAULT_MC_FILE = "/eos/user/i/idioniso/snd-numu-charm/data/pgun_backwards_muons/sndLHC.PG_13-TGeant4_dig_b2nob1Muons.root"
 DEFAULT_OUTPUT_DIR = "plots/timing/run006596_b2nob1"
 DEFAULT_GEOFILE = "/eos/experiment/sndlhc/convertedData/physics/2023/geofile_sndlhc_TI18_V3_2023.root"
 TDC2NS = 6.23768  # 1 clock tick = 1 / 0.160316 GHz ~ 6.23768 ns
@@ -86,7 +87,26 @@ def parse_arguments() -> argparse.Namespace:
         "-i", "--input",
         type=str,
         default=DEFAULT_INPUT_PATTERN,
-        help=f"Input file, wildcard pattern, or directory (default: {DEFAULT_INPUT_PATTERN})",
+        help=f"Input file, wildcard pattern, or directory for data (default: {DEFAULT_INPUT_PATTERN})",
+    )
+    parser.add_argument(
+        "--mc", "--sim",
+        dest="mc_file",
+        type=str,
+        default=DEFAULT_MC_FILE,
+        help=f"Simulation ROOT file or pattern (default: {DEFAULT_MC_FILE})",
+    )
+    parser.add_argument(
+        "--no-mc",
+        action="store_true",
+        default=False,
+        help="Skip simulation processing and only process data",
+    )
+    parser.add_argument(
+        "--no-data",
+        action="store_true",
+        default=False,
+        help="Skip data processing and only process simulation",
     )
     parser.add_argument(
         "-o", "--output-dir",
@@ -129,7 +149,13 @@ def parse_arguments() -> argparse.Namespace:
         "--tag",
         type=str,
         default="Run 6596 B2noB1 Muons",
-        help="Label tag displayed on plot headers",
+        help="Label tag displayed on plot headers for Data",
+    )
+    parser.add_argument(
+        "--mc-tag",
+        type=str,
+        default="PGun B2noB1 Muon Sim",
+        help="Label tag displayed on plot headers for Simulation",
     )
     parser.add_argument(
         "--root-only",
@@ -566,41 +592,23 @@ def plot_subsystems_overlay(
     plt.close(fig)
 
 
-def main() -> None:
-    args = parse_arguments()
-    start_time = time.time()
-
-    input_files = resolve_input_files(args.input, max_files=args.max_files)
-    if not input_files:
-        print(f"[ERROR] No ROOT files found matching: {args.input}")
-        sys.exit(1)
-
-    os.makedirs(args.output_dir, exist_ok=True)
-    plots_dir = os.path.join(args.output_dir, "figures")
-    if args.plots:
-        os.makedirs(plots_dir, exist_ok=True)
-
-    print("=" * 80)
-    print(" SND@LHC Backward Muon Timing Analysis")
-    print("=" * 80)
-    print(f" Matched Files   : {len(input_files)}")
-    print(f" First File      : {os.path.basename(input_files[0])}")
-    print(f" Last File       : {os.path.basename(input_files[-1])}")
-    print(f" Units           : {args.units}")
-    print(f" Worker Processes: {args.jobs}")
-    print(f" Output Dir      : {args.output_dir}")
-    print("=" * 80)
-
-    # Prepare worker tasks
+def extract_dataset(
+    file_paths: List[str],
+    max_events: int,
+    jobs: int,
+    units: str,
+    geofile: Optional[str],
+    label: str,
+) -> Tuple[Dict[str, np.ndarray], int]:
+    """Process multiple ROOT files in parallel or sequentially and return aggregated numpy arrays."""
     tasks = []
     events_per_file = 0
-    if args.max_events > 0:
-        events_per_file = max(1, int(np.ceil(args.max_events / len(input_files))))
+    if max_events > 0:
+        events_per_file = max(1, int(np.ceil(max_events / len(file_paths))))
 
-    for f_path in input_files:
-        tasks.append((f_path, events_per_file, args.units, args.geofile))
+    for f_path in file_paths:
+        tasks.append((f_path, events_per_file, units, geofile))
 
-    # Aggregated storage
     combined: Dict[str, List[float]] = {
         "all_v": [], "all_sf": [], "all_us": [], "all_ds": [],
         "min_v": [], "max_v": [], "min_sf": [], "max_sf": [],
@@ -612,17 +620,14 @@ def main() -> None:
         "dt_ds_max_veto_max": [],
         "dt_ds_max_sf_min": [],
         "dt_ds_max_us_min": [],
-        # Reference times and relative differences
         "t_ref_scifi": [],
         "t_ref_ds": [],
         "dt_ref_scifi_min_veto": [],
         "dt_ref_ds_min_veto": [],
         "dt_ref_ds_ref_scifi": [],
-        # Track direction observables
         "track_direction": [],
         "track_velocity": [],
         "track_dir_slope": [],
-        # Complementary differences
         "dt_sf_max_ds_min": [],
         "dt_ds_min_veto_min": [],
         "dt_us_min_sf_min": [],
@@ -630,42 +635,175 @@ def main() -> None:
     }
     total_events = 0
 
-    # Execute parallel reading
-    completed = 0
-    if args.jobs > 1 and len(tasks) > 1:
-        with ProcessPoolExecutor(max_workers=args.jobs) as executor:
+    if jobs > 1 and len(tasks) > 1:
+        with ProcessPoolExecutor(max_workers=jobs) as executor:
             futures = [executor.submit(_process_single_file, t) for t in tasks]
             for fut in as_completed(futures):
                 res = fut.result()
                 total_events += res["events_processed"]
                 for k in combined:
                     combined[k].extend(res[k])
-                completed += 1
-                if completed % max(1, len(tasks) // 10) == 0 or completed == len(tasks):
-                    print(f" [{completed:4d}/{len(tasks)}] Processed ({total_events:,} events extracted so far)...")
     else:
         for t in tasks:
             res = _process_single_file(t)
             total_events += res["events_processed"]
             for k in combined:
                 combined[k].extend(res[k])
-            completed += 1
-            if completed % max(1, len(tasks) // 10) == 0 or completed == len(tasks):
-                print(f" [{completed:4d}/{len(tasks)}] Processed ({total_events:,} events extracted so far)...")
 
-    elapsed = time.time() - start_time
-    print(f"\nExtracted timing from {total_events:,} events across {len(input_files)} files in {elapsed:.1f}s.")
+    np_data: Dict[str, np.ndarray] = {k: np.array(v, dtype=np.float32) for k, v in combined.items()}
+    return np_data, total_events
+
+
+def plot_data_mc_comparison(
+    data_arr: np.ndarray,
+    mc_arr: np.ndarray,
+    title: str,
+    xlabel: str,
+    output_base: str,
+    bins: int = 50,
+    x_range: Optional[Tuple[float, float]] = None,
+    data_tag: str = "Data (Run 6596)",
+    mc_tag: str = "Simulation",
+    unit_str: str = "ns",
+    is_log: bool = False,
+) -> None:
+    """Plot normalized Data vs Simulation comparison figure."""
+    if len(data_arr) == 0 and len(mc_arr) == 0:
+        return
+
+    fig, ax = plt.subplots(figsize=(8, 6), dpi=150)
+
+    # Determine common x range
+    if x_range is None:
+        all_vals = []
+        if len(data_arr) > 0:
+            all_vals.append(data_arr)
+        if len(mc_arr) > 0:
+            all_vals.append(mc_arr)
+        concat = np.concatenate(all_vals)
+        p1, p99 = np.percentile(concat, [0.5, 99.5])
+        margin = max(abs(p99 - p1) * 0.08, 0.5)
+        x_min, x_max = float(p1 - margin), float(p99 + margin)
+    else:
+        x_min, x_max = x_range
+
+    bin_edges = np.linspace(x_min, x_max, bins + 1)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    bin_width = (x_max - x_min) / bins
+
+    # Simulation: stepped filled histogram
+    if len(mc_arr) > 0:
+        mc_counts, _ = np.histogram(mc_arr, bins=bin_edges)
+        mc_norm = mc_counts / (len(mc_arr) * bin_width) if (len(mc_arr) > 0 and bin_width > 0) else mc_counts
+        ax.hist(
+            bin_centers,
+            bins=bin_edges,
+            weights=mc_norm,
+            color="#d62728",
+            alpha=0.3,
+            edgecolor="#d62728",
+            linewidth=1.8,
+            histtype="stepfilled",
+            label=f"{mc_tag} (N={len(mc_arr):,})",
+        )
+
+    # Data: markers with error bars
+    if len(data_arr) > 0:
+        data_counts, _ = np.histogram(data_arr, bins=bin_edges)
+        data_norm = data_counts / (len(data_arr) * bin_width) if (len(data_arr) > 0 and bin_width > 0) else data_counts
+        data_err = np.sqrt(data_counts) / (len(data_arr) * bin_width) if len(data_arr) > 0 else np.zeros_like(data_norm)
+        mask = data_norm > 0
+        ax.errorbar(
+            bin_centers[mask],
+            data_norm[mask],
+            yerr=data_err[mask],
+            fmt="o",
+            color="#1f77b4",
+            markersize=5,
+            linewidth=1.5,
+            capsize=2,
+            label=f"{data_tag} (N={len(data_arr):,})",
+        )
+
+    ax.set_title(title, fontsize=13, pad=12, fontweight="bold")
+    ax.set_xlabel(xlabel, fontsize=12)
+    ax.set_ylabel(f"Normalized Probability / {bin_width:.2f} {unit_str}", fontsize=12)
+    ax.legend(loc="upper right", framealpha=0.9, fontsize=10)
+    ax.grid(True, linestyle="--", alpha=0.5)
+
+    if is_log:
+        ax.set_yscale("log")
+
+    if HAS_DMS:
+        dms.add_label(ax=ax, mainText="SND@LHC", extraText="Data vs Sim")
+
+    plt.tight_layout()
+    fig.savefig(f"{output_base}.png")
+    fig.savefig(f"{output_base}.pdf")
+    plt.close(fig)
+
+
+def main() -> None:
+    args = parse_arguments()
+    start_time = time.time()
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    plots_dir = os.path.join(args.output_dir, "figures")
+    if args.plots:
+        os.makedirs(plots_dir, exist_ok=True)
+
+    print("=" * 80)
+    print(" SND@LHC Backward Muon Timing Analysis")
     print("=" * 80)
 
-    # Convert to numpy arrays
-    np_data: Dict[str, np.ndarray] = {k: np.array(v, dtype=np.float32) for k, v in combined.items()}
+    # Resolve Data files
+    data_files = []
+    if not args.no_data:
+        data_files = resolve_input_files(args.input, max_files=args.max_files)
+        if not data_files:
+            print(f"[WARNING] No Data ROOT files found matching: {args.input}")
+    
+    # Resolve Simulation files
+    mc_files = []
+    if not args.no_mc:
+        mc_files = resolve_input_files(args.mc_file, max_files=args.max_files)
+        if not mc_files:
+            print(f"[WARNING] No Simulation ROOT files found matching: {args.mc_file}")
+
+    if not data_files and not mc_files:
+        print("[ERROR] Neither Data nor Simulation files found!")
+        sys.exit(1)
+
+    print(f" Data Files Matched : {len(data_files)}")
+    print(f" Sim Files Matched  : {len(mc_files)}")
+    print(f" Units              : {args.units}")
+    print(f" Worker Processes   : {args.jobs}")
+    print(f" Output Dir         : {args.output_dir}")
+    print("=" * 80)
+
+    # 1. Process Data
+    has_data = len(data_files) > 0
+    np_data: Dict[str, np.ndarray] = {}
+    total_data_events = 0
+    if has_data:
+        print(f"\nProcessing {len(data_files)} Data files ({args.tag})...")
+        np_data, total_data_events = extract_dataset(
+            data_files, args.max_events, args.jobs, args.units, args.geofile, "Data"
+        )
+        print(f"Extracted {total_data_events:,} Data events.")
+
+    # 2. Process Simulation
+    has_mc = len(mc_files) > 0
+    np_mc: Dict[str, np.ndarray] = {}
+    total_mc_events = 0
+    if has_mc:
+        print(f"\nProcessing {len(mc_files)} Simulation files ({args.mc_tag})...")
+        np_mc, total_mc_events = extract_dataset(
+            mc_files, args.max_events, args.jobs, args.units, args.geofile, "Simulation"
+        )
+        print(f"Extracted {total_mc_events:,} Simulation events.")
 
     u_str = "ns" if args.units == "ns" else "clock ticks"
-
-    # Tabulate and print summary statistics
-    print("\nTIMING DISTRIBUTIONS SUMMARY:")
-    print(f"{'Observable':<35} | {'Entries':>10} | {'Mean ['+u_str+']':>12} | {'StdDev ['+u_str+']':>12} | {'Median':>10}")
-    print("-" * 90)
 
     metrics_list = [
         ("all_v", "Veto Hit Times (All)"),
@@ -701,10 +839,23 @@ def main() -> None:
         ("dt_ds_min_sf_min", "Earliest DS - Earliest SciFi"),
     ]
 
-    for key, desc in metrics_list:
-        st = compute_statistics(np_data[key])
-        print(f"{desc:<35} | {st['entries']:>10,d} | {st['mean']:>12.2f} | {st['std']:>12.2f} | {st['median']:>10.2f}")
-    print("-" * 90)
+    if has_data:
+        print("\nDATA TIMING DISTRIBUTIONS SUMMARY:")
+        print(f"{'Observable':<35} | {'Entries':>10} | {'Mean ['+u_str+']':>12} | {'StdDev ['+u_str+']':>12} | {'Median':>10}")
+        print("-" * 90)
+        for key, desc in metrics_list:
+            st = compute_statistics(np_data.get(key, np.array([])))
+            print(f"{desc:<35} | {st['entries']:>10,d} | {st['mean']:>12.2f} | {st['std']:>12.2f} | {st['median']:>10.2f}")
+        print("-" * 90)
+
+    if has_mc:
+        print("\nSIMULATION TIMING DISTRIBUTIONS SUMMARY:")
+        print(f"{'Observable':<35} | {'Entries':>10} | {'Mean ['+u_str+']':>12} | {'StdDev ['+u_str+']':>12} | {'Median':>10}")
+        print("-" * 90)
+        for key, desc in metrics_list:
+            st = compute_statistics(np_mc.get(key, np.array([])))
+            print(f"{desc:<35} | {st['entries']:>10,d} | {st['mean']:>12.2f} | {st['std']:>12.2f} | {st['median']:>10.2f}")
+        print("-" * 90)
 
     # -------------------------------------------------------------------------
     # Generate Matplotlib Figures (only if --plots is set)
@@ -712,188 +863,240 @@ def main() -> None:
     if args.plots:
         print("\nGenerating publication figures (PNG and PDF)...")
 
-        # 1. Absolute Hit Times per Subsystem
-        plot_single_distribution(
-            np_data["all_v"], "Veto Hit Times Distribution", f"Veto Hit Time [{u_str}]",
-            os.path.join(plots_dir, "time_veto_all"), color="#d62728", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["all_sf"], "SciFi Hit Times Distribution", f"SciFi Hit Time [{u_str}]",
-            os.path.join(plots_dir, "time_scifi_all"), color="#1f77b4", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["all_us"], "Upstream MuFilter (US) Hit Times Distribution", f"US Hit Time [{u_str}]",
-            os.path.join(plots_dir, "time_us_all"), color="#2ca02c", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["all_ds"], "Downstream MuFilter (DS) Hit Times Distribution", f"DS Hit Time [{u_str}]",
-            os.path.join(plots_dir, "time_ds_all"), color="#9467bd", tag=args.tag, unit_str=u_str,
-        )
+        # Plot individual distributions for whichever dataset is active
+        active_sets = []
+        if has_data:
+            active_sets.append((np_data, args.tag, ""))
+        if has_mc:
+            active_sets.append((np_mc, args.mc_tag, "_sim"))
 
-        # 2. Earliest and Latest Extrema
-        plot_single_distribution(
-            np_data["min_v"], "Earliest Veto Hit Time per Event", f"Earliest Veto Time [{u_str}]",
-            os.path.join(plots_dir, "time_veto_earliest"), color="#d62728", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["max_v"], "Latest Veto Hit Time per Event", f"Latest Veto Time [{u_str}]",
-            os.path.join(plots_dir, "time_veto_latest"), color="#b2182b", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["min_sf"], "Earliest SciFi Hit Time per Event", f"Earliest SciFi Time [{u_str}]",
-            os.path.join(plots_dir, "time_scifi_earliest"), color="#1f77b4", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["max_sf"], "Latest SciFi Hit Time per Event", f"Latest SciFi Time [{u_str}]",
-            os.path.join(plots_dir, "time_scifi_latest"), color="#2166ac", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["min_us"], "Earliest US Hit Time per Event", f"Earliest US Time [{u_str}]",
-            os.path.join(plots_dir, "time_us_earliest"), color="#2ca02c", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["max_us"], "Latest US Hit Time per Event", f"Latest US Time [{u_str}]",
-            os.path.join(plots_dir, "time_us_latest"), color="#1b7837", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["min_ds"], "Earliest DS Hit Time per Event", f"Earliest DS Time [{u_str}]",
-            os.path.join(plots_dir, "time_ds_earliest"), color="#9467bd", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["max_ds"], "Latest DS Hit Time per Event", f"Latest DS Time [{u_str}]",
-            os.path.join(plots_dir, "time_ds_latest"), color="#762a83", tag=args.tag, unit_str=u_str,
-        )
+        for d_map, curr_tag, suffix in active_sets:
+            # 1. Absolute Hit Times per Subsystem
+            plot_single_distribution(
+                d_map["all_v"], f"Veto Hit Times Distribution ({curr_tag})", f"Veto Hit Time [{u_str}]",
+                os.path.join(plots_dir, f"time_veto_all{suffix}"), color="#d62728", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["all_sf"], f"SciFi Hit Times Distribution ({curr_tag})", f"SciFi Hit Time [{u_str}]",
+                os.path.join(plots_dir, f"time_scifi_all{suffix}"), color="#1f77b4", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["all_us"], f"Upstream MuFilter Hit Times ({curr_tag})", f"US Hit Time [{u_str}]",
+                os.path.join(plots_dir, f"time_us_all{suffix}"), color="#2ca02c", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["all_ds"], f"Downstream MuFilter Hit Times ({curr_tag})", f"DS Hit Time [{u_str}]",
+                os.path.join(plots_dir, f"time_ds_all{suffix}"), color="#9467bd", tag=curr_tag, unit_str=u_str,
+            )
 
-        # 3. Subsystem Overlays
-        subsys_palette = {
-            "Veto": (np_data["all_v"], "#d62728"),
-            "SciFi": (np_data["all_sf"], "#1f77b4"),
-            "US": (np_data["all_us"], "#2ca02c"),
-            "DS": (np_data["all_ds"], "#9467bd"),
-        }
-        plot_subsystems_overlay(
-            subsys_palette, "Normalized Subsystem Hit Times Comparison",
-            f"Hit Time [{u_str}]", os.path.join(plots_dir, "overlay_subsystems_all_hits"),
-            tag=args.tag, unit_str=u_str,
-        )
+            # 2. Earliest and Latest Extrema
+            plot_single_distribution(
+                d_map["min_v"], f"Earliest Veto Hit Time ({curr_tag})", f"Earliest Veto Time [{u_str}]",
+                os.path.join(plots_dir, f"time_veto_earliest{suffix}"), color="#d62728", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["max_v"], f"Latest Veto Hit Time ({curr_tag})", f"Latest Veto Time [{u_str}]",
+                os.path.join(plots_dir, f"time_veto_latest{suffix}"), color="#b2182b", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["min_sf"], f"Earliest SciFi Hit Time ({curr_tag})", f"Earliest SciFi Time [{u_str}]",
+                os.path.join(plots_dir, f"time_scifi_earliest{suffix}"), color="#1f77b4", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["max_sf"], f"Latest SciFi Hit Time ({curr_tag})", f"Latest SciFi Time [{u_str}]",
+                os.path.join(plots_dir, f"time_scifi_latest{suffix}"), color="#2166ac", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["min_us"], f"Earliest US Hit Time ({curr_tag})", f"Earliest US Time [{u_str}]",
+                os.path.join(plots_dir, f"time_us_earliest{suffix}"), color="#2ca02c", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["max_us"], f"Latest US Hit Time ({curr_tag})", f"Latest US Time [{u_str}]",
+                os.path.join(plots_dir, f"time_us_latest{suffix}"), color="#1b7837", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["min_ds"], f"Earliest DS Hit Time ({curr_tag})", f"Earliest DS Time [{u_str}]",
+                os.path.join(plots_dir, f"time_ds_earliest{suffix}"), color="#9467bd", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["max_ds"], f"Latest DS Hit Time ({curr_tag})", f"Latest DS Time [{u_str}]",
+                os.path.join(plots_dir, f"time_ds_latest{suffix}"), color="#762a83", tag=curr_tag, unit_str=u_str,
+            )
 
-        subsys_earliest_palette = {
-            "Earliest Veto": (np_data["min_v"], "#d62728"),
-            "Earliest SciFi": (np_data["min_sf"], "#1f77b4"),
-            "Earliest US": (np_data["min_us"], "#2ca02c"),
-            "Earliest DS": (np_data["min_ds"], "#9467bd"),
-        }
-        plot_subsystems_overlay(
-            subsys_earliest_palette, "Normalized Subsystem Earliest Hit Times Comparison",
-            f"Earliest Hit Time [{u_str}]", os.path.join(plots_dir, "overlay_subsystems_earliest"),
-            tag=args.tag, unit_str=u_str,
-        )
+            # 3. Subsystem Overlays
+            subsys_palette = {
+                "Veto": (d_map["all_v"], "#d62728"),
+                "SciFi": (d_map["all_sf"], "#1f77b4"),
+                "US": (d_map["all_us"], "#2ca02c"),
+                "DS": (d_map["all_ds"], "#9467bd"),
+            }
+            plot_subsystems_overlay(
+                subsys_palette, f"Normalized Subsystem Hit Times ({curr_tag})",
+                f"Hit Time [{u_str}]", os.path.join(plots_dir, f"overlay_subsystems_all_hits{suffix}"),
+                tag=curr_tag, unit_str=u_str,
+            )
 
-        # 4. User-Requested Relative Time Differences
-        plot_single_distribution(
-            np_data["dt_sf_min_veto_min"],
-            "Earliest SciFi Hit Time - Earliest Veto Hit Time",
-            f"t_{{SciFi}}^{{min}} - t_{{Veto}}^{{min}} [{u_str}]",
-            os.path.join(plots_dir, "dt_scifi_min_minus_veto_min"),
-            color="#2b83ba", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["dt_sf_max_veto_max"],
-            "Latest SciFi Hit Time - Latest Veto Hit Time",
-            f"t_{{SciFi}}^{{max}} - t_{{Veto}}^{{max}} [{u_str}]",
-            os.path.join(plots_dir, "dt_scifi_max_minus_veto_max"),
-            color="#41b6c4", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["dt_us_max_veto_min"],
-            "Latest US Hit Time - Earliest Veto Hit Time",
-            f"t_{{US}}^{{max}} - t_{{Veto}}^{{min}} [{u_str}]",
-            os.path.join(plots_dir, "dt_us_max_minus_veto_min"),
-            color="#74add1", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["dt_us_max_sf_max"],
-            "Latest US Hit Time - Latest SciFi Hit Time",
-            f"t_{{US}}^{{max}} - t_{{SciFi}}^{{max}} [{u_str}]",
-            os.path.join(plots_dir, "dt_us_max_minus_scifi_max"),
-            color="#fdae61", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["dt_ds_max_veto_max"],
-            "Latest DS Hit Time - Latest Veto Hit Time",
-            f"t_{{DS}}^{{max}} - t_{{Veto}}^{{max}} [{u_str}]",
-            os.path.join(plots_dir, "dt_ds_max_minus_veto_max"),
-            color="#8073ac", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["dt_ds_max_sf_min"],
-            "Latest DS Hit Time - Earliest SciFi Hit Time",
-            f"t_{{DS}}^{{max}} - t_{{SciFi}}^{{min}} [{u_str}]",
-            os.path.join(plots_dir, "dt_ds_max_minus_scifi_min"),
-            color="#e08214", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["dt_ds_max_us_min"],
-            "Latest DS Hit Time - Earliest US Hit Time",
-            f"t_{{DS}}^{{max}} - t_{{US}}^{{min}} [{u_str}]",
-            os.path.join(plots_dir, "dt_ds_max_minus_us_min"),
-            color="#b2182b", tag=args.tag, unit_str=u_str,
-        )
+            subsys_earliest_palette = {
+                "Earliest Veto": (d_map["min_v"], "#d62728"),
+                "Earliest SciFi": (d_map["min_sf"], "#1f77b4"),
+                "Earliest US": (d_map["min_us"], "#2ca02c"),
+                "Earliest DS": (d_map["min_ds"], "#9467bd"),
+            }
+            plot_subsystems_overlay(
+                subsys_earliest_palette, f"Normalized Subsystem Earliest Hit Times ({curr_tag})",
+                f"Earliest Hit Time [{u_str}]", os.path.join(plots_dir, f"overlay_subsystems_earliest{suffix}"),
+                tag=curr_tag, unit_str=u_str,
+            )
 
-        # Reference times and relative differences
-        plot_single_distribution(
-            np_data["dt_ref_scifi_min_veto"],
-            "Reference SciFi Time - Earliest Veto Hit Time",
-            f"t_{{SciFi}}^{{ref}} - t_{{Veto}}^{{min}} [{u_str}]",
-            os.path.join(plots_dir, "dt_ref_scifi_minus_veto_min"),
-            color="#2ca02c", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["dt_ref_ds_min_veto"],
-            "Reference DS Time - Earliest Veto Hit Time",
-            f"t_{{DS}}^{{ref}} - t_{{Veto}}^{{min}} [{u_str}]",
-            os.path.join(plots_dir, "dt_ref_ds_minus_veto_min"),
-            color="#762a83", tag=args.tag, unit_str=u_str,
-        )
-        plot_single_distribution(
-            np_data["dt_ref_ds_ref_scifi"],
-            "Reference DS Time - Reference SciFi Time",
-            f"t_{{DS}}^{{ref}} - t_{{SciFi}}^{{ref}} [{u_str}]",
-            os.path.join(plots_dir, "dt_ref_ds_minus_ref_scifi"),
-            color="#d95f02", tag=args.tag, unit_str=u_str,
-        )
+            # 4. Relative Time Differences (using 50 bins for ~2150 simulation statistics)
+            bins_rel = 50 if "Sim" in curr_tag else 100
+            plot_single_distribution(
+                d_map["dt_sf_min_veto_min"],
+                f"Earliest SciFi - Earliest Veto ({curr_tag})",
+                f"t_{{SciFi}}^{{min}} - t_{{Veto}}^{{min}} [{u_str}]",
+                os.path.join(plots_dir, f"dt_scifi_min_minus_veto_min{suffix}"),
+                bins=bins_rel, color="#2b83ba", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["dt_sf_max_veto_max"],
+                f"Latest SciFi - Latest Veto ({curr_tag})",
+                f"t_{{SciFi}}^{{max}} - t_{{Veto}}^{{max}} [{u_str}]",
+                os.path.join(plots_dir, f"dt_scifi_max_minus_veto_max{suffix}"),
+                bins=bins_rel, color="#41b6c4", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["dt_us_max_veto_min"],
+                f"Latest US - Earliest Veto ({curr_tag})",
+                f"t_{{US}}^{{max}} - t_{{Veto}}^{{min}} [{u_str}]",
+                os.path.join(plots_dir, f"dt_us_max_minus_veto_min{suffix}"),
+                bins=bins_rel, color="#74add1", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["dt_us_max_sf_max"],
+                f"Latest US - Latest SciFi ({curr_tag})",
+                f"t_{{US}}^{{max}} - t_{{SciFi}}^{{max}} [{u_str}]",
+                os.path.join(plots_dir, f"dt_us_max_minus_scifi_max{suffix}"),
+                bins=bins_rel, color="#fdae61", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["dt_ds_max_veto_max"],
+                f"Latest DS - Latest Veto ({curr_tag})",
+                f"t_{{DS}}^{{max}} - t_{{Veto}}^{{max}} [{u_str}]",
+                os.path.join(plots_dir, f"dt_ds_max_minus_veto_max{suffix}"),
+                bins=bins_rel, color="#8073ac", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["dt_ds_max_sf_min"],
+                f"Latest DS - Earliest SciFi ({curr_tag})",
+                f"t_{{DS}}^{{max}} - t_{{SciFi}}^{{min}} [{u_str}]",
+                os.path.join(plots_dir, f"dt_ds_max_minus_scifi_min{suffix}"),
+                bins=bins_rel, color="#e08214", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["dt_ds_max_us_min"],
+                f"Latest DS - Earliest US ({curr_tag})",
+                f"t_{{DS}}^{{max}} - t_{{US}}^{{min}} [{u_str}]",
+                os.path.join(plots_dir, f"dt_ds_max_minus_us_min{suffix}"),
+                bins=bins_rel, color="#b2182b", tag=curr_tag, unit_str=u_str,
+            )
 
-        # 5. Inverted SciFi-DS Timing Cut Observable
-        plot_single_distribution(
-            np_data["dt_sf_max_ds_min"],
-            "Latest SciFi Hit Time - Earliest DS Hit Time (Inverted SciFi-DS Cut)",
-            f"t_{{SciFi}}^{{max}} - t_{{DS}}^{{min}} [{u_str}]",
-            os.path.join(plots_dir, "dt_scifi_max_minus_ds_min"),
-            color="#006837", tag=args.tag, unit_str=u_str,
-        )
+            # Reference times and relative differences
+            plot_single_distribution(
+                d_map["dt_ref_scifi_min_veto"],
+                f"Reference SciFi Time - Earliest Veto ({curr_tag})",
+                f"t_{{SciFi}}^{{ref}} - t_{{Veto}}^{{min}} [{u_str}]",
+                os.path.join(plots_dir, f"dt_ref_scifi_minus_veto_min{suffix}"),
+                bins=bins_rel, color="#2ca02c", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["dt_ref_ds_min_veto"],
+                f"Reference DS Time - Earliest Veto ({curr_tag})",
+                f"t_{{DS}}^{{ref}} - t_{{Veto}}^{{min}} [{u_str}]",
+                os.path.join(plots_dir, f"dt_ref_ds_minus_veto_min{suffix}"),
+                bins=bins_rel, color="#762a83", tag=curr_tag, unit_str=u_str,
+            )
+            plot_single_distribution(
+                d_map["dt_ref_ds_ref_scifi"],
+                f"Reference DS Time - Reference SciFi ({curr_tag})",
+                f"t_{{DS}}^{{ref}} - t_{{SciFi}}^{{ref}} [{u_str}]",
+                os.path.join(plots_dir, f"dt_ref_ds_minus_ref_scifi{suffix}"),
+                bins=bins_rel, color="#d95f02", tag=curr_tag, unit_str=u_str,
+            )
 
-        # 6. Track Direction Observables
-        plot_single_distribution(
-            np_data["track_direction"],
-            "Reco Muon Track Propagation Direction (+1=downstream, -1=upstream)",
-            "Track Direction (+1 / -1)",
-            os.path.join(plots_dir, "reco_track_direction"),
-            bins=5, x_range=(-2.5, 2.5), color="#386cb0", tag=args.tag, unit_str="",
-        )
-        plot_single_distribution(
-            np_data["track_velocity"],
-            "Reco Muon Track Velocity (dL/dT)",
-            "Velocity [cm/ns]",
-            os.path.join(plots_dir, "reco_track_velocity"),
-            color="#f0027f", tag=args.tag, unit_str="cm/ns",
-        )
-        plot_single_distribution(
-            np_data["track_dir_slope"],
-            "Reco Muon Track Dir Slope (Time of Flight Fit)",
-            "Slope [ns/cm]",
-            os.path.join(plots_dir, "reco_track_dir_slope"),
-            color="#bf5b17", tag=args.tag, unit_str="ns/cm",
-        )
+            # Inverted SciFi-DS Timing Cut Observable
+            plot_single_distribution(
+                d_map["dt_sf_max_ds_min"],
+                f"Latest SciFi - Earliest DS [Inverted Cut] ({curr_tag})",
+                f"t_{{SciFi}}^{{max}} - t_{{DS}}^{{min}} [{u_str}]",
+                os.path.join(plots_dir, f"dt_scifi_max_minus_ds_min{suffix}"),
+                bins=bins_rel, color="#006837", tag=curr_tag, unit_str=u_str,
+            )
+
+            # Track Direction Observables
+            if len(d_map["track_direction"]) > 0:
+                plot_single_distribution(
+                    d_map["track_direction"],
+                    f"Reco Muon Track Propagation Direction ({curr_tag})",
+                    "Track Direction (+1 / -1)",
+                    os.path.join(plots_dir, f"reco_track_direction{suffix}"),
+                    bins=5, x_range=(-2.5, 2.5), color="#386cb0", tag=curr_tag, unit_str="",
+                )
+                plot_single_distribution(
+                    d_map["track_velocity"],
+                    f"Reco Muon Track Velocity ({curr_tag})",
+                    "Velocity [cm/ns]",
+                    os.path.join(plots_dir, f"reco_track_velocity{suffix}"),
+                    color="#f0027f", tag=curr_tag, unit_str="cm/ns",
+                )
+                plot_single_distribution(
+                    d_map["track_dir_slope"],
+                    f"Reco Muon Track Dir Slope ({curr_tag})",
+                    "Slope [ns/cm]",
+                    os.path.join(plots_dir, f"reco_track_dir_slope{suffix}"),
+                    color="#bf5b17", tag=curr_tag, unit_str="ns/cm",
+                )
+
+        # Plot Data vs Simulation Overlays (if both are present)
+        if has_data and has_mc:
+            print("\nGenerating Data vs Simulation overlay comparison figures...")
+            comp_dir = os.path.join(plots_dir, "data_vs_sim")
+            os.makedirs(comp_dir, exist_ok=True)
+
+            overlay_configs = [
+                ("all_v", "All Veto Hit Times: Data vs Sim", f"Hit Time [{u_str}]", "cmp_time_veto_all", 50, (0.0, 30.0)),
+                ("all_sf", "All SciFi Hit Times: Data vs Sim", f"Hit Time [{u_str}]", "cmp_time_scifi_all", 50, (0.0, 30.0)),
+                ("all_us", "All US Hit Times: Data vs Sim", f"Hit Time [{u_str}]", "cmp_time_us_all", 50, (0.0, 30.0)),
+                ("all_ds", "All DS Hit Times: Data vs Sim", f"Hit Time [{u_str}]", "cmp_time_ds_all", 50, (0.0, 30.0)),
+                ("min_v", "Earliest Veto Hit Time: Data vs Sim", f"Time [{u_str}]", "cmp_time_veto_earliest", 50, (0.0, 30.0)),
+                ("max_v", "Latest Veto Hit Time: Data vs Sim", f"Time [{u_str}]", "cmp_time_veto_latest", 50, (0.0, 30.0)),
+                ("min_sf", "Earliest SciFi Hit Time: Data vs Sim", f"Time [{u_str}]", "cmp_time_scifi_earliest", 50, (0.0, 30.0)),
+                ("max_sf", "Latest SciFi Hit Time: Data vs Sim", f"Time [{u_str}]", "cmp_time_scifi_latest", 50, (0.0, 30.0)),
+                ("min_us", "Earliest US Hit Time: Data vs Sim", f"Time [{u_str}]", "cmp_time_us_earliest", 50, (0.0, 30.0)),
+                ("max_us", "Latest US Hit Time: Data vs Sim", f"Time [{u_str}]", "cmp_time_us_latest", 50, (0.0, 30.0)),
+                ("min_ds", "Earliest DS Hit Time: Data vs Sim", f"Time [{u_str}]", "cmp_time_ds_earliest", 50, (0.0, 30.0)),
+                ("max_ds", "Latest DS Hit Time: Data vs Sim", f"Time [{u_str}]", "cmp_time_ds_latest", 50, (0.0, 30.0)),
+                ("dt_sf_min_veto_min", "Earliest SciFi - Earliest Veto: Data vs Sim", f"#Delta t [{u_str}]", "cmp_dt_scifi_min_minus_veto_min", 50, (-20.0, 20.0)),
+                ("dt_sf_max_veto_max", "Latest SciFi - Latest Veto: Data vs Sim", f"#Delta t [{u_str}]", "cmp_dt_scifi_max_minus_veto_max", 50, (-25.0, 25.0)),
+                ("dt_us_max_veto_min", "Latest US - Earliest Veto: Data vs Sim", f"#Delta t [{u_str}]", "cmp_dt_us_max_minus_veto_min", 50, (-25.0, 25.0)),
+                ("dt_us_max_sf_max", "Latest US - Latest SciFi: Data vs Sim", f"#Delta t [{u_str}]", "cmp_dt_us_max_minus_scifi_max", 50, (-25.0, 25.0)),
+                ("dt_ds_max_veto_max", "Latest DS - Latest Veto: Data vs Sim", f"#Delta t [{u_str}]", "cmp_dt_ds_max_minus_veto_max", 50, (-25.0, 25.0)),
+                ("dt_ds_max_sf_min", "Latest DS - Earliest SciFi: Data vs Sim", f"#Delta t [{u_str}]", "cmp_dt_ds_max_minus_scifi_min", 50, (-25.0, 25.0)),
+                ("dt_ds_max_us_min", "Latest DS - Earliest US: Data vs Sim", f"#Delta t [{u_str}]", "cmp_dt_ds_max_minus_us_min", 50, (-25.0, 25.0)),
+                ("dt_sf_max_ds_min", "Latest SciFi - Earliest DS [Inverted Cut]: Data vs Sim", f"#Delta t [{u_str}]", "cmp_dt_scifi_max_minus_ds_min", 50, (-10.0, 40.0)),
+                ("dt_ref_scifi_min_veto", "Ref SciFi - Earliest Veto: Data vs Sim", f"#Delta t [{u_str}]", "cmp_dt_ref_scifi_minus_veto_min", 50, (-20.0, 20.0)),
+                ("dt_ref_ds_min_veto", "Ref DS - Earliest Veto: Data vs Sim", f"#Delta t [{u_str}]", "cmp_dt_ref_ds_minus_veto_min", 50, (-20.0, 20.0)),
+                ("dt_ref_ds_ref_scifi", "Ref DS - Ref SciFi: Data vs Sim", f"#Delta t [{u_str}]", "cmp_dt_ref_ds_minus_ref_scifi", 50, (-20.0, 20.0)),
+            ]
+            for key, ttl, xl, fname, n_b, x_rng in overlay_configs:
+                plot_data_mc_comparison(
+                    np_data.get(key, np.array([])),
+                    np_mc.get(key, np.array([])),
+                    title=ttl, xlabel=xl,
+                    output_base=os.path.join(comp_dir, fname),
+                    bins=n_b, x_range=x_rng,
+                    data_tag=args.tag, mc_tag=args.mc_tag,
+                    unit_str=u_str,
+                )
 
     # -------------------------------------------------------------------------
     # Save ROOT Output File with TH1D and Canvases
@@ -902,13 +1105,8 @@ def main() -> None:
     print(f"\nSaving ROOT file with histograms and canvases: {root_out_path} ...")
     f_root = ROOT.TFile.Open(root_out_path, "RECREATE")
 
-    dir_abs = f_root.mkdir("absolute_times")
-    dir_rel = f_root.mkdir("relative_times")
-    dir_ref = f_root.mkdir("reference_times")
-    dir_trk = f_root.mkdir("track_direction")
-
     # Helper function for filling TH1D
-    def book_and_fill(target_dir, name, title, arr, nbins=120, xmin=None, xmax=None):
+    def book_and_fill(target_dir, name, title, arr, nbins=50, xmin=None, xmax=None):
         target_dir.cd()
         if len(arr) == 0:
             h = ROOT.TH1D(name, title, nbins, -50.0, 50.0)
@@ -925,42 +1123,166 @@ def main() -> None:
         h.Write()
         return h
 
-    # Book ROOT histograms
-    book_and_fill(dir_abs, "h_time_veto_all", f"All Veto Hit Times;Time [{u_str}];Hits", np_data["all_v"], 120, 0, 30)
-    book_and_fill(dir_abs, "h_time_scifi_all", f"All SciFi Hit Times;Time [{u_str}];Hits", np_data["all_sf"], 120, 0, 30)
-    book_and_fill(dir_abs, "h_time_us_all", f"All US Hit Times;Time [{u_str}];Hits", np_data["all_us"], 120, 0, 30)
-    book_and_fill(dir_abs, "h_time_ds_all", f"All DS Hit Times;Time [{u_str}];Hits", np_data["all_ds"], 120, 0, 30)
+    # Write Data histograms
+    data_hists: Dict[str, ROOT.TH1D] = {}
+    if has_data:
+        dir_data = f_root.mkdir("data")
+        dir_abs = dir_data.mkdir("absolute_times")
+        dir_rel = dir_data.mkdir("relative_times")
+        dir_ref = dir_data.mkdir("reference_times")
+        dir_trk = dir_data.mkdir("track_direction")
 
-    book_and_fill(dir_abs, "h_time_veto_earliest", f"Earliest Veto Hit Time per Event;Time [{u_str}];Events", np_data["min_v"], 120, 0, 30)
-    book_and_fill(dir_abs, "h_time_veto_latest", f"Latest Veto Hit Time per Event;Time [{u_str}];Events", np_data["max_v"], 120, 0, 30)
-    book_and_fill(dir_abs, "h_time_scifi_earliest", f"Earliest SciFi Hit Time per Event;Time [{u_str}];Events", np_data["min_sf"], 120, 0, 30)
-    book_and_fill(dir_abs, "h_time_scifi_latest", f"Latest SciFi Hit Time per Event;Time [{u_str}];Events", np_data["max_sf"], 120, 0, 30)
-    book_and_fill(dir_abs, "h_time_us_earliest", f"Earliest US Hit Time per Event;Time [{u_str}];Events", np_data["min_us"], 120, 0, 30)
-    book_and_fill(dir_abs, "h_time_us_latest", f"Latest US Hit Time per Event;Time [{u_str}];Events", np_data["max_us"], 120, 0, 30)
-    book_and_fill(dir_abs, "h_time_ds_earliest", f"Earliest DS Hit Time per Event;Time [{u_str}];Events", np_data["min_ds"], 120, 0, 30)
-    book_and_fill(dir_abs, "h_time_ds_latest", f"Latest DS Hit Time per Event;Time [{u_str}];Events", np_data["max_ds"], 120, 0, 30)
+        # Optimal bin counts (60 bins for ~2k-10k data/sim events)
+        data_hists["all_v"] = book_and_fill(dir_abs, "h_time_veto_all", f"All Veto Hit Times (Data);Time [{u_str}];Hits", np_data["all_v"], 60, 0, 30)
+        data_hists["all_sf"] = book_and_fill(dir_abs, "h_time_scifi_all", f"All SciFi Hit Times (Data);Time [{u_str}];Hits", np_data["all_sf"], 60, 0, 30)
+        data_hists["all_us"] = book_and_fill(dir_abs, "h_time_us_all", f"All US Hit Times (Data);Time [{u_str}];Hits", np_data["all_us"], 60, 0, 30)
+        data_hists["all_ds"] = book_and_fill(dir_abs, "h_time_ds_all", f"All DS Hit Times (Data);Time [{u_str}];Hits", np_data["all_ds"], 60, 0, 30)
 
-    book_and_fill(dir_rel, "h_dt_scifi_min_veto_min", f"t(SciFi min) - t(Veto min);#Delta t [{u_str}];Events", np_data["dt_sf_min_veto_min"])
-    book_and_fill(dir_rel, "h_dt_scifi_max_veto_max", f"t(SciFi max) - t(Veto max);#Delta t [{u_str}];Events", np_data["dt_sf_max_veto_max"])
-    book_and_fill(dir_rel, "h_dt_us_max_veto_min", f"t(US max) - t(Veto min);#Delta t [{u_str}];Events", np_data["dt_us_max_veto_min"])
-    book_and_fill(dir_rel, "h_dt_us_max_scifi_max", f"t(US max) - t(SciFi max);#Delta t [{u_str}];Events", np_data["dt_us_max_sf_max"])
-    book_and_fill(dir_rel, "h_dt_ds_max_veto_max", f"t(DS max) - t(Veto max);#Delta t [{u_str}];Events", np_data["dt_ds_max_veto_max"])
-    book_and_fill(dir_rel, "h_dt_ds_max_scifi_min", f"t(DS max) - t(SciFi min);#Delta t [{u_str}];Events", np_data["dt_ds_max_sf_min"])
-    book_and_fill(dir_rel, "h_dt_ds_max_us_min", f"t(DS max) - t(US min);#Delta t [{u_str}];Events", np_data["dt_ds_max_us_min"])
-    book_and_fill(dir_rel, "h_dt_scifi_max_ds_min", f"t(SciFi max) - t(DS min) [Inverted Cut];#Delta t [{u_str}];Events", np_data["dt_sf_max_ds_min"])
+        data_hists["min_v"] = book_and_fill(dir_abs, "h_time_veto_earliest", f"Earliest Veto Hit Time (Data);Time [{u_str}];Events", np_data["min_v"], 60, 0, 30)
+        data_hists["max_v"] = book_and_fill(dir_abs, "h_time_veto_latest", f"Latest Veto Hit Time (Data);Time [{u_str}];Events", np_data["max_v"], 60, 0, 30)
+        data_hists["min_sf"] = book_and_fill(dir_abs, "h_time_scifi_earliest", f"Earliest SciFi Hit Time (Data);Time [{u_str}];Events", np_data["min_sf"], 60, 0, 30)
+        data_hists["max_sf"] = book_and_fill(dir_abs, "h_time_scifi_latest", f"Latest SciFi Hit Time (Data);Time [{u_str}];Events", np_data["max_sf"], 60, 0, 30)
+        data_hists["min_us"] = book_and_fill(dir_abs, "h_time_us_earliest", f"Earliest US Hit Time (Data);Time [{u_str}];Events", np_data["min_us"], 60, 0, 30)
+        data_hists["max_us"] = book_and_fill(dir_abs, "h_time_us_latest", f"Latest US Hit Time (Data);Time [{u_str}];Events", np_data["max_us"], 60, 0, 30)
+        data_hists["min_ds"] = book_and_fill(dir_abs, "h_time_ds_earliest", f"Earliest DS Hit Time (Data);Time [{u_str}];Events", np_data["min_ds"], 60, 0, 30)
+        data_hists["max_ds"] = book_and_fill(dir_abs, "h_time_ds_latest", f"Latest DS Hit Time (Data);Time [{u_str}];Events", np_data["max_ds"], 60, 0, 30)
 
-    # Reference times and relative differences
-    book_and_fill(dir_ref, "h_t_ref_scifi", f"Reference SciFi Time (Horizontal Planes Average);Time [{u_str}];Events", np_data["t_ref_scifi"], 120, 0, 30)
-    book_and_fill(dir_ref, "h_t_ref_ds", f"Reference DS Time (Horizontal Planes SiPMs Average);Time [{u_str}];Events", np_data["t_ref_ds"], 120, 0, 30)
-    book_and_fill(dir_ref, "h_dt_ref_scifi_veto_min", f"t(SciFi ref) - t(Veto min);#Delta t [{u_str}];Events", np_data["dt_ref_scifi_min_veto"])
-    book_and_fill(dir_ref, "h_dt_ref_ds_veto_min", f"t(DS ref) - t(Veto min);#Delta t [{u_str}];Events", np_data["dt_ref_ds_min_veto"])
-    book_and_fill(dir_ref, "h_dt_ref_ds_ref_scifi", f"t(DS ref) - t(SciFi ref);#Delta t [{u_str}];Events", np_data["dt_ref_ds_ref_scifi"])
+        data_hists["dt_sf_min_veto_min"] = book_and_fill(dir_rel, "h_dt_scifi_min_veto_min", f"t(SciFi min) - t(Veto min);#Delta t [{u_str}];Events", np_data["dt_sf_min_veto_min"], 50, -20, 20)
+        data_hists["dt_sf_max_veto_max"] = book_and_fill(dir_rel, "h_dt_scifi_max_veto_max", f"t(SciFi max) - t(Veto max);#Delta t [{u_str}];Events", np_data["dt_sf_max_veto_max"], 50, -25, 25)
+        data_hists["dt_us_max_veto_min"] = book_and_fill(dir_rel, "h_dt_us_max_veto_min", f"t(US max) - t(Veto min);#Delta t [{u_str}];Events", np_data["dt_us_max_veto_min"], 50, -25, 25)
+        data_hists["dt_us_max_sf_max"] = book_and_fill(dir_rel, "h_dt_us_max_scifi_max", f"t(US max) - t(SciFi max);#Delta t [{u_str}];Events", np_data["dt_us_max_sf_max"], 50, -25, 25)
+        data_hists["dt_ds_max_veto_max"] = book_and_fill(dir_rel, "h_dt_ds_max_veto_max", f"t(DS max) - t(Veto max);#Delta t [{u_str}];Events", np_data["dt_ds_max_veto_max"], 50, -25, 25)
+        data_hists["dt_ds_max_sf_min"] = book_and_fill(dir_rel, "h_dt_ds_max_scifi_min", f"t(DS max) - t(SciFi min);#Delta t [{u_str}];Events", np_data["dt_ds_max_sf_min"], 50, -25, 25)
+        data_hists["dt_ds_max_us_min"] = book_and_fill(dir_rel, "h_dt_ds_max_us_min", f"t(DS max) - t(US min);#Delta t [{u_str}];Events", np_data["dt_ds_max_us_min"], 50, -25, 25)
+        data_hists["dt_sf_max_ds_min"] = book_and_fill(dir_rel, "h_dt_scifi_max_ds_min", f"t(SciFi max) - t(DS min) [Inverted Cut];#Delta t [{u_str}];Events", np_data["dt_sf_max_ds_min"], 50, -10, 40)
 
-    # Track direction histograms
-    book_and_fill(dir_trk, "h_track_direction", "Reco Muon Track Direction (+1=downstream, -1=upstream);Direction;Tracks", np_data["track_direction"], 5, -2.5, 2.5)
-    book_and_fill(dir_trk, "h_track_velocity", "Reco Muon Track Velocity;v [cm/ns];Tracks", np_data["track_velocity"], 100, -200, 200)
-    book_and_fill(dir_trk, "h_track_dir_slope", "Reco Muon Track Dir Slope;Slope [ns/cm];Tracks", np_data["track_dir_slope"], 100, -0.1, 0.1)
+        data_hists["t_ref_scifi"] = book_and_fill(dir_ref, "h_t_ref_scifi", f"Reference SciFi Time;Time [{u_str}];Events", np_data["t_ref_scifi"], 60, 0, 30)
+        data_hists["t_ref_ds"] = book_and_fill(dir_ref, "h_t_ref_ds", f"Reference DS Time;Time [{u_str}];Events", np_data["t_ref_ds"], 60, 0, 30)
+        data_hists["dt_ref_scifi_min_veto"] = book_and_fill(dir_ref, "h_dt_ref_scifi_veto_min", f"t(SciFi ref) - t(Veto min);#Delta t [{u_str}];Events", np_data["dt_ref_scifi_min_veto"], 50, -20, 20)
+        data_hists["dt_ref_ds_min_veto"] = book_and_fill(dir_ref, "h_dt_ref_ds_veto_min", f"t(DS ref) - t(Veto min);#Delta t [{u_str}];Events", np_data["dt_ref_ds_min_veto"], 50, -20, 20)
+        data_hists["dt_ref_ds_ref_scifi"] = book_and_fill(dir_ref, "h_dt_ref_ds_ref_scifi", f"t(DS ref) - t(SciFi ref);#Delta t [{u_str}];Events", np_data["dt_ref_ds_ref_scifi"], 50, -20, 20)
 
+        book_and_fill(dir_trk, "h_track_direction", "Reco Muon Track Direction;Direction;Tracks", np_data["track_direction"], 5, -2.5, 2.5)
+        book_and_fill(dir_trk, "h_track_velocity", "Reco Muon Track Velocity;v [cm/ns];Tracks", np_data["track_velocity"], 50, -200, 200)
+        book_and_fill(dir_trk, "h_track_dir_slope", "Reco Muon Track Dir Slope;Slope [ns/cm];Tracks", np_data["track_dir_slope"], 50, -0.1, 0.1)
+
+    # Write Simulation histograms (50 bins appropriate for ~2150 events)
+    mc_hists: Dict[str, ROOT.TH1D] = {}
+    if has_mc:
+        dir_mc = f_root.mkdir("simulation")
+        dir_mc_abs = dir_mc.mkdir("absolute_times")
+        dir_mc_rel = dir_mc.mkdir("relative_times")
+        dir_mc_ref = dir_mc.mkdir("reference_times")
+        dir_mc_trk = dir_mc.mkdir("track_direction")
+
+        mc_hists["all_v"] = book_and_fill(dir_mc_abs, "h_time_veto_all", f"All Veto Hit Times (Sim);Time [{u_str}];Hits", np_mc["all_v"], 60, 0, 30)
+        mc_hists["all_sf"] = book_and_fill(dir_mc_abs, "h_time_scifi_all", f"All SciFi Hit Times (Sim);Time [{u_str}];Hits", np_mc["all_sf"], 60, 0, 30)
+        mc_hists["all_us"] = book_and_fill(dir_mc_abs, "h_time_us_all", f"All US Hit Times (Sim);Time [{u_str}];Hits", np_mc["all_us"], 60, 0, 30)
+        mc_hists["all_ds"] = book_and_fill(dir_mc_abs, "h_time_ds_all", f"All DS Hit Times (Sim);Time [{u_str}];Hits", np_mc["all_ds"], 60, 0, 30)
+
+        mc_hists["min_v"] = book_and_fill(dir_mc_abs, "h_time_veto_earliest", f"Earliest Veto Hit Time (Sim);Time [{u_str}];Events", np_mc["min_v"], 60, 0, 30)
+        mc_hists["max_v"] = book_and_fill(dir_mc_abs, "h_time_veto_latest", f"Latest Veto Hit Time (Sim);Time [{u_str}];Events", np_mc["max_v"], 60, 0, 30)
+        mc_hists["min_sf"] = book_and_fill(dir_mc_abs, "h_time_scifi_earliest", f"Earliest SciFi Hit Time (Sim);Time [{u_str}];Events", np_mc["min_sf"], 60, 0, 30)
+        mc_hists["max_sf"] = book_and_fill(dir_mc_abs, "h_time_scifi_latest", f"Latest SciFi Hit Time (Sim);Time [{u_str}];Events", np_mc["max_sf"], 60, 0, 30)
+        mc_hists["min_us"] = book_and_fill(dir_mc_abs, "h_time_us_earliest", f"Earliest US Hit Time (Sim);Time [{u_str}];Events", np_mc["min_us"], 60, 0, 30)
+        mc_hists["max_us"] = book_and_fill(dir_mc_abs, "h_time_us_latest", f"Latest US Hit Time (Sim);Time [{u_str}];Events", np_mc["max_us"], 60, 0, 30)
+        mc_hists["min_ds"] = book_and_fill(dir_mc_abs, "h_time_ds_earliest", f"Earliest DS Hit Time (Sim);Time [{u_str}];Events", np_mc["min_ds"], 60, 0, 30)
+        mc_hists["max_ds"] = book_and_fill(dir_mc_abs, "h_time_ds_latest", f"Latest DS Hit Time (Sim);Time [{u_str}];Events", np_mc["max_ds"], 60, 0, 30)
+
+        mc_hists["dt_sf_min_veto_min"] = book_and_fill(dir_mc_rel, "h_dt_scifi_min_veto_min", f"t(SciFi min) - t(Veto min) (Sim);#Delta t [{u_str}];Events", np_mc["dt_sf_min_veto_min"], 50, -20, 20)
+        mc_hists["dt_sf_max_veto_max"] = book_and_fill(dir_mc_rel, "h_dt_scifi_max_veto_max", f"t(SciFi max) - t(Veto max) (Sim);#Delta t [{u_str}];Events", np_mc["dt_sf_max_veto_max"], 50, -25, 25)
+        mc_hists["dt_us_max_veto_min"] = book_and_fill(dir_mc_rel, "h_dt_us_max_veto_min", f"t(US max) - t(Veto min) (Sim);#Delta t [{u_str}];Events", np_mc["dt_us_max_veto_min"], 50, -25, 25)
+        mc_hists["dt_us_max_sf_max"] = book_and_fill(dir_mc_rel, "h_dt_us_max_scifi_max", f"t(US max) - t(SciFi max) (Sim);#Delta t [{u_str}];Events", np_mc["dt_us_max_sf_max"], 50, -25, 25)
+        mc_hists["dt_ds_max_veto_max"] = book_and_fill(dir_mc_rel, "h_dt_ds_max_veto_max", f"t(DS max) - t(Veto max) (Sim);#Delta t [{u_str}];Events", np_mc["dt_ds_max_veto_max"], 50, -25, 25)
+        mc_hists["dt_ds_max_sf_min"] = book_and_fill(dir_mc_rel, "h_dt_ds_max_scifi_min", f"t(DS max) - t(SciFi min) (Sim);#Delta t [{u_str}];Events", np_mc["dt_ds_max_sf_min"], 50, -25, 25)
+        mc_hists["dt_ds_max_us_min"] = book_and_fill(dir_mc_rel, "h_dt_ds_max_us_min", f"t(DS max) - t(US min) (Sim);#Delta t [{u_str}];Events", np_mc["dt_ds_max_us_min"], 50, -25, 25)
+        mc_hists["dt_sf_max_ds_min"] = book_and_fill(dir_mc_rel, "h_dt_scifi_max_ds_min", f"t(SciFi max) - t(DS min) [Inverted Cut] (Sim);#Delta t [{u_str}];Events", np_mc["dt_sf_max_ds_min"], 50, -10, 40)
+
+        mc_hists["t_ref_scifi"] = book_and_fill(dir_mc_ref, "h_t_ref_scifi", f"Reference SciFi Time (Sim);Time [{u_str}];Events", np_mc["t_ref_scifi"], 60, 0, 30)
+        mc_hists["t_ref_ds"] = book_and_fill(dir_mc_ref, "h_t_ref_ds", f"Reference DS Time (Sim);Time [{u_str}];Events", np_mc["t_ref_ds"], 60, 0, 30)
+        mc_hists["dt_ref_scifi_min_veto"] = book_and_fill(dir_mc_ref, "h_dt_ref_scifi_veto_min", f"t(SciFi ref) - t(Veto min) (Sim);#Delta t [{u_str}];Events", np_mc["dt_ref_scifi_min_veto"], 50, -20, 20)
+        mc_hists["dt_ref_ds_min_veto"] = book_and_fill(dir_mc_ref, "h_dt_ref_ds_veto_min", f"t(DS ref) - t(Veto min) (Sim);#Delta t [{u_str}];Events", np_mc["dt_ref_ds_min_veto"], 50, -20, 20)
+        mc_hists["dt_ref_ds_ref_scifi"] = book_and_fill(dir_mc_ref, "h_dt_ref_ds_ref_scifi", f"t(DS ref) - t(SciFi ref) (Sim);#Delta t [{u_str}];Events", np_mc["dt_ref_ds_ref_scifi"], 50, -20, 20)
+
+        book_and_fill(dir_mc_trk, "h_track_direction", "Reco Muon Track Direction (Sim);Direction;Tracks", np_mc["track_direction"], 5, -2.5, 2.5)
+        book_and_fill(dir_mc_trk, "h_track_velocity", "Reco Muon Track Velocity (Sim);v [cm/ns];Tracks", np_mc["track_velocity"], 50, -200, 200)
+        book_and_fill(dir_mc_trk, "h_track_dir_slope", "Reco Muon Track Dir Slope (Sim);Slope [ns/cm];Tracks", np_mc["track_dir_slope"], 50, -0.1, 0.1)
+
+    # Superimposed & Normalized ROOT Canvases
+    if has_data and has_mc:
+        dir_cmp = f_root.mkdir("canvases_data_vs_sim")
+        dir_cmp.cd()
+
+        canvas_keys = [
+            ("all_v", "c_cmp_time_veto_all", "Normalized All Veto Hit Times: Data vs Sim"),
+            ("all_sf", "c_cmp_time_scifi_all", "Normalized All SciFi Hit Times: Data vs Sim"),
+            ("all_us", "c_cmp_time_us_all", "Normalized All US Hit Times: Data vs Sim"),
+            ("all_ds", "c_cmp_time_ds_all", "Normalized All DS Hit Times: Data vs Sim"),
+            ("min_v", "c_cmp_time_veto_earliest", "Normalized Earliest Veto Hit Time: Data vs Sim"),
+            ("max_v", "c_cmp_time_veto_latest", "Normalized Latest Veto Hit Time: Data vs Sim"),
+            ("min_sf", "c_cmp_time_scifi_earliest", "Normalized Earliest SciFi Hit Time: Data vs Sim"),
+            ("max_sf", "c_cmp_time_scifi_latest", "Normalized Latest SciFi Hit Time: Data vs Sim"),
+            ("min_us", "c_cmp_time_us_earliest", "Normalized Earliest US Hit Time: Data vs Sim"),
+            ("max_us", "c_cmp_time_us_latest", "Normalized Latest US Hit Time: Data vs Sim"),
+            ("min_ds", "c_cmp_time_ds_earliest", "Normalized Earliest DS Hit Time: Data vs Sim"),
+            ("max_ds", "c_cmp_time_ds_latest", "Normalized Latest DS Hit Time: Data vs Sim"),
+            ("dt_sf_min_veto_min", "c_cmp_dt_scifi_min_minus_veto_min", "Normalized t(SciFi min) - t(Veto min): Data vs Sim"),
+            ("dt_sf_max_veto_max", "c_cmp_dt_scifi_max_minus_veto_max", "Normalized t(SciFi max) - t(Veto max): Data vs Sim"),
+            ("dt_us_max_veto_min", "c_cmp_dt_us_max_minus_veto_min", "Normalized t(US max) - t(Veto min): Data vs Sim"),
+            ("dt_us_max_sf_max", "c_cmp_dt_us_max_minus_scifi_max", "Normalized t(US max) - t(SciFi max): Data vs Sim"),
+            ("dt_ds_max_veto_max", "c_cmp_dt_ds_max_minus_veto_max", "Normalized t(DS max) - t(Veto max): Data vs Sim"),
+            ("dt_ds_max_sf_min", "c_cmp_dt_ds_max_minus_scifi_min", "Normalized t(DS max) - t(SciFi min): Data vs Sim"),
+            ("dt_ds_max_us_min", "c_cmp_dt_ds_max_minus_us_min", "Normalized t(DS max) - t(US min): Data vs Sim"),
+            ("dt_sf_max_ds_min", "c_cmp_dt_scifi_max_minus_ds_min", "Normalized t(SciFi max) - t(DS min) [Inverted Cut]: Data vs Sim"),
+            ("t_ref_scifi", "c_cmp_t_ref_scifi", "Normalized Reference SciFi Time: Data vs Sim"),
+            ("t_ref_ds", "c_cmp_t_ref_ds", "Normalized Reference DS Time: Data vs Sim"),
+            ("dt_ref_scifi_min_veto", "c_cmp_dt_ref_scifi_veto_min", "Normalized t(SciFi ref) - t(Veto min): Data vs Sim"),
+            ("dt_ref_ds_min_veto", "c_cmp_dt_ref_ds_veto_min", "Normalized t(DS ref) - t(Veto min): Data vs Sim"),
+            ("dt_ref_ds_ref_scifi", "c_cmp_dt_ref_ds_ref_scifi", "Normalized t(DS ref) - t(SciFi ref): Data vs Sim"),
+        ]
+
+        for k, c_name, c_title in canvas_keys:
+            if k in data_hists and k in mc_hists:
+                h_d = data_hists[k].Clone(f"{data_hists[k].GetName()}_norm_d")
+                h_m = mc_hists[k].Clone(f"{mc_hists[k].GetName()}_norm_m")
+
+                # Normalize by area
+                if h_d.Integral() > 0:
+                    h_d.Scale(1.0 / h_d.Integral())
+                if h_m.Integral() > 0:
+                    h_m.Scale(1.0 / h_m.Integral())
+
+                c = ROOT.TCanvas(c_name, c_title, 900, 650)
+                c.SetGrid()
+
+                # Styling
+                h_m.SetLineColor(ROOT.kRed + 1)
+                h_m.SetLineWidth(2)
+                h_m.SetFillColorAlpha(ROOT.kRed + 1, 0.25)
+
+                h_d.SetLineColor(ROOT.kBlue + 1)
+                h_d.SetLineWidth(2)
+                h_d.SetMarkerStyle(20)
+                h_d.SetMarkerSize(0.9)
+                h_d.SetMarkerColor(ROOT.kBlue + 1)
+
+                max_y = max(h_d.GetMaximum(), h_m.GetMaximum()) * 1.35
+                h_d.SetMaximum(max_y)
+                h_d.SetMinimum(0.0)
+                h_d.SetTitle(f"{c_title};{h_d.GetXaxis().GetTitle()};Normalized Area")
+
+                h_d.Draw("E1")
+                h_m.Draw("HIST SAME")
+                h_d.Draw("E1 SAME")
+
+                leg = ROOT.TLegend(0.58, 0.74, 0.88, 0.88)
+                leg.SetBorderSize(0)
+                leg.SetFillStyle(0)
+                leg.AddEntry(h_d, f"{args.tag} (N={int(data_hists[k].GetEntries()):,})", "lep")
+                leg.AddEntry(h_m, f"{args.mc_tag} (N={int(mc_hists[k].GetEntries()):,})", "f")
+                leg.Draw()
+
+                c.Write()
     f_root.Close()
 
     total_time = time.time() - start_time

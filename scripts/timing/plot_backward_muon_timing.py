@@ -615,9 +615,8 @@ def extract_dataset(
 ) -> Tuple[Dict[str, np.ndarray], int]:
     """Process multiple ROOT files in parallel or sequentially and return aggregated numpy arrays."""
     tasks = []
+    # If max_events is specified, process full files sequentially/concurrently and break early once reached
     events_per_file = 0
-    if max_events > 0:
-        events_per_file = max(1, int(np.ceil(max_events / len(file_paths))))
 
     for f_path in file_paths:
         tasks.append((f_path, events_per_file, units, geofile))
@@ -650,18 +649,41 @@ def extract_dataset(
 
     if jobs > 1 and len(tasks) > 1:
         with ProcessPoolExecutor(max_workers=jobs) as executor:
-            futures = [executor.submit(_process_single_file, t) for t in tasks]
-            for fut in as_completed(futures):
-                res = fut.result()
+            task_iter = iter(tasks)
+            pending = set()
+            for _ in range(min(jobs * 2, len(tasks))):
+                try:
+                    pending.add(executor.submit(_process_single_file, next(task_iter)))
+                except StopIteration:
+                    break
+
+            while pending:
+                done_fut = next(as_completed(pending))
+                pending.remove(done_fut)
+                res = done_fut.result()
                 total_events += res["events_processed"]
                 for k in combined:
                     combined[k].extend(res[k])
+
+                if max_events > 0 and total_events >= max_events:
+                    print(f"Reached event limit ({total_events} >= {max_events}); breaking early.")
+                    for f in pending:
+                        f.cancel()
+                    break
+
+                try:
+                    pending.add(executor.submit(_process_single_file, next(task_iter)))
+                except StopIteration:
+                    pass
     else:
         for t in tasks:
             res = _process_single_file(t)
             total_events += res["events_processed"]
             for k in combined:
                 combined[k].extend(res[k])
+            if max_events > 0 and total_events >= max_events:
+                print(f"Reached event limit ({total_events} >= {max_events}); breaking early.")
+                break
 
     np_data: Dict[str, np.ndarray] = {k: np.array(v, dtype=np.float32) for k, v in combined.items()}
     return np_data, total_events

@@ -20,6 +20,7 @@ set(ANALYSIS_HEADERS
   EventHeaderCuts.h
   SciFiHitActivityCut.h
   SciFiTrackVetoDocaCut.h
+  TrackVelocityCut.h
 )
 
 set(ANALYSIS_SRCS

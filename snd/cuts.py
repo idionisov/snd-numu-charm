@@ -546,6 +546,50 @@ class EventDeltatCut:
         )
 
 
+def get_track_velocity_cut(
+    max_velocity: float = 0.0,
+    track_type: int = 1,
+    reversed: bool = False,
+    min_velocity: float = -9999.0,
+    require_negative: bool = True,
+) -> ROOT.snd.TrackVelocityCut:
+    """
+    Instantiate and return the C++ snd::TrackVelocityCut object for RDataFrame.
+    Requires reconstructed tracks of track_type to have negative velocity (vel < max_velocity, backward propagation).
+    """
+    load_trident_libraries()
+    return ROOT.snd.TrackVelocityCut(
+        float(max_velocity),
+        int(track_type),
+        bool(reversed),
+        float(min_velocity),
+        bool(require_negative),
+    )
+
+
+class TrackVelocityCut:
+    """Python wrapper for snd::TrackVelocityCut."""
+    def __new__(
+        cls,
+        max_velocity: float = 0.0,
+        track_type: int = 1,
+        reversed: bool = False,
+        min_velocity: float = -9999.0,
+        require_negative: bool = True,
+    ):
+        return get_track_velocity_cut(
+            max_velocity=max_velocity,
+            track_type=track_type,
+            reversed=reversed,
+            min_velocity=min_velocity,
+            require_negative=require_negative,
+        )
+
+
+BackwardTrackCut = TrackVelocityCut
+get_backward_track_cut = get_track_velocity_cut
+
+
 def load_cutflow_config(config_path: Optional[str] = None, cutset: Optional[str] = None) -> dict:
     """
     Load cutflow and diagnostic histogram configuration from a YAML file.

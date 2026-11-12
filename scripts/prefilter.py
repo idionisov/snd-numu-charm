@@ -78,6 +78,7 @@ from snd import (
     EventDeltatCut,
     SciFiHitActivityCut,
     SciFiTrackVetoDocaCut,
+    TrackVelocityCut,
     load_trident_libraries,
     resolve_input_files,
     extract_captures,
@@ -269,6 +270,7 @@ def prefilter_file(
     cut_scifi_activity: Optional[ROOT.snd.SciFiHitActivityCut] = None,
     cut_one_scifi_track: Optional[ROOT.snd.DSHoughTrackCut] = None,
     cut_scifi_track_veto_doca: Optional[ROOT.snd.SciFiTrackVetoDocaCut] = None,
+    cut_track_backward_velocity: Optional[ROOT.snd.TrackVelocityCut] = None,
     cutflow_config: Optional[Dict[str, Any]] = None,
     record_cutflow: bool = False,
     tree_name: Optional[str] = None,
@@ -499,11 +501,16 @@ def prefilter_file(
                 df_processed = df_processed.Define("pass_scifi_track_veto_doca_cut", cut_scifi_track_veto_doca, ["Reco_MuonTracks", "Digi_MuFilterHits"])
             else:
                 df_processed = df_processed.Define("pass_scifi_track_veto_doca_cut", "true")
+            if cut_track_backward_velocity is not None:
+                df_processed = df_processed.Define("pass_track_backward_velocity_cut", cut_track_backward_velocity, ["Reco_MuonTracks"])
+            else:
+                df_processed = df_processed.Define("pass_track_backward_velocity_cut", "true")
         else:
             df_processed = df_processed.Define("n_ds_hough_tracks", "0")
             df_processed = df_processed.Define("pass_two_ds_tracks_cut", "true")
             df_processed = df_processed.Define("pass_one_scifi_track_cut", "true")
             df_processed = df_processed.Define("pass_scifi_track_veto_doca_cut", "true")
+            df_processed = df_processed.Define("pass_track_backward_velocity_cut", "true")
 
         # 5. Build incremental cut nodes and book histograms
         hist_configs = cutflow_config.get("histograms", []) if cutflow_config else []
@@ -563,7 +570,7 @@ def prefilter_file(
             fail_cols = ["rdfentry_"]
             if df_processed.HasColumn("mc_weight"):
                 fail_cols.append("mc_weight")
-            for c_col in ["pass_scifi_ds_timing_cut", "pass_veto_cut", "pass_ds_dimuon_cut", "pass_two_ds_tracks_cut", "pass_one_scifi_track_cut", "pass_scifi_track_veto_doca_cut"]:
+            for c_col in ["pass_scifi_ds_timing_cut", "pass_veto_cut", "pass_ds_dimuon_cut", "pass_two_ds_tracks_cut", "pass_one_scifi_track_cut", "pass_scifi_track_veto_doca_cut", "pass_track_backward_velocity_cut"]:
                 if df_processed.HasColumn(c_col):
                     fail_cols.append(c_col)
             failure_data = df_processed.AsNumpy(columns=fail_cols)
@@ -572,10 +579,12 @@ def prefilter_file(
         has_step_ds = any(c.get("filter") == "pass_two_ds_tracks_cut" and c.get("enabled", True) for c in active_cuts)
         has_step_one_scifi = any(c.get("filter") == "pass_one_scifi_track_cut" and c.get("enabled", True) for c in active_cuts)
         has_step_doca = any(c.get("filter") == "pass_scifi_track_veto_doca_cut" and c.get("enabled", True) for c in active_cuts)
+        has_step_backward = any(c.get("filter") == "pass_track_backward_velocity_cut" and c.get("enabled", True) for c in active_cuts)
 
         need_ds_tracking = (cut_two_ds_tracks is not None) and has_step_ds
         need_scifi_tracking = ((cut_one_scifi_track is not None and has_step_one_scifi) or
-                               (cut_scifi_track_veto_doca is not None and has_step_doca))
+                               (cut_scifi_track_veto_doca is not None and has_step_doca) or
+                               (cut_track_backward_velocity is not None and has_step_backward))
         run_onthefly_tracking = (not has_reco_tracks) and (need_ds_tracking or need_scifi_tracking)
 
         reconstructed_tracks_map: Dict[int, Any] = {}
@@ -583,7 +592,7 @@ def prefilter_file(
         tracking_stage_counts: Dict[str, Dict[str, Any]] = {
             c["id"]: {"count": 0, "raw": 0.0, "mc": 0.0}
             for c in active_cuts
-            if c.get("filter") in ["pass_two_ds_tracks_cut", "pass_one_scifi_track_cut", "pass_scifi_track_veto_doca_cut"]
+            if c.get("filter") in ["pass_two_ds_tracks_cut", "pass_one_scifi_track_cut", "pass_scifi_track_veto_doca_cut", "pass_track_backward_velocity_cut"]
         }
 
         if run_onthefly_tracking:
@@ -684,6 +693,13 @@ def prefilter_file(
                         tracking_stage_counts[c_id]["mc"] += mw
                     elif c_filter == "pass_scifi_track_veto_doca_cut":
                         if not (cut_scifi_track_veto_doca and cut_scifi_track_veto_doca.passCut(trks, reco_chain.Digi_MuFilterHits)):
+                            passed_all_tracking = False
+                            break
+                        tracking_stage_counts[c_id]["count"] += 1
+                        tracking_stage_counts[c_id]["raw"] += rw
+                        tracking_stage_counts[c_id]["mc"] += mw
+                    elif c_filter == "pass_track_backward_velocity_cut":
+                        if not (cut_track_backward_velocity and cut_track_backward_velocity.passCut(trks)):
                             passed_all_tracking = False
                             break
                         tracking_stage_counts[c_id]["count"] += 1
@@ -1359,6 +1375,7 @@ def process_pmu_stream(
         cut_scifi_activity=cuts_dict.get("cut_scifi_activity"),
         cut_one_scifi_track=cuts_dict.get("cut_one_scifi_track"),
         cut_scifi_track_veto_doca=cuts_dict.get("cut_scifi_track_veto_doca"),
+        cut_track_backward_velocity=cuts_dict.get("cut_track_backward_velocity"),
         cutflow_config=cutflow_cfg,
         record_cutflow=bool(pmu_cutflow),
         tree_name=args.tree_name,
@@ -1768,6 +1785,15 @@ def main():
         reversed=doca_cfg.get("reversed", False),
     ) if doca_cfg else None
 
+    track_vel_cfg = next((c for c in cuts_list if c.get("filter") == "pass_track_backward_velocity_cut" or "backward" in c.get("id", "") or "track_velocity" in c.get("id", "")), {})
+    cut_track_backward_velocity = TrackVelocityCut(
+        max_velocity=track_vel_cfg.get("max_velocity", 0.0),
+        track_type=track_vel_cfg.get("track_type", 1),
+        reversed=track_vel_cfg.get("reversed", False),
+        min_velocity=track_vel_cfg.get("min_velocity", -9999.0),
+        require_negative=track_vel_cfg.get("require_negative", True),
+    ) if track_vel_cfg else None
+
     cuts_dict = {
         "cut_scifi": cut_scifi,
         "cut_ds": cut_ds,
@@ -1783,6 +1809,7 @@ def main():
         "cut_stable_beams": cut_stable_beams,
         "cut_scifi_activity": cut_scifi_activity,
         "cut_scifi_track_veto_doca": cut_scifi_track_veto_doca,
+        "cut_track_backward_velocity": cut_track_backward_velocity,
     }
 
     if not args.input:
@@ -2137,6 +2164,7 @@ def main():
                 cut_scifi_activity=cut_scifi_activity,
                 cut_one_scifi_track=cut_one_scifi_track,
                 cut_scifi_track_veto_doca=cut_scifi_track_veto_doca,
+                cut_track_backward_velocity=cut_track_backward_velocity,
                 cutflow_config=cutflow_cfg,
                 record_cutflow=False,
                 tree_name=args.tree_name,
@@ -2189,6 +2217,7 @@ def main():
             cut_scifi_activity=cut_scifi_activity,
             cut_one_scifi_track=cut_one_scifi_track,
             cut_scifi_track_veto_doca=cut_scifi_track_veto_doca,
+            cut_track_backward_velocity=cut_track_backward_velocity,
             cutflow_config=cutflow_cfg,
             record_cutflow=(args.cutflow is not None),
             tree_name=args.tree_name,
@@ -2249,6 +2278,7 @@ def main():
                     cut_scifi_activity=cut_scifi_activity,
                     cut_one_scifi_track=cut_one_scifi_track,
                     cut_scifi_track_veto_doca=cut_scifi_track_veto_doca,
+                    cut_track_backward_velocity=cut_track_backward_velocity,
                     cutflow_config=cutflow_cfg,
                     record_cutflow=False,
                     tree_name=args.tree_name,

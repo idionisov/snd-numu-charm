@@ -44,6 +44,7 @@
 #pragma link C++ class snd::EventDeltatCut+;
 #pragma link C++ class snd::SciFiHitActivityCut+;
 #pragma link C++ class snd::SciFiTrackVetoDocaCut+;
+#pragma link C++ class snd::TrackVelocityCut+;
 #pragma link C++ namespace snd::analysis_cuts;
 #pragma link C++ class snd::analysis_cuts::AvgScifiFiducialCut+;
 #pragma link C++ class snd::analysis_cuts::AvgDSFiducialCut+;
@@ -59,5 +60,6 @@
 #pragma link C++ class snd::analysis_cuts::EventDeltatCut+;
 #pragma link C++ class snd::analysis_cuts::SciFiHitActivityCut+;
 #pragma link C++ class snd::analysis_cuts::SciFiTrackVetoDocaCut+;
+#pragma link C++ class snd::analysis_cuts::TrackVelocityCut+;
 
 #endif

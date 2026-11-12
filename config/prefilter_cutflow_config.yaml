@@ -30,7 +30,7 @@ cutsets:
       - "step6_ds_dimuon"
   houghTuning: *hough_tuning_anchor
   b2nob1Muons: &b2nob1_anchor
-    description: "Downstream to upstream muons in B2noB1 non-colliding bunch crossings with 1 simple SciFi track and DOCA <= 3cm to Veto"
+    description: "Downstream to upstream muons in B2noB1 non-colliding bunch crossings with 1 simple SciFi track, DOCA <= 3cm to Veto, and negative track velocity"
     cuts:
       - "step0_raw"
       - "step1_b2nob1"
@@ -41,6 +41,7 @@ cutsets:
       - "step6_scifi_activity"
       - "step7_one_scifi_track"
       - "step8_scifi_track_veto_doca"
+      - "step9_track_backward_velocity"
   b2nob1MuonsNoTrack: &b2nob1_notrack_anchor
     description: "Downstream to upstream muons in B2noB1 non-colliding bunch crossings without track reconstruction"
     cuts:
@@ -187,6 +188,17 @@ cuts:
     max_doca: 3.0
     track_type: 1
     require_valid: false
+    reversed: false
+
+  - id: "step9_track_backward_velocity"
+    name: "Backward Track Velocity"
+    filter: "pass_track_backward_velocity_cut"
+    enabled: false
+    description: "Require reconstructed SciFi track to have negative velocity (vel < 0 cm/ns, backward-propagating)"
+    track_type: 1
+    max_velocity: 0.0
+    min_velocity: -9999.0
+    require_negative: true
     reversed: false
 
   # Optional / Disabled Cuts

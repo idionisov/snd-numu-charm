@@ -69,6 +69,9 @@ except ImportError:
 import ROOT
 ROOT.gROOT.SetBatch(True)
 ROOT.gStyle.SetOptStat("emruo")
+ROOT.gEnv.SetValue("XNet.RequestTimeout", 300)
+ROOT.gEnv.SetValue("XNet.ConnectTimeout", 60)
+ROOT.gEnv.SetValue("XNet.MaxRedirects", 5)
 
 
 DEFAULT_INPUT_DIR = "/eos/user/i/idioniso/snd-numu-charm/prefiltered/2023/b2nob1Muons/run006596"
@@ -264,6 +267,14 @@ def _process_single_file(args_tuple: Tuple[str, int, str, Optional[str]]) -> Dic
     if has_tracks:
         tree.SetBranchStatus("Reco_MuonTracks*", 1)
 
+    # Enable and configure TTreeCache for efficient vector prefetching over XRootD
+    tree.SetCacheSize(30 * 1024 * 1024)
+    tree.AddBranchToCache("Digi_ScifiHits*", True)
+    tree.AddBranchToCache("Digi_MuFilterHits*", True)
+    if has_tracks:
+        tree.AddBranchToCache("Reco_MuonTracks*", True)
+    tree.StopCacheLearningPhase()
+
     scale_factor = TDC2NS if (units == "ns" and is_data) else 1.0
 
     n_entries = tree.GetEntries()
@@ -271,7 +282,9 @@ def _process_single_file(args_tuple: Tuple[str, int, str, Optional[str]]) -> Dic
     res["events_processed"] = limit
 
     for iev in range(limit):
-        tree.GetEntry(iev)
+        bytes_read = tree.GetEntry(iev)
+        if bytes_read <= 0:
+            continue
 
         # 1. SciFi hit times
         sf_times: List[float] = []

@@ -508,7 +508,8 @@ def plot_single_plane_evolution(
     if out_png:
         plt.savefig(out_png, dpi=300, bbox_inches="tight")
         print(f"[✓] Generated: {out_png}")
-    plt.show()
+    if matplotlib.get_backend().lower() != "agg":
+        plt.show()
     plt.close()
 
 

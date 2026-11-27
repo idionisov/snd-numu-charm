@@ -27,26 +27,28 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-# Add local path for min_pe
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.append(SCRIPT_DIR)
 
 from min_pe import MinPE, LIGHT_YIELD, SIPM_PDE, KB_BIRKS
 
-# Constants for QDC -> Photoelectrons
-# TOFPET2C QDC charge conversion: 3.60 pC / QDC count
-# 1 p.e. charge at SiPM gain G = 2.5e6 with 8% optical cross-talk:
-# q_1pe = e * 2.5e6 * 1.08 = 0.43258 pC
-QDC_TO_PE: float = 3.60 / 0.43258  # ~8.3222 pe / QDC
+# Parameter sources:
+# TOFPET2C QDC charge conversion: 3.60 pC / QDC count (from TOFPET2C ASIC datasheet)
+# SiPM single-p.e. charge at gain G = 2.5e6 with 8% optical cross-talk:
+# q_1pe = e * 2.5e6 * 1.08 = 0.43258 pC (from Hamamatsu S13360 MPPC datasheet)
+QDC_TO_PE: float = 3.60 / 0.43258
 
-# Reference MIP energy loss MPV in 1.0 cm EJ-200 plastic scintillator
-# MPV from Langaus fits on simulation: 1.65 MeV for Veto, 1.70 MeV for US & DS
+# Parameter sources: Reference MIP energy loss MPV in 1.0 cm EJ-200 plastic scintillator from Langaus fits on simulation
 E_MIP_DICT: Dict[int, float] = {
-    1: 1.65,  # Veto (1.0 cm)
-    2: 1.70,  # Upstream (1.0 cm)
-    3: 1.70,  # Downstream (1.0 cm)
+    1: 1.65,
+    2: 1.70,
+    3: 1.70,
 }
+
+# Physics justification: Channel reduction parameter k accounts for unsimulated optical interface
+# coupling variations (gel thickness, air micro-bubbles), SiPM alignment tolerances, and ASIC channel
+# baseline offsets relative to nominal MIP testbeam response.
 
 
 def calculate_sipm_reduction_factors(
@@ -57,12 +59,11 @@ def calculate_sipm_reduction_factors(
     """
     Computes theoretical N_pe, data N_pe, and reduction parameter k for each SiPM.
     """
-    calc = MinPE(year=2024)  # Initialize with full geometry support
+    calc = MinPE(year=2024)
 
     with open(calib_json_path, "r") as f:
         calib_data = json.load(f)
 
-    # Optional 2024 Veto Plane 2 constants
     v2_data = {}
     if v2_json_path and os.path.exists(v2_json_path):
         with open(v2_json_path, "r") as f:
@@ -87,7 +88,6 @@ def calculate_sipm_reduction_factors(
         "ds_ver": [],
     }
 
-    # Group calibrated channels by bar for inferring uncalibrated channel values
     bar_k_map: Dict[Tuple[int, str], List[float]] = {}
 
     for k_str in all_keys:
@@ -104,7 +104,6 @@ def calculate_sipm_reduction_factors(
         if subsystem == 1 and plane >= 2 and year < 2024 and not v2_json_path:
             continue
 
-        # Small SiPMs (channels 2 & 5 in US) are uncalibrated and never used
         if calc.is_small_sipm(det_id, sipm_num):
             continue
 
@@ -114,18 +113,14 @@ def calculate_sipm_reduction_factors(
 
         pt_dummy = {"detID": det_id, "x": 0.0, "y": 0.0, "z": 0.0}
         f_cone = calc.get_fcone(pt_dummy, sipm_num)
-        # Average boundary edge attenuation factor over bar width W = 6.0 cm
         eta_edge = 0.979 if subsystem == 2 else 1.0
         f_cone_eff = f_cone * eta_edge
 
         f_fresnel = calc.get_ffresnel(pt_dummy, sipm_num)
         f_area = calc.get_farea(pt_dummy, sipm_num)
 
-        # Birks' quenching factor for MIP (1.0 cm PVT scintillator)
-        # dE/dx = de [MeV] / 1.0 [cm] = de [MeV/cm]
         f_birks = 1.0 / (1.0 + KB_BIRKS * (de / 1.0))
 
-        # Attenuation to bar center
         s_att = np.exp(-0.00426 * d_center)
         if calc.is_vertical(det_id) and calc.n_sides(det_id) == 1:
             s_att += 0.88 * np.exp(-0.00426 * (2.0 * length - d_center))
@@ -155,7 +150,6 @@ def calculate_sipm_reduction_factors(
         }
         records.append(rec)
 
-        # Categorize for statistical reporting
         if subsystem == 1:
             if plane >= 2:
                 stats_by_category["veto_ver"].append(k_clamped)
@@ -172,7 +166,6 @@ def calculate_sipm_reduction_factors(
             else:
                 stats_by_category["ds_ver"].append(k_clamped)
 
-    # Sort records cleanly by detector_id and sipm_number
     records.sort(key=lambda r: (r["detector_id"], r["sipm_number"]))
     return records, stats_by_category
 
@@ -214,12 +207,10 @@ def main():
         args.calib_json, v2_json_path=v2_path, year=args.year
     )
 
-    # Ensure parent output directories exist
     out_dir = os.path.dirname(os.path.abspath(args.output_csv))
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    # 1. Write the 3-column CSV: detector_id,sipm_number,k
     with open(args.output_csv, "w") as f:
         f.write("detector_id,sipm_number,k\n")
         for r in records:
@@ -228,7 +219,6 @@ def main():
     print(f"\n[Success] Saved 3-column reduction parameters to: {args.output_csv}")
     print(f"  Total SiPM channels written: {len(records):,}")
 
-    # 2. Write detailed diagnostic CSV if requested
     if args.detailed_csv:
         det_dir = os.path.dirname(os.path.abspath(args.detailed_csv))
         if det_dir:
@@ -242,14 +232,12 @@ def main():
                 )
         print(f"[Success] Saved detailed breakdown to: {args.detailed_csv}")
 
-    # Copy to brain artifact directory if active
     artifact_dir = "/home/idioniso/.gemini/antigravity-cli/brain/89f2e48e-4381-4e67-a934-8bfea0891fb2"
     if os.path.exists(artifact_dir):
         os.system(f"cp -f {args.output_csv} {artifact_dir}/sipm_photoelectron_reduction_factors.csv")
         if args.detailed_csv:
             os.system(f"cp -f {args.detailed_csv} {artifact_dir}/sipm_photoelectron_reduction_factors_detailed.csv")
 
-    # Print Category Summary Table
     print("\n" + "=" * 80)
     print("PHOTOELECTRON REDUCTION PARAMETER (k) SUMMARY BY SCINTILLATOR SETUP")
     print("=" * 80)

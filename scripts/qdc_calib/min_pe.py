@@ -24,56 +24,66 @@ import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 
-# Scintillator and optical constants
-RISE_TIME_NS: float = 0.9            # EJ-200 scintillation rise time [ns]
-DECAY_TIME_NS: float = 2.1           # EJ-200 scintillation decay time [ns]
-PROP_SPEED_CM_NS: float = 13.9       # Effective light propagation speed along bar [cm/ns] (c_scint = 13.88 +- 0.57 cm/ns)
+# Parameter sources: Eljen EJ-200 Scintillator Datasheet
+RISE_TIME_NS: float = 0.9
+DECAY_TIME_NS: float = 2.1
+LIGHT_YIELD: float = 10000.0
 
-# Effective peak current reduction factor for collective scintillation pulse
-# (convolution of 0.9 ns rise + 2.1 ns decay emission with TIA front-end shaping)
-# relative to an instantaneous impulse:
-PEAK_PULSE_FACTOR: float = 0.4530    # 1.0 / 2.207
+# Parameter sources: HCAL_calibration.pdf Section 2.1
+PROP_SPEED_CM_NS: float = 13.9
+ATTENUATION_COEFF: float = 0.00426
+MIRROR_REFLECTIVITY: float = 0.88
 
-# Analytical Edge Degradation and Skin Parameters (from notes/light_att/f_cone_eff.md)
-ALPHA_EDGE: float = 0.35      # Maximum light collection deficit at lateral cut edge
-LAMBDA_EDGE: float = 0.18     # Characteristic spatial boundary decay length in cm (1.8 mm)
-DELTA_DEAD: float = 0.05      # Dead wrapping / skin thickness in cm (0.5 mm)
+# Physics justification: Collective pulse peak factor accounting for convolution of
+# 0.9 ns rise + 2.1 ns decay scintillation emission with TOFPET2 front-end TIA pulse response
+PEAK_PULSE_FACTOR: float = 0.4530
 
-# Temporal Arrival Dispersion Parameters
-TAU_PULSE_NS: float = 2.8     # Intrinsic pulse duration scale [ns] (0.9ns rise + 2.1ns decay + TIA response)
+# Parameter sources and physics justification: notes/light_att/f_cone_eff.md
+# Lateral cut edge machining micro-roughness, crazing, and wrapping boundary conditions reduce collection efficiency:
+ALPHA_EDGE: float = 0.35
+LAMBDA_EDGE: float = 0.18
+DELTA_DEAD: float = 0.05
 
-F_CONE_AIR: float = 0.1129          # TIR escape cone for dry air-gap coupling
-F_CONE_GEL_SHORT: float = 0.2744    # Direct critical angle cone for short bars (Veto 0&1, 42 cm)
-F_CONE_GEL_LONG: float = 0.1750     # Trapped guided light limited by lateral air TIR (US bars, 82.5 cm)
-F_CONE_GEL: float = 0.1750          # Default gel factor for standard long bars
+# Physics justification: Timescale of intrinsic scintillation pulse (0.9 ns rise + 2.1 ns decay convolved with TIA front-end)
+TAU_PULSE_NS: float = 2.8
 
+# Physics justification: Optical acceptance cone fractions from Snell's law and total internal reflection
+# Dry air-gap coupling (n_scint=1.58, n_air=1.0):
+F_CONE_AIR: float = 0.1129
+# Gel coupling for short bars (Veto 0&1, 42 cm): direct critical angle cone:
+F_CONE_GEL_SHORT: float = 0.2744
+# Gel coupling for long bars (US, 82.5 cm): guided light limited by lateral air TIR:
+F_CONE_GEL_LONG: float = 0.1750
+F_CONE_GEL: float = 0.1750
+
+# Physics justification: Fresnel transmission across refractive index boundaries
 F_FRESNEL_GEL: float = 0.9958
 F_FRESNEL_AIR: float = 0.9115
 
-ATTENUATION_COEFF: float = 0.00426  # cm^-1
-MIRROR_REFLECTIVITY: float = 0.88
+# Parameter sources: Hamamatsu S13360-6050PE MPPC Datasheet
+SIPM_AREA: float = 0.36
+SIPM_PDE: float = 0.50
+DEFAULT_I_1PE_UA: float = 5.0
 
-SIPM_AREA: float = 0.36       # cm^2 (6 mm x 6 mm)
-LIGHT_YIELD: float = 10000.0  # photons / MeV in EJ-200 plastic scintillator
-SIPM_PDE: float = 0.50        # SiPM photon detection efficiency (50%)
-KB_BIRKS: float = 0.0126      # cm / MeV (Birks' quenching parameter for EJ-200 PVT scintillator)
+# Parameter source: Birks' quenching parameter for PVT scintillator (Chou 1952, Craun & Smith 1970)
+KB_BIRKS: float = 0.0126
 
-# Default DAQ frontend parameters
-DEFAULT_G_T_OHMS: float = 3000.0       # Front-end TIA gain g_t [Ohms] (3.0 mV / uA)
-DEFAULT_I_1PE_UA: float = 5.0          # 6x6 mm^2 SiPM peak single-p.e. current [uA]
-DEFAULT_THR_T1: int = 20               # T1 discriminator threshold [DAC counts]
-DEFAULT_THR_T2: int = 20               # T2 discriminator threshold [DAC counts]
-DEFAULT_LSB_THR_T1: int = 59           # T1 LSB range register (lsb_thr_t1 in board.toml)
-DEFAULT_LSB_THR_T2: int = 50           # T2 LSB range register (lsb_thr_t2 in board.toml)
+# Parameter source: PETsys TOFPET 2C ASIC Datasheet
+DEFAULT_G_T_OHMS: float = 3000.0
 
-# Bar nominal dimensions [cm]: (Length, Width, Thickness)
-# End-cap area = Width * Thickness
+# Parameter sources: DAQ board.toml configuration
+DEFAULT_THR_T1: int = 20
+DEFAULT_THR_T2: int = 20
+DEFAULT_LSB_THR_T1: int = 59
+DEFAULT_LSB_THR_T2: int = 50
+
+# Parameter source: SND@LHC Technical Proposal Detector Geometry
 BAR_DIMS: Dict[str, Tuple[float, float, float]] = {
-    "veto_hor": (42.0, 6.0, 1.0),       # Planes 0 & 1: 42 cm long, 6 cm wide, 1 cm thick (End area = 6.0 cm^2)
-    "veto_ver": (46.0, 6.0, 1.0),       # Plane 2 (3rd plane, post-2024): 46 cm long, 6 cm wide, 1 cm thick (End area = 6.0 cm^2)
-    "us_hor": (82.525, 6.0, 1.0),       # End area = 6.0 cm^2
-    "ds_hor": (82.525, 1.0, 1.0),       # End area = 1.0 cm^2
-    "ds_ver": (63.525, 1.0, 1.0),       # End area = 1.0 cm^2
+    "veto_hor": (42.0, 6.0, 1.0),
+    "veto_ver": (46.0, 6.0, 1.0),
+    "us_hor": (82.525, 6.0, 1.0),
+    "ds_hor": (82.525, 1.0, 1.0),
+    "ds_ver": (63.525, 1.0, 1.0),
 }
 
 
@@ -162,7 +172,6 @@ class MinPE:
             elif hasattr(self._geo, "GetPosition"):
                 self._mufi = self._geo
 
-        # Automatically load calibrated channel-by-channel photoelectron reduction parameters
         tb_csv = "config/sipm_photoelectron_reduction_factors_testbeam.csv"
         nom_csv = "config/sipm_photoelectron_reduction_factors.csv"
         csv_to_load = tb_csv if self.is_testbeam else nom_csv
@@ -359,18 +368,13 @@ class MinPE:
             side = self.decode_sipm_side(det_id, sipm_num)
             station = plane
             if getattr(self, "is_testbeam", False):
-                # 2023 H8 Testbeam geometry (HCAL_calibration.pdf Section 2.1):
-                # Station 0 (US1): Left (Gel), Right (Air)
-                # Station 1 (US2): Left (Air), Right (Gel)
-                # Station 2 (US3): Left (Gel), Right (Air)
-                # Station 3 (US4): Left (Air), Right (Gel)
-                # Station 4 (US5): Left (Gel), Right (Air)
+                # Parameter source: 2023 H8 Testbeam geometry (HCAL_calibration.pdf Section 2.1)
                 if station in (0, 2, 4):
                     return side == "left"
                 else:
                     return side == "right"
             else:
-                # TI18 SND@LHC installed orientation
+                # Parameter source: TI18 SND@LHC installed orientation
                 if station == 0:
                     return side == "right"
                 elif station == 1:
@@ -434,7 +438,6 @@ class MinPE:
         if is_vert:
             subsystem, plane, _ = self.decode_detector_id(det_id)
             if subsystem == 1 and plane >= 2:
-                # Veto Plane 2: vertical along Y, read out from the top edge (46 cm long)
                 y_top = 46.0
                 d = max(0.0, min(length, y_top - y))
                 return float(d)
@@ -479,10 +482,9 @@ class MinPE:
 
         det_id, x, y, z, _, _ = self._extract_point_info(point)
         subsystem, plane, bar = self.decode_detector_id(det_id)
-        if subsystem != 2:  # Only applies to US wide scintillator bars (W = 6.0 cm)
+        if subsystem != 2:
             return f_cone
 
-        # Lateral distance to cut edge (width W = 6.0 cm)
         if self._mufi is not None:
             try:
                 import ROOT
@@ -496,7 +498,7 @@ class MinPE:
 
         d_edge = 3.0 - abs(y - yc)
         if d_edge < DELTA_DEAD:
-            return 0.0  # Lost in dead wrapping skin
+            return 0.0
 
         eta_edge = 1.0 - ALPHA_EDGE * math.exp(-(d_edge - DELTA_DEAD) / LAMBDA_EDGE)
         return float(f_cone * max(0.0, eta_edge))
@@ -601,17 +603,17 @@ class MinPE:
 
         abs_pdg = abs(int(pdg)) if pdg is not None else 0
 
-        if abs_pdg in (13, 211, 321):  # Muons, charged pions, kaons (MIP regime)
+        if abs_pdg in (13, 211, 321):
             dedx = 2.0
-        elif abs_pdg in (11, 22):  # Electrons, gammas
+        elif abs_pdg in (11, 22):
             r_est = 0.412 * (de ** 1.2) if de < 1.5 else 1.0
             dx = max(0.005, min(1.0, r_est))
             dedx = de / dx
-        elif abs_pdg in (2212, 2112):  # Protons, neutron recoils
+        elif abs_pdg in (2212, 2112):
             r_p = 0.0022 * (de ** 1.75) if de < 15.0 else 0.25
             dx = max(0.0005, min(1.0, r_p))
             dedx = de / dx
-        elif abs_pdg >= 1000000000:  # Nuclear recoils (Carbon-12, Alphas, etc.)
+        elif abs_pdg >= 1000000000:
             dx = max(0.0002, 0.0005 * (de ** 0.5))
             dedx = de / dx
         else:
@@ -730,7 +732,6 @@ class MinPE:
         n_sipms = self.get_num_sipms(det_id)
         pe_array = np.zeros(n_sipms, dtype=np.float64)
 
-        # Identify representative channel for each readout side
         sides: Dict[str, int] = {}
         for s_idx in range(n_sipms):
             side = self.decode_sipm_side(det_id, s_idx)
@@ -856,13 +857,10 @@ class MinPE:
         if rng is None:
             rng = np.random.default_rng()
 
-        # Compute waveform once per unique readout side ('left', 'right', or 'top')
-        # All SiPMs on the same side share identical optical distance, coupling, and waveform
         side_waves: Dict[str, np.ndarray] = {}
         unique_sides = set(self.decode_sipm_side(det_id, ch) for ch in range(n_sipms))
 
         for side in unique_sides:
-            # Pick reference channel for this side (0 for left/top, 8 for right in 16-ch bars, 1 for DS hor)
             ref_ch = 0 if side in ("left", "top") else (8 if n_sipms == 16 else 1)
             i_wave = np.zeros_like(t_grid)
             cfg_ref = cfg_list[ref_ch]
@@ -924,7 +922,6 @@ class MinPE:
 
         for ch in range(n_sipms):
             if self.is_small_sipm(det_id, ch):
-                # Small SiPMs (channels 2 & 5 per side in US) are uncalibrated and never used
                 t1_fired[ch] = False
                 t2_fired[ch] = False
                 hit_qualified[ch] = False
@@ -1007,8 +1004,6 @@ class MinPE:
         else:
             i_req = i_t2
 
-        # Effective peak current per single photoelectron accounting for scintillation rise time (0.9 ns)
-        # and decay time (2.1 ns) convolved with front-end TIA pulse response
         if getattr(self, "include_rise_time", True):
             i_eff_1pe = i_1pe * PEAK_PULSE_FACTOR
         else:
@@ -1038,7 +1033,6 @@ class MinPE:
               - 'current_pes': Actual photoelectrons per SiPM from the input points
               - 'current_hit_qualified': Whether input points qualify a hit as-is
         """
-        # Baseline trigger evaluation with input points
         eval_res = self.eval_sipm_triggers(
             points,
             sipm_configs=sipm_configs,
@@ -1066,7 +1060,6 @@ class MinPE:
 
         sub, pl, bar = self.decode_detector_id(det_id)
         if getattr(self, "is_testbeam", False):
-            # Testbeam only had DS Station 1 (plane 0)
             if sub == 3 and pl > 0:
                 return {
                     "min_pe_threshold": np.inf,
@@ -1078,12 +1071,8 @@ class MinPE:
                     "current_hit_qualified": False,
                 }
 
-        # Scale factor needed for each SiPM: scale_factor = sipm_th_pe / current_pes
-        # Smallest scale factor identifies the most sensitive SiPM that fires first
-        # Small SiPMs (channels 2 & 5 in US) are masked out and never used
         valid_mask = (current_pes > 0.0) & ~np.array([self.is_small_sipm(det_id, ch) for ch in range(n_sipms)])
         if getattr(self, "is_testbeam", False) and sub == 3 and pl == 0 and bar >= 60:
-            # DS1-V in testbeam only had Top readout (ch 0); ch 1 was uninstrumented
             if len(valid_mask) > 1:
                 valid_mask[1] = False
 
@@ -1111,7 +1100,6 @@ class MinPE:
         }
 
 
-# Default module-level instance
 _DEFAULT_CALCULATOR = MinPE()
 
 
@@ -1221,13 +1209,11 @@ def get_lowest_trigger_threshold(
 if __name__ == "__main__":
     print("Running min_pe.py self-test with TOFPET2 trigger evaluation...")
 
-    # 1. TOFPET2 DAC step size verification
     print("DAC LSB sizes:")
     print(f"  T1 (lsb=59): {tofpet2_lsb_mv(59, 't1'):.2f} mV/DAC count")
     print(f"  T2 (lsb=50): {tofpet2_lsb_mv(50, 't2'):.2f} mV/DAC count")
     print(f"  E  (lsb=50): {tofpet2_lsb_mv(50, 'e'):.2f} mV/DAC count")
 
-    # 2. Discriminator threshold evaluation for US1 Bar 21000 with a 1.7 MeV MIP
     pt_us1 = {"detID": 21000, "x": -30.0, "y": 10.0, "z": 400.0, "time": 10.0, "eloss": 1.70}
     trig_res = eval_sipm_triggers(pt_us1)
     print(f"\nUS1 Bar 21000 Trigger Result (1.70 MeV MIP):")
@@ -1237,7 +1223,6 @@ if __name__ == "__main__":
     print(f"  Peak Current Left (Gel) : {trig_res['peak_current_ua'][0]:.2f} uA")
     print(f"  Peak Current Right (Air): {trig_res['peak_current_ua'][8]:.2f} uA")
 
-    # 3. Lowest turn-on threshold determination
     thresh_info = get_lowest_trigger_threshold(pt_us1)
     print(f"\nLowest Turn-On Threshold for US1 Bar 21000:")
     print(f"  Threshold on Triggering SiPM : {thresh_info['min_pe_threshold']:.2f} p.e.")

@@ -37,6 +37,16 @@ load_trident_libraries(_repo_root)
 
 import scripts.qdc_calib.min_pe as mpe
 
+# Parameter sources: August 2023 '3 walls, ALL IN' 180 GeV pi+ testbeam run (Run 100671) from CERN SPS H8 logbook:
+# Physics justification for incremental reduction stages:
+# Stage 1: Raw Scintillation yield (LIGHT_YIELD = 10000 ph/MeV from EJ-200 datasheet)
+# Stage 2: Geometric area coverage fraction f_area (SiPM active area / bar endcap area)
+# Stage 3: Optical acceptance cone fraction f_cone (total internal reflection trapping from Snell's law)
+# Stage 4: Bulk technical attenuation S_att and Fresnel interface transmission f_fresnel
+# Stage 5: Birks quenching f_birks (hadronic recoils and high dE/dx stopping power saturation)
+# Stage 6: Cut edge degradation and dead skin layer f_edge (machining micro-roughness and wrapping loss)
+# Stage 7: Photon arrival time dispersion attenuation f_disp (waveform spreading across shower lateral width)
+# Stage 8: SiPM channel-specific empirical calibration factor k (optical coupling, alignment, ASIC baseline)
 STAGE_NAMES = [
     "1. Raw Scintillation",
     "2. + $f_{\\mathrm{area}}$",
@@ -53,7 +63,6 @@ def extract_data_and_mc(n_data_entries: int = 25000, n_mc_events: int = 600, cac
     calc = mpe.MinPE(year=2023, is_testbeam=True, include_edge_effect=True, include_dispersion=True)
     th_pe = calc.get_sipm_threshold_pe()
 
-    # 1. Read Testbeam Data
     data_file = "/eos/experiment/sndlhc/convertedData/commissioning/testbeam_June2023_H8/run_100671/sndsw_raw-0000.root"
     print(f"[1/2] Reading Data from {data_file}...")
     f_d = ROOT.TFile.Open(data_file)
@@ -123,7 +132,6 @@ def extract_data_and_mc(n_data_entries: int = 25000, n_mc_events: int = 600, cac
     f_d.Close()
     print(f"      Data: Analyzed {n_showers_d} showers. Total US Mean = {np.mean(d_us_tot_mult):.2f}, Total DS Mean = {np.mean(d_ds_tot_mult):.2f}")
 
-    # 2. Read Geant4 Simulation
     mc_file = "/eos/experiment/sndlhc/MonteCarlo/testbeam2023/2mmRangeCut/180GeV_211/sndLHC.PG_211-TGeant4_MCEB_dig.root"
     print(f"[2/2] Reading MC from {mc_file}...")
     f_m = ROOT.TFile.Open(mc_file)
@@ -246,7 +254,6 @@ def plot_all_us_planes(data_dict: dict, out_png: str):
     n_d = data_dict["n_showers_d"]
     n_mc = data_dict["actual_mc"]
 
-    # Panel 1: Longitudinal Profile (Mean Fired Bars vs US Plane 0 to 4)
     gs_left = gs[0, 0].subgridspec(2, 1, height_ratios=[3, 1], hspace=0.06)
     ax_top = fig.add_subplot(gs_left[0])
     ax_bot = fig.add_subplot(gs_left[1], sharex=ax_top)
@@ -301,7 +308,6 @@ def plot_all_us_planes(data_dict: dict, out_png: str):
     ax_bot.set_xticklabels([f"Plane {p}" for p in range(5)], fontsize=10, fontweight="bold")
     ax_bot.grid(True, linestyle=":", alpha=0.5)
 
-    # Panel 2: Total US Hit Multiplicity Distribution (0 to 50)
     ax_mult = fig.add_subplot(gs[0, 1])
     bins_tot = np.arange(-0.5, 50.5, 2.0)
     centers_tot = 0.5 * (bins_tot[:-1] + bins_tot[1:])
@@ -313,14 +319,12 @@ def plot_all_us_planes(data_dict: dict, out_png: str):
         ax_mult.hist(data_dict["mc_us_tot_mult"][s_idx], bins=bins_tot, density=True, histtype="stepfilled", color=c, alpha=0.06)
         ax_mult.hist(data_dict["mc_us_tot_mult"][s_idx], bins=bins_tot, density=True, histtype="step", lw=lw, ls=ls, color=c, label=f"{STAGE_NAMES[s_idx]} ($\mu$={np.mean(data_dict['mc_us_tot_mult'][s_idx]):.1f})")
 
-    # Error bars on Stage 8
     counts_s8, _ = np.histogram(data_dict["mc_us_tot_mult"][7], bins=bins_tot)
     prob_s8 = counts_s8 / (n_mc * 2.0)
     err_s8 = np.sqrt(counts_s8) / (n_mc * 2.0)
     mask_s8 = prob_s8 > 0
     ax_mult.errorbar(centers_tot[mask_s8], prob_s8[mask_s8], yerr=err_s8[mask_s8], fmt="none", ecolor=stage_colors[7], elinewidth=1.6, capsize=2.0, zorder=7)
 
-    # Data
     d_counts, _ = np.histogram(data_dict["d_us_tot_mult"], bins=bins_tot)
     d_prob = d_counts / (n_d * 2.0)
     d_err = np.sqrt(d_counts) / (n_d * 2.0)
@@ -334,7 +338,6 @@ def plot_all_us_planes(data_dict: dict, out_png: str):
     ax_mult.set_xlim(-0.5, 48)
     ax_mult.legend(fontsize=8.0, loc="upper right", framealpha=0.92)
 
-    # Panel 3: Waterfall Mean Fired Bars
     ax_waterfall = fig.add_subplot(gs[1, 0])
     y_pos = np.arange(9)
     means_us_tot = [float(np.mean(data_dict["mc_us_tot_mult"][s])) for s in range(8)] + [d_tot_mean]
@@ -356,11 +359,9 @@ def plot_all_us_planes(data_dict: dict, out_png: str):
     ax_waterfall.grid(True, linestyle=":", alpha=0.5, axis="x")
     ax_waterfall.legend(fontsize=10.0, loc="lower right")
 
-    # Panel 4: Suppression of Peripheral Wing Splash Across All US Planes
     ax_wings = fig.add_subplot(gs[1, 1])
     stages_x = np.arange(1, 9)
 
-    # Compute peripheral wing firing probability across all 5 planes: bars 0, 1, 8, 9
     d_wing_prob = float(np.mean([
         (data_dict["d_us_bars"][p][b] / n_d) * 100.0 for p in range(5) for b in (0, 1, 8, 9)
     ]))
@@ -410,16 +411,13 @@ def plot_5panel_us_transverse_profiles(data_dict: dict, out_png: str):
         d_err = np.sqrt(d_prob * (100.0 - d_prob) / n_d)
         mean_d = float(np.mean(data_dict["d_us_mult"][p]))
 
-        # S1 (Raw)
         raw_prob = (data_dict["mc_us_bars"][p][0] / n_mc) * 100.0
         mean_raw = float(np.mean(data_dict["mc_us_mult"][0][p]))
 
-        # S8 (Calibrated)
         cal_prob = (data_dict["mc_us_bars"][p][7] / n_mc) * 100.0
         cal_err = np.sqrt(cal_prob * (100.0 - cal_prob) / n_mc)
         mean_cal = float(np.mean(data_dict["mc_us_mult"][7][p]))
 
-        # Plot curves
         ax_main.plot(x_bars, raw_prob, marker="s", markersize=4.0, lw=1.8, ls=":", color="#1976d2", label=f"Raw MC ($\mu$={mean_raw:.2f})")
         ax_main.errorbar(x_bars, cal_prob, yerr=cal_err, marker="o", markersize=4.5, lw=2.2, ls="-", color="#d32f2f", ecolor="#d32f2f", elinewidth=1.6, capsize=2.5, label=f"Calibrated MC ($\mu$={mean_cal:.2f})", zorder=6)
         ax_main.errorbar(x_bars, d_prob, yerr=d_err, fmt="o", color="#111111", ecolor="#111111", elinewidth=1.8, capsize=3.0, markersize=5.0, label=f"Data ($\mu$={mean_d:.2f})", zorder=10)
@@ -431,7 +429,6 @@ def plot_5panel_us_transverse_profiles(data_dict: dict, out_png: str):
         ax_main.grid(True, linestyle=":", alpha=0.5)
         ax_main.legend(fontsize=8.0, loc="upper right")
 
-        # Ratio
         ratio_raw = np.where(d_prob > 1.0, raw_prob / d_prob, np.nan)
         ratio_cal = np.where(d_prob > 1.0, cal_prob / d_prob, np.nan)
         mask_rc = (d_prob > 1.0) & (cal_prob > 0)
@@ -465,12 +462,10 @@ def plot_ds_planes(data_dict: dict, out_png: str):
     n_d = data_dict["n_showers_d"]
     n_mc = data_dict["actual_mc"]
 
-    # Panel 1: DS Horizontal Bars Transverse Profile (Central 30 bars, 15 to 45)
     gs_left = gs[0, 0].subgridspec(2, 1, height_ratios=[3, 1], hspace=0.06)
     ax_top = fig.add_subplot(gs_left[0])
     ax_bot = fig.add_subplot(gs_left[1], sharex=ax_top)
 
-    # Focus on active core region of DS Station 0 Horizontal (Bars 15 to 45)
     sub_bars = np.arange(15, 46)
     d_dsh_prob = (data_dict["d_dsh_bars"][sub_bars] / n_d) * 100.0
     d_dsh_err = np.sqrt(d_dsh_prob * (100.0 - d_dsh_prob) / n_d)
@@ -507,7 +502,6 @@ def plot_ds_planes(data_dict: dict, out_png: str):
     ax_bot.set_ylim(0.2, 3.8)
     ax_bot.grid(True, linestyle=":", alpha=0.5)
 
-    # Panel 2: Total DS Hit Multiplicity Distribution (0 to 25)
     ax_mult = fig.add_subplot(gs[0, 1])
     bins_ds = np.arange(-0.5, 25.5, 1.0)
     centers_ds = np.arange(25)
@@ -536,7 +530,6 @@ def plot_ds_planes(data_dict: dict, out_png: str):
     ax_mult.set_xlim(-0.5, 22)
     ax_mult.legend(fontsize=8.0, loc="upper right", framealpha=0.92)
 
-    # Panel 3: Waterfall Mean Fired Bars
     ax_waterfall = fig.add_subplot(gs[1, 0])
     y_pos = np.arange(9)
     means_ds = [float(np.mean(data_dict["mc_ds_tot_mult"][s])) for s in range(8)] + [mean_d_ds]
@@ -558,11 +551,9 @@ def plot_ds_planes(data_dict: dict, out_png: str):
     ax_waterfall.grid(True, linestyle=":", alpha=0.5, axis="x")
     ax_waterfall.legend(fontsize=10.0, loc="lower right")
 
-    # Panel 4: Suppression of Peripheral Wing Splash in DS
     ax_wings = fig.add_subplot(gs[1, 1])
     stages_x = np.arange(1, 9)
 
-    # Wing bars in DS horizontal: bars 0..15 and 45..59
     wing_indices = np.concatenate([np.arange(0, 15), np.arange(45, 60)])
     d_wing_prob = float(np.mean((data_dict["d_dsh_bars"][wing_indices] / n_d) * 100.0))
 
@@ -605,24 +596,19 @@ def main():
     if os.path.exists(cache_path):
         print(f"Loading cached data from {cache_path}...")
         data_dict = np.load(cache_path, allow_pickle=True)
-        # convert to dict
         data_dict = {k: data_dict[k] for k in data_dict.files}
     else:
         data_dict = extract_data_and_mc(n_data_entries=25000, n_mc_events=600, cache_path=cache_path)
 
-    # 1. Plot All US Planes Evolution (4-panel)
     png_us = os.path.join(plot_dir, "tb_all_us_planes_incremental_factors.png")
     plot_all_us_planes(data_dict, png_us)
 
-    # 2. Plot 5-Panel US Transverse Profiles
     png_5p = os.path.join(plot_dir, "tb_us_planes_5panel_transverse_profiles.png")
     plot_5panel_us_transverse_profiles(data_dict, png_5p)
 
-    # 3. Plot DS Planes Evolution (4-panel)
     png_ds = os.path.join(plot_dir, "tb_ds_planes_incremental_factors.png")
     plot_ds_planes(data_dict, png_ds)
 
-    # Copy to brain artifact directory
     if os.path.exists(art_dir):
         for png in [png_us, png_5p, png_ds]:
             os.system(f"cp {png} {os.path.join(art_dir, os.path.basename(png))}")

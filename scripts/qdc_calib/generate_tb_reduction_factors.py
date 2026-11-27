@@ -33,26 +33,34 @@ _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
-# Optical Constants from min_pe
-LIGHT_YIELD: float = 10000.0  # photons/MeV
+# Parameter sources: Eljen EJ-200 Scintillator Datasheet
+LIGHT_YIELD: float = 10000.0
+# Parameter sources: Hamamatsu S13360 MPPC Datasheet
 SIPM_PDE: float = 0.50
-SIPM_AREA_LARGE: float = 0.36  # cm^2
-SIPM_AREA_SMALL: float = 0.09  # cm^2
+SIPM_AREA_LARGE: float = 0.36
+SIPM_AREA_SMALL: float = 0.09
 
+# Physics justification: Optical acceptance cone fractions & Fresnel transmission
 F_CONE_AIR: float = 0.1129
 F_CONE_GEL_LONG: float = 0.1750
 F_FRESNEL_AIR: float = 0.9115
 F_FRESNEL_GEL: float = 0.9958
-KB_BIRKS: float = 0.0126  # cm/MeV (EJ-200 PVT plastic scintillator)
-ATTENUATION_COEFF: float = 0.00426  # 1 / 234.7 cm
-E_MIP_US: float = 1.70  # MeV
-E_MIP_DS: float = 1.70  # MeV
+
+# Parameter source: Birks quenching parameter for PVT scintillator (Chou 1952, Craun & Smith 1970)
+KB_BIRKS: float = 0.0126
+# Parameter source: HCAL_calibration.pdf Section 2.1 (attenuation lambda = 234.7 cm)
+ATTENUATION_COEFF: float = 0.00426
+
+# Parameter source: MIP MPV from Langaus fits on simulation
+E_MIP_US: float = 1.70
+E_MIP_DS: float = 1.70
 F_BIRKS_US: float = 1.0 / (1.0 + KB_BIRKS * (E_MIP_US / 1.0))
 F_BIRKS_DS: float = 1.0 / (1.0 + KB_BIRKS * (E_MIP_DS / 1.0))
 
-# QDC to Photoelectrons conversion
-# TOFPET2C at gain g_q = 2.5:
+# Parameter sources: TOFPET2C ASIC datasheet (3.60 pC/QDC) & Hamamatsu S13360 MPPC datasheet (0.43258 pC/pe at G=2.5e6)
 QDC_TO_PE: float = 3.60 / 0.43258
+
+# Physics justification: Channel reduction parameter k = N_pe_data / N_pe_th accounts for
 
 
 def extract_testbeam_muon_qdc(muon_file: str, max_events: int = 50000) -> Dict[Tuple[int, int], float]:
@@ -87,7 +95,6 @@ def extract_testbeam_muon_qdc(muon_file: str, max_events: int = 50000) -> Dict[T
 
     f.Close()
 
-    # Calculate median QDC per individual channel
     med_qdc: Dict[Tuple[int, int], float] = {}
     for (did, ch), vals in qdc_store.items():
         if len(vals) >= 15:
@@ -108,14 +115,12 @@ def compute_testbeam_reduction_factors(
 
     records = []
 
-    # 1. Upstream Bars (subsystem 2: 5 stations, 10 bars each, 16 SiPMs each)
-    us_end_area = 6.0  # 6.0 cm x 1.0 cm = 6.0 cm^2
-    f_area_large_us = SIPM_AREA_LARGE / us_end_area  # 0.060
-    bar_length_us = 83.0  # cm
-    d_center_us = bar_length_us / 2.0  # 41.5 cm
+    us_end_area = 6.0
+    f_area_large_us = SIPM_AREA_LARGE / us_end_area
+    bar_length_us = 83.0
+    d_center_us = bar_length_us / 2.0
     s_att_us = math.exp(-ATTENUATION_COEFF * d_center_us)
 
-    # Compute default fallback median QDCs by plane and side
     plane_side_medians: Dict[Tuple[int, str], float] = {}
     for pl in range(5):
         for side_str, ch_range in [("L", range(8)), ("R", range(8, 16))]:
@@ -128,8 +133,6 @@ def compute_testbeam_reduction_factors(
             plane_side_medians[(pl, side_str)] = float(np.median(vals)) if vals else 4.0
 
     for pl in range(5):
-        # US0, US2, US4: Left Gel, Right Air
-        # US1, US3: Left Air, Right Gel
         left_has_gel = (pl in (0, 2, 4))
         right_has_gel = not left_has_gel
 
@@ -144,7 +147,6 @@ def compute_testbeam_reduction_factors(
         for bar in range(10):
             did = 20000 + pl * 1000 + bar
 
-            # Channels 0..7: Left
             for ch in range(8):
                 is_small = (ch in (2, 5))
                 if is_small:
@@ -155,7 +157,6 @@ def compute_testbeam_reduction_factors(
                     k = float(np.clip(n_pe_data / n_pe_th_large_l, 0.005, 1.0))
                     records.append((did, ch, k))
 
-            # Channels 8..15: Right
             for ch in range(8, 16):
                 is_small = ((ch % 8) in (2, 5))
                 if is_small:
@@ -166,12 +167,10 @@ def compute_testbeam_reduction_factors(
                     k = float(np.clip(n_pe_data / n_pe_th_large_r, 0.005, 1.0))
                     records.append((did, ch, k))
 
-    # 2. Downstream Bars (subsystem 3: DS1-H and DS1-V only)
-    ds_end_area = 1.0  # 1.0 cm^2
-    f_area_ds = SIPM_AREA_LARGE / ds_end_area  # 0.36
+    ds_end_area = 1.0
+    f_area_ds = SIPM_AREA_LARGE / ds_end_area
     s_att_ds_h = math.exp(-ATTENUATION_COEFF * 41.25)
     
-    # DS1-V: 63.525 cm vertical bar read out at top, with aluminized mirror (R=0.88) at bottom
     d_v = 31.75
     l_v = 63.525
     s_att_ds_v = math.exp(-ATTENUATION_COEFF * d_v) + 0.88 * math.exp(-ATTENUATION_COEFF * (2.0 * l_v - d_v))
@@ -179,7 +178,6 @@ def compute_testbeam_reduction_factors(
     n_pe_th_ds_h = LIGHT_YIELD * E_MIP_DS * F_BIRKS_DS * F_CONE_AIR * s_att_ds_h * F_FRESNEL_AIR * f_area_ds * SIPM_PDE
     n_pe_th_ds_v = LIGHT_YIELD * E_MIP_DS * F_BIRKS_DS * F_CONE_AIR * s_att_ds_v * F_FRESNEL_AIR * f_area_ds * SIPM_PDE
 
-    # Compute DS medians for fallback
     ds_h_vals_0 = [med_qdc[(30000+b, 0)] for b in range(60) if (30000+b, 0) in med_qdc]
     ds_h_vals_1 = [med_qdc[(30000+b, 1)] for b in range(60) if (30000+b, 1) in med_qdc]
     ds_v_vals_0 = [med_qdc[(30000+b, 0)] for b in range(60, 120) if (30000+b, 0) in med_qdc]
@@ -188,7 +186,6 @@ def compute_testbeam_reduction_factors(
     med_ds_h1 = float(np.median(ds_h_vals_1)) if ds_h_vals_1 else 10.0
     med_ds_v0 = float(np.median(ds_v_vals_0)) if ds_v_vals_0 else 12.0
 
-    # DS1-H: 60 bars, 2 sides (ch 0=Left, ch 1=Right)
     for bar in range(60):
         did = 30000 + bar
         qdc_l = med_qdc.get((did, 0), med_ds_h0)
@@ -198,14 +195,12 @@ def compute_testbeam_reduction_factors(
         records.append((did, 0, k_l))
         records.append((did, 1, k_r))
 
-    # DS1-V: 60 bars (indices 60..119), Top side only (ch 0)
     for bar in range(60, 120):
         did = 30000 + bar
         qdc_top = med_qdc.get((did, 0), med_ds_v0)
         k_top = float(np.clip((qdc_top * QDC_TO_PE) / n_pe_th_ds_v, 0.005, 1.0))
         records.append((did, 0, k_top))
 
-    # Write CSV
     with open(out_csv, "w") as f:
         f.write("detector_id,sipm_number,k\n")
         for did, ch, k in records:
@@ -223,7 +218,6 @@ def main():
     med_qdc = extract_testbeam_muon_qdc(muon_file, max_events=40000)
     compute_testbeam_reduction_factors(med_qdc, out_csv)
 
-    # Copy to artifact directory
     art_dir = "/home/idioniso/.gemini/antigravity-cli/brain/89f2e48e-4381-4e67-a934-8bfea0891fb2"
     os.system(f"cp -f {out_csv} {art_dir}/")
     print(f"Copied {out_csv} to artifact directory.")

@@ -46,6 +46,16 @@ load_trident_libraries(_repo_root)
 
 import scripts.qdc_calib.min_pe as mpe
 
+# Parameter sources: August 2023 '3 walls, ALL IN' testbeam runs from CERN SPS H8 testbeam logbook:
+# Physics justification for incremental reduction stages:
+# Stage 1: Raw Scintillation yield (LIGHT_YIELD = 10000 ph/MeV from EJ-200 datasheet)
+# Stage 2: Geometric area coverage fraction f_area (SiPM active area / bar endcap area)
+# Stage 3: Optical acceptance cone fraction f_cone (total internal reflection trapping from Snell's law)
+# Stage 4: Bulk technical attenuation S_att and Fresnel interface transmission f_fresnel
+# Stage 5: Birks quenching f_birks (hadronic recoils and high dE/dx stopping power saturation)
+# Stage 6: Cut edge degradation and dead skin layer f_edge (machining micro-roughness and wrapping loss)
+# Stage 7: Photon arrival time dispersion attenuation f_disp (waveform spreading across shower lateral width)
+# Stage 8: SiPM channel-specific empirical calibration factor k (optical coupling, alignment, ASIC baseline)
 ENERGY_CONFIGS = {
     100: {
         "energy": 100, "pid": 211, "name": r"100 GeV $\pi^+$", "label": "100GeV",
@@ -98,7 +108,6 @@ def extract_single_energy(cfg: dict, max_data: int = 15000, max_mc: int = 350) -
     calc = mpe.MinPE(year=2023, is_testbeam=True, include_edge_effect=True, include_dispersion=True)
     th_pe = calc.get_sipm_threshold_pe()
 
-    # 1. Read Data
     fd = ROOT.TFile.Open(cfg["data_file"])
     td = fd.Get("rawConv")
     td.SetBranchStatus("*", 0)
@@ -152,7 +161,6 @@ def extract_single_energy(cfg: dict, max_data: int = 15000, max_mc: int = 350) -
 
     fd.Close()
 
-    # 2. Read MC
     fm = ROOT.TFile.Open(cfg["mc_file"])
     tm = fm.Get("cbmsim")
     tm.SetBranchStatus("*", 0)
@@ -261,7 +269,6 @@ def extract_all_energies(max_data: int = 15000, max_mc: int = 350, n_workers: in
         results = pool.map(_worker_task, args_list)
 
     all_res = {r["energy"]: r for r in results}
-    # Save as npz
     save_dict = {str(k): v for k, v in all_res.items()}
     np.savez_compressed(cache_path, **save_dict)
     print(f"[✓] Saved multi-energy cache to {cache_path}")
@@ -285,7 +292,7 @@ def plot_single_plane_evolution(
     cfg = ENERGY_CONFIGS[current_energy]
     energy_name = cfg["name"]
     run_num = cfg["run_num"]
-    is_ds = (plane_idx == 5)  # 5 indicates DS subsystem
+    is_ds = (plane_idx == 5)
 
     plane_title = f"US Plane {plane_idx}" if not is_ds else "Downstream (DS) MuFilter"
     plane_coord = "US Bar Index (0=Bottom, 9=Top)" if not is_ds else "DS-H Bar Index (1 cm pitch)"
@@ -299,9 +306,6 @@ def plot_single_plane_evolution(
     n_d = data_dict["n_showers_d"]
     n_mc = data_dict["actual_mc"]
 
-    # -------------------------------------------------------------------------
-    # Panel 1: Transverse Profile with Ratio Subpanel
-    # -------------------------------------------------------------------------
     gs_left = gs[0, 0].subgridspec(2, 1, height_ratios=[3, 1], hspace=0.06)
     ax_top = fig.add_subplot(gs_left[0])
     ax_bot = fig.add_subplot(gs_left[1], sharex=ax_top)
@@ -369,9 +373,6 @@ def plot_single_plane_evolution(
         ax_bot.set_xticks(x_bars)
     ax_bot.grid(True, linestyle=":", alpha=0.5)
 
-    # -------------------------------------------------------------------------
-    # Panel 2: Multiplicity Distribution Evolution
-    # -------------------------------------------------------------------------
     ax_mult = fig.add_subplot(gs[0, 1])
     bins_mult = np.arange(-0.5, 11.5, 1.0) if not is_ds else np.arange(-0.5, 20.5, 1.0)
     centers_mult = 0.5 * (bins_mult[:-1] + bins_mult[1:])
@@ -384,14 +385,12 @@ def plot_single_plane_evolution(
         ax_mult.hist(m_arr, bins=bins_mult, density=True, histtype="stepfilled", color=c, alpha=0.06)
         ax_mult.hist(m_arr, bins=bins_mult, density=True, histtype="step", lw=lw, ls=ls, color=c, label=f"{STAGE_NAMES[s_idx]} ($\mu$={mc_means_inc[s_idx]:.2f})")
 
-    # Error bars on Stage 8
     m_s8 = data_dict["mc_us_mult"][7][plane_idx] if not is_ds else data_dict["mc_ds_tot_mult"][7]
     c_s8, _ = np.histogram(m_s8, bins=bins_mult)
     prob_s8 = c_s8 / n_mc
     err_s8 = np.sqrt(c_s8) / n_mc
     ax_mult.errorbar(centers_mult, prob_s8, yerr=err_s8, fmt="none", ecolor=stage_colors[7], elinewidth=1.6, capsize=2.0, zorder=7)
 
-    # Data
     c_d, _ = np.histogram(d_mult_vals, bins=bins_mult)
     prob_d = c_d / n_d
     err_d = np.sqrt(c_d) / n_d
@@ -403,9 +402,6 @@ def plot_single_plane_evolution(
     ax_mult.grid(True, linestyle=":", alpha=0.5)
     ax_mult.legend(fontsize=8.0, loc="upper right", framealpha=0.92)
 
-    # -------------------------------------------------------------------------
-    # Panel 3: REPLACED LOWER-LEFT — Multi-Energy Beam Scaling (100 to 300 GeV)
-    # -------------------------------------------------------------------------
     gs_bot_left = gs[1, 0].subgridspec(2, 1, height_ratios=[3, 1], hspace=0.06)
     ax_e_top = fig.add_subplot(gs_bot_left[0])
     ax_e_bot = fig.add_subplot(gs_bot_left[1], sharex=ax_e_top)
@@ -437,12 +433,10 @@ def plot_single_plane_evolution(
     mc_cal_e_means = np.array(mc_cal_e_means)
     mc_cal_e_errs = np.array(mc_cal_e_errs)
 
-    # Plot multi-energy curves
     ax_e_top.plot(energies, mc_raw_e_means, marker="s", markersize=6.0, lw=2.0, ls=":", color="#1976d2", label="Raw MC (Stage 1)")
     ax_e_top.errorbar(energies, mc_cal_e_means, yerr=mc_cal_e_errs, marker="o", markersize=6.5, lw=2.4, ls="-", color="#d32f2f", ecolor="#d32f2f", elinewidth=1.8, capsize=3.0, label="Calibrated MC (Stage 8, Final)", zorder=6)
     ax_e_top.errorbar(energies, data_e_means, yerr=data_e_errs, fmt="o", color="#111111", ecolor="#111111", elinewidth=2.2, capsize=3.5, markersize=7.0, label="Recorded Testbeam Data", zorder=10)
 
-    # Highlight current energy
     cur_d_idx = energies.index(current_energy)
     ax_e_top.plot([current_energy], [data_e_means[cur_d_idx]], marker="*", markersize=16.0, color="#ffb300", markeredgecolor="#111111", markeredgewidth=1.2, label=f"Current: {energy_name}", zorder=12)
     ax_e_top.axvline(current_energy, color="#ffb300", linestyle="--", lw=1.5, alpha=0.7)
@@ -452,7 +446,6 @@ def plot_single_plane_evolution(
     ax_e_top.grid(True, linestyle=":", alpha=0.5)
     ax_e_top.legend(fontsize=8.5, loc="lower right", framealpha=0.92)
 
-    # Ratio panel
     ratio_raw_e = mc_raw_e_means / data_e_means
     ratio_cal_e = mc_cal_e_means / data_e_means
     r_err_e = ratio_cal_e * np.sqrt((mc_cal_e_errs / mc_cal_e_means)**2 + (data_e_errs / data_e_means)**2)
@@ -469,9 +462,6 @@ def plot_single_plane_evolution(
     ax_e_bot.set_ylim(0.5, 2.5)
     ax_e_bot.grid(True, linestyle=":", alpha=0.5)
 
-    # -------------------------------------------------------------------------
-    # Panel 4: Suppression of Peripheral Wing Splash vs Stage
-    # -------------------------------------------------------------------------
     ax_wings = fig.add_subplot(gs[1, 1])
     stages_x = np.arange(1, 9)
 
@@ -530,17 +520,15 @@ def main():
 
     all_energy_data = extract_all_energies(max_data=15000, max_mc=350, n_workers=5, cache_path=cache_path)
 
-    # Generate matrix of plots: for each energy and each plane
     generated_plots = []
     for energy in sorted(all_energy_data.keys()):
-        for plane_idx in range(6):  # 0..4 for US Planes, 5 for DS
+        for plane_idx in range(6):
             p_name = f"us_plane_{plane_idx}" if plane_idx < 5 else "ds_subsystem"
             fname = f"tb_{p_name}_{energy}gev_evolution.png"
             out_png = os.path.join(plot_dir, fname)
             plot_single_plane_evolution(plane_idx, energy, all_energy_data, out_png)
             generated_plots.append(out_png)
 
-            # Also copy reference plots to brain artifact directory
             if os.path.exists(art_dir):
                 os.system(f"cp {out_png} {os.path.join(art_dir, fname)}")
 

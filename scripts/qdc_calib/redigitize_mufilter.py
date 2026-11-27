@@ -10,13 +10,10 @@ Writes a new cycle `cbmsim;2` into the ROOT file while preserving original simul
 Subsequent calls to `f->Get("cbmsim")` will automatically retrieve the calibrated `cbmsim;2` tree.
 
 Usage:
-  # Single test partition:
   python3 scripts/qdc_calib/redigitize_mufilter.py --file /path/to/sndLHC.Genie-TGeant4_dig.root
 
-  # 1000 GENIE partitions in parallel:
   python3 scripts/qdc_calib/redigitize_mufilter.py --preset newP8 -j 16
 
-  # PMU sample:
   python3 scripts/qdc_calib/redigitize_mufilter.py --pmu -j 8
 """
 
@@ -58,7 +55,6 @@ def redigitize_single_file(file_path: str, is_testbeam: bool = False, year: int 
     calc = mpe.MinPE(year=year, is_testbeam=is_testbeam, include_edge_effect=True, include_dispersion=True)
     th_pe = calc.get_sipm_threshold_pe()
 
-    # Open file in UPDATE mode
     f = ROOT.TFile.Open(file_path, "UPDATE")
     if not f or f.IsZombie():
         print(f"[!] Cannot open {file_path} in UPDATE mode.")
@@ -74,21 +70,17 @@ def redigitize_single_file(file_path: str, is_testbeam: bool = False, year: int 
     if max_events is not None and max_events > 0:
         n_entries = min(n_entries, max_events)
 
-    # Disable original Digi_MuFilterHits from auto-cloning
     has_digi_branch = (t_src.GetBranch("Digi_MuFilterHits") is not None)
     if has_digi_branch:
         t_src.SetBranchStatus("Digi_MuFilterHits", 0)
 
-    # Clone structure
     t_new = t_src.CloneTree(0)
 
-    # Re-enable source branch to read original hits
     orig_hits = ROOT.TClonesArray("MuFilterHit")
     if has_digi_branch:
         t_src.SetBranchStatus("Digi_MuFilterHits", 1)
         t_src.SetBranchAddress("Digi_MuFilterHits", orig_hits)
 
-    # Create new calibrated branch
     cal_hits = ROOT.TClonesArray("MuFilterHit")
     t_new.Branch("Digi_MuFilterHits", cal_hits)
 
@@ -119,7 +111,6 @@ def redigitize_single_file(file_path: str, is_testbeam: bool = False, year: int 
                     hit_idx += 1
             total_cal += cal_hits.GetEntriesFast()
         else:
-            # Create hits from scratch if file was undigitized
             hit_idx = 0
             for did, clusters in by_bar.items():
                 pts = clusters[0]
@@ -132,7 +123,6 @@ def redigitize_single_file(file_path: str, is_testbeam: bool = False, year: int 
 
         t_new.Fill()
 
-    # Overwrite as cycle cbmsim;2 in ROOT file
     t_new.Write("cbmsim", ROOT.TObject.kOverwrite)
     f.Close()
 

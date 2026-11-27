@@ -510,6 +510,92 @@ def plot_single_plane_evolution(
     return fig
 
 
+def plot_5x5_transverse_matrix(
+    all_energy_data: Dict[int, Any],
+    out_png: Optional[str] = None,
+) -> plt.Figure:
+    energies = [100, 140, 180, 240, 300]
+    energy_labels = {
+        100: r"100 GeV $\pi^+$",
+        140: r"140 GeV $\pi^+$",
+        180: r"180 GeV $\pi^+$",
+        240: r"240 GeV $\pi^-$",
+        300: r"300 GeV $\pi^-$",
+    }
+
+    fig = plt.figure(figsize=(26, 25))
+    gs_main = fig.add_gridspec(5, 5, hspace=0.32, wspace=0.25)
+    x_bars = np.arange(10)
+
+    for row_idx, e in enumerate(energies):
+        d = all_energy_data[e]
+        n_d = d["n_showers_d"]
+        n_mc = d["actual_mc"]
+        e_name = energy_labels[e]
+
+        for p in range(5):
+            gs_cell = gs_main[row_idx, p].subgridspec(2, 1, height_ratios=[3, 1.1], hspace=0.06)
+            ax_top = fig.add_subplot(gs_cell[0])
+            ax_bot = fig.add_subplot(gs_cell[1], sharex=ax_top)
+
+            d_prob = (d["d_us_bars"][p] / n_d) * 100.0
+            d_err = np.sqrt(np.maximum(d["d_us_bars"][p], 1.0)) / n_d * 100.0
+
+            raw_prob = (d["mc_us_bars"][p][0] / n_mc) * 100.0
+            cal_prob = (d["mc_us_bars"][p][7] / n_mc) * 100.0
+            cal_err = np.sqrt(np.maximum(d["mc_us_bars"][p][7], 1.0)) / n_mc * 100.0
+
+            mean_d = float(np.mean(d["d_us_mult"][p]))
+            mean_raw = float(np.mean(d["mc_us_mult"][0][p]))
+            mean_cal = float(np.mean(d["mc_us_mult"][7][p]))
+
+            ax_top.plot(x_bars, raw_prob, marker="s", markersize=3.5, lw=1.5, ls=":", color="#1976d2", label=f"Raw MC ($\mu$={mean_raw:.2f})")
+            ax_top.errorbar(x_bars, cal_prob, yerr=cal_err, marker="o", markersize=4.0, lw=2.0, ls="-", color="#d32f2f", ecolor="#d32f2f", elinewidth=1.4, capsize=2.0, label=f"Calibrated MC ($\mu$={mean_cal:.2f})", zorder=6)
+            ax_top.errorbar(x_bars, d_prob, yerr=d_err, fmt="o", color="#111111", ecolor="#111111", elinewidth=1.6, capsize=2.5, markersize=4.5, label=f"Data ($\mu$={mean_d:.2f})", zorder=10)
+
+            ax_top.set_ylim(-2, 108)
+            ax_top.set_xlim(-0.5, 9.5)
+            ax_top.grid(True, linestyle=":", alpha=0.5)
+            ax_top.tick_params(labelbottom=False)
+            ax_top.legend(fontsize=7.5, loc="upper right", framealpha=0.85)
+
+            if row_idx == 0:
+                ax_top.set_title(f"US Plane {p}", fontsize=13, fontweight="bold", pad=8)
+            if p == 0:
+                ax_top.set_ylabel(f"{e_name}\nFiring Prob [%]", fontsize=10.5, fontweight="bold")
+
+            mask = d_prob > 0.0
+            ratio_raw = np.full(10, np.nan)
+            ratio_cal = np.full(10, np.nan)
+            r_err = np.zeros(10)
+
+            ratio_raw[mask] = raw_prob[mask] / d_prob[mask]
+            ratio_cal[mask] = cal_prob[mask] / d_prob[mask]
+            r_err[mask] = ratio_cal[mask] * np.sqrt(
+                (cal_err[mask] / np.maximum(cal_prob[mask], 1e-3)) ** 2
+                + (d_err[mask] / np.maximum(d_prob[mask], 1e-3)) ** 2
+            )
+
+            ax_bot.axhline(1.0, color="#111111", lw=1.2, linestyle="--")
+            ax_bot.plot(x_bars, ratio_raw, marker="s", markersize=3.0, color="#1976d2", ls=":", lw=1.2)
+            ax_bot.errorbar(x_bars, ratio_cal, yerr=r_err, marker="o", markersize=3.5, color="#d32f2f", ecolor="#d32f2f", elinewidth=1.2, capsize=2.0, ls="-", lw=1.5)
+
+            ax_bot.set_ylim(0.2, 3.8)
+            ax_bot.set_xticks(x_bars)
+            ax_bot.grid(True, linestyle=":", alpha=0.5)
+
+            if row_idx == 4:
+                ax_bot.set_xlabel("Bar Index (0=Bot, 9=Top)", fontsize=9.5)
+            if p == 0:
+                ax_bot.set_ylabel("MC / Data", fontsize=9.5, fontweight="bold")
+
+    plt.suptitle("SND@LHC MuFilter Transverse Profiles Across US Planes & Pion Beam Energies", fontsize=17, fontweight="bold", y=0.995)
+    if out_png:
+        plt.savefig(out_png, dpi=250, bbox_inches="tight")
+        print(f"[✓] Generated: {out_png}")
+    return fig
+
+
 def main():
     plot_dir = "plots/multienergy"
     os.makedirs(plot_dir, exist_ok=True)

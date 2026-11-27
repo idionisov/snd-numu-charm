@@ -527,7 +527,9 @@ class MinPE:
                 continue
             d = self.get_distance_to_sipm(p, sipm_num)
             arr_times.append(t_pt + d / PROP_SPEED_CM_NS)
-            weights.append(eloss)
+            f_b = self.get_fbirks(p, eloss_mev=eloss) if getattr(self, "include_birks", True) else 1.0
+            w_light = eloss * f_b * math.exp(-ATTENUATION_COEFF * d) * self.get_fcone_eff(p, sipm_num)
+            weights.append(max(0.0, w_light))
 
         if len(weights) <= 1:
             return 1.0
@@ -865,13 +867,19 @@ class MinPE:
             i_wave = np.zeros_like(t_grid)
             cfg_ref = cfg_list[ref_ch]
             i_1pe = float(cfg_ref.get("i_1pe_ua", DEFAULT_I_1PE_UA))
+            if getattr(self, "include_rise_time", True):
+                i_eff_1pe = i_1pe * PEAK_PULSE_FACTOR
+            else:
+                i_eff_1pe = i_1pe
 
             for p in pts_list:
                 _, _, _, _, t_pt, pt_eloss = self._extract_point_info(p)
                 d = self.get_distance_to_sipm(p, ref_ch)
+                f_birks = self.get_fbirks(p, eloss_mev=pt_eloss) if getattr(self, "include_birks", True) else 1.0
                 base_pe = (
                     LIGHT_YIELD
                     * pt_eloss
+                    * f_birks
                     * self.get_fcone_eff(p, ref_ch)
                     * self.get_ffresnel(p, ref_ch)
                     * self.get_farea(p, ref_ch)
@@ -886,11 +894,11 @@ class MinPE:
                     if n_ph > 0:
                         em_dt = rng.exponential(decay_ns, size=n_ph)
                         for dt_e in em_dt:
-                            i_wave += i_1pe * _pulse_kernel(
+                            i_wave += i_eff_1pe * _pulse_kernel(
                                 t_grid - (t_dir + dt_e), decay_ns=decay_ns, rise_ns=rise_ns
                             )
                 else:
-                    i_wave += i_1pe * pe_dir * _pulse_kernel(
+                    i_wave += i_eff_1pe * pe_dir * _pulse_kernel(
                         t_grid - t_dir, decay_ns=decay_ns, rise_ns=rise_ns
                     )
 
@@ -904,11 +912,11 @@ class MinPE:
                         if n_ph_r > 0:
                             em_dt_r = rng.exponential(decay_ns, size=n_ph_r)
                             for dt_e in em_dt_r:
-                                i_wave += i_1pe * _pulse_kernel(
+                                i_wave += i_eff_1pe * _pulse_kernel(
                                     t_grid - (t_refl + dt_e), decay_ns=decay_ns, rise_ns=rise_ns
                                 )
                     else:
-                        i_wave += i_1pe * pe_refl * _pulse_kernel(
+                        i_wave += i_eff_1pe * pe_refl * _pulse_kernel(
                             t_grid - t_refl, decay_ns=decay_ns, rise_ns=rise_ns
                         )
 

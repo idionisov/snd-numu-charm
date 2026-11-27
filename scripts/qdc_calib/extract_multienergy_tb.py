@@ -49,15 +49,15 @@ import scripts.qdc_calib.min_pe as mpe
 ENERGY_CONFIGS = {
     100: {
         "energy": 100, "pid": 211, "name": r"100 GeV $\pi^+$", "label": "100GeV",
-        "data_file": "/eos/experiment/sndlhc/convertedData/commissioning/testbeam_June2023_H8/run_100243/sndsw_raw-0000.root",
+        "data_file": "/eos/experiment/sndlhc/convertedData/commissioning/testbeam_June2023_H8/run_100677/sndsw_raw-0000.root",
         "mc_file": "/eos/experiment/sndlhc/MonteCarlo/testbeam2023/2mmRangeCut/100GeV_211/sndLHC.PG_211-TGeant4_MCEB_dig.root",
-        "run_num": 100243,
+        "run_num": 100677,
     },
     140: {
         "energy": 140, "pid": 211, "name": r"140 GeV $\pi^+$", "label": "140GeV",
-        "data_file": "/eos/experiment/sndlhc/convertedData/commissioning/testbeam_June2023_H8/run_100242/sndsw_raw-0000.root",
+        "data_file": "/eos/experiment/sndlhc/convertedData/commissioning/testbeam_June2023_H8/run_100673/sndsw_raw-0000.root",
         "mc_file": "/eos/experiment/sndlhc/MonteCarlo/testbeam2023/2mmRangeCut/140GeV_211/sndLHC.PG_211-TGeant4_MCEB_dig.root",
-        "run_num": 100242,
+        "run_num": 100673,
     },
     180: {
         "energy": 180, "pid": 211, "name": r"180 GeV $\pi^+$", "label": "180GeV",
@@ -67,15 +67,15 @@ ENERGY_CONFIGS = {
     },
     240: {
         "energy": 240, "pid": -211, "name": r"240 GeV $\pi^-$", "label": "240GeV",
-        "data_file": "/eos/experiment/sndlhc/convertedData/commissioning/testbeam_June2023_H8/run_100265/sndsw_raw-0000.root",
+        "data_file": "/eos/experiment/sndlhc/convertedData/commissioning/testbeam_June2023_H8/run_100648/sndsw_raw-0000.root",
         "mc_file": "/eos/experiment/sndlhc/MonteCarlo/testbeam2023/2mmRangeCut/240GeV_-211/0/sndLHC.PG_-211-TGeant4_MCEB_dig.root",
-        "run_num": 100265,
+        "run_num": 100648,
     },
     300: {
         "energy": 300, "pid": -211, "name": r"300 GeV $\pi^-$", "label": "300GeV",
-        "data_file": "/eos/experiment/sndlhc/convertedData/commissioning/testbeam_June2023_H8/run_100266/sndsw_raw-0000.root",
+        "data_file": "/eos/experiment/sndlhc/convertedData/commissioning/testbeam_June2023_H8/run_100645/sndsw_raw-0000.root",
         "mc_file": "/eos/experiment/sndlhc/MonteCarlo/testbeam2023/2mmRangeCut/300GeV_-211/0/sndLHC.PG_-211-TGeant4_MCEB_dig.root",
-        "run_num": 100266,
+        "run_num": 100645,
     },
 }
 

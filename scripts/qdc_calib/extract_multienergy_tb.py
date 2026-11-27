@@ -29,7 +29,6 @@ from typing import Dict, List, Tuple, Any
 
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator
 
@@ -508,9 +507,7 @@ def plot_single_plane_evolution(
     if out_png:
         plt.savefig(out_png, dpi=300, bbox_inches="tight")
         print(f"[✓] Generated: {out_png}")
-    if matplotlib.get_backend().lower() != "agg":
-        plt.show()
-    plt.close()
+    return fig
 
 
 def main():
@@ -527,7 +524,8 @@ def main():
             p_name = f"us_plane_{plane_idx}" if plane_idx < 5 else "ds_subsystem"
             fname = f"tb_{p_name}_{energy}gev_evolution.png"
             out_png = os.path.join(plot_dir, fname)
-            plot_single_plane_evolution(plane_idx, energy, all_energy_data, out_png)
+            fig = plot_single_plane_evolution(plane_idx, energy, all_energy_data, out_png)
+            plt.close(fig)
             generated_plots.append(out_png)
 
             if os.path.exists(art_dir):
@@ -537,4 +535,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if "IPython" not in sys.modules and os.environ.get("DISPLAY") is None:
+        matplotlib.use("Agg")
     main()

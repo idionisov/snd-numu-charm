@@ -20,7 +20,6 @@ import sys
 import time
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator
 
@@ -390,9 +389,10 @@ def plot_all_us_planes(data_dict: dict, out_png: str):
     ax_wings.annotate("Birks Quenching\n(Hadronic Recoils)", xy=(5, mc_wing_probs[4]), xytext=(3.8, mc_wing_probs[4] + 16.0), arrowprops=dict(facecolor="black", shrink=0.08, width=1.5, headwidth=6), fontsize=9.0, fontweight="bold", color="#0d47a1")
     ax_wings.annotate("Arrival Dispersion\n& Calibration ($k$)", xy=(8, mc_wing_probs[7]), xytext=(6.2, mc_wing_probs[7] + 16.0), arrowprops=dict(facecolor="black", shrink=0.08, width=1.5, headwidth=6), fontsize=9.0, fontweight="bold", color="#1b5e20")
 
-    plt.savefig(out_png, dpi=300)
-    plt.show()
-    print(f"[✓] Saved {out_png}")
+    if out_png:
+        plt.savefig(out_png, dpi=300)
+        print(f"[✓] Saved {out_png}")
+    return fig
 
 
 def plot_5panel_us_transverse_profiles(data_dict: dict, out_png: str):
@@ -446,9 +446,10 @@ def plot_5panel_us_transverse_profiles(data_dict: dict, out_png: str):
         ax_ratio.set_xticks(x_bars)
         ax_ratio.grid(True, linestyle=":", alpha=0.5)
 
-    plt.savefig(out_png, dpi=300)
-    plt.show()
-    print(f"[✓] Saved {out_png}")
+    if out_png:
+        plt.savefig(out_png, dpi=300)
+        print(f"[✓] Saved {out_png}")
+    return fig
 
 
 def plot_ds_planes(data_dict: dict, out_png: str):
@@ -582,9 +583,10 @@ def plot_ds_planes(data_dict: dict, out_png: str):
     ax_wings.annotate("Birks Quenching\n(Hadronic Recoils)", xy=(5, mc_wing_probs[4]), xytext=(3.8, mc_wing_probs[4] + 8.0), arrowprops=dict(facecolor="black", shrink=0.08, width=1.5, headwidth=6), fontsize=9.0, fontweight="bold", color="#0d47a1")
     ax_wings.annotate("Arrival Dispersion\n& Calibration ($k$)", xy=(8, mc_wing_probs[7]), xytext=(6.2, mc_wing_probs[7] + 8.0), arrowprops=dict(facecolor="black", shrink=0.08, width=1.5, headwidth=6), fontsize=9.0, fontweight="bold", color="#1b5e20")
 
-    plt.savefig(out_png, dpi=300)
-    plt.show()
-    print(f"[✓] Saved {out_png}")
+    if out_png:
+        plt.savefig(out_png, dpi=300)
+        print(f"[✓] Saved {out_png}")
+    return fig
 
 
 def main():
@@ -616,4 +618,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if "IPython" not in sys.modules and os.environ.get("DISPLAY") is None:
+        matplotlib.use("Agg")
     main()

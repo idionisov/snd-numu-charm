@@ -103,6 +103,11 @@ dmypy.json
 *.snap
 *.parquet
 *.pkl
+*.npz
+*.npy
+data/
+scratch/
+output/
 
 # ROOT dictionary / autogen
 dict*.[ch]*

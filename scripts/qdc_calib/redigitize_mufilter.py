@@ -143,21 +143,28 @@ def redigitize_single_file(
                 obj.Write(name, ROOT.TObject.kSingleKey)
 
         has_digi_branch = (t_src.GetBranch("Digi_MuFilterHits") is not None)
-        if has_digi_branch:
-            t_src.SetBranchStatus("Digi_MuFilterHits", 0)
+        has_raw_branch = (t_src.GetBranch("Digi_MuFilterHits_Raw") is not None)
 
         t_new = t_src.CloneTree(0)
 
+        # Retain original hits in Digi_MuFilterHits_Raw
+        if has_digi_branch and not has_raw_branch:
+            orig_b = t_new.GetBranch("Digi_MuFilterHits")
+            if orig_b:
+                orig_b.SetName("Digi_MuFilterHits_Raw")
+
         orig_hits = ROOT.TClonesArray("MuFilterHit")
         if has_digi_branch:
-            t_src.SetBranchStatus("Digi_MuFilterHits", 1)
             t_src.SetBranchAddress("Digi_MuFilterHits", orig_hits)
+        elif has_raw_branch:
+            t_src.SetBranchAddress("Digi_MuFilterHits_Raw", orig_hits)
 
         cal_hits = ROOT.TClonesArray("MuFilterHit")
         t_new.Branch("Digi_MuFilterHits", cal_hits)
 
         total_orig = 0
         total_cal = 0
+        has_any_orig = has_digi_branch or has_raw_branch
 
         for i in range(n_entries):
             t_src.GetEntry(i)
@@ -165,7 +172,7 @@ def redigitize_single_file(
 
             by_bar = calc.group_mcpoints_by_bar(t_src.MuFilterPoint)
 
-            if has_digi_branch:
+            if has_any_orig:
                 n_orig = orig_hits.GetEntriesFast()
                 total_orig += n_orig
                 hit_idx = 0
@@ -221,21 +228,28 @@ def redigitize_single_file(
             n_entries = min(n_entries, max_events)
 
         has_digi_branch = (t_src.GetBranch("Digi_MuFilterHits") is not None)
-        if has_digi_branch:
-            t_src.SetBranchStatus("Digi_MuFilterHits", 0)
+        has_raw_branch = (t_src.GetBranch("Digi_MuFilterHits_Raw") is not None)
 
         t_new = t_src.CloneTree(0)
 
+        # Retain original hits in Digi_MuFilterHits_Raw
+        if has_digi_branch and not has_raw_branch:
+            orig_b = t_new.GetBranch("Digi_MuFilterHits")
+            if orig_b:
+                orig_b.SetName("Digi_MuFilterHits_Raw")
+
         orig_hits = ROOT.TClonesArray("MuFilterHit")
         if has_digi_branch:
-            t_src.SetBranchStatus("Digi_MuFilterHits", 1)
             t_src.SetBranchAddress("Digi_MuFilterHits", orig_hits)
+        elif has_raw_branch:
+            t_src.SetBranchAddress("Digi_MuFilterHits_Raw", orig_hits)
 
         cal_hits = ROOT.TClonesArray("MuFilterHit")
         t_new.Branch("Digi_MuFilterHits", cal_hits)
 
         total_orig = 0
         total_cal = 0
+        has_any_orig = has_digi_branch or has_raw_branch
 
         for i in range(n_entries):
             t_src.GetEntry(i)
@@ -243,7 +257,7 @@ def redigitize_single_file(
 
             by_bar = calc.group_mcpoints_by_bar(t_src.MuFilterPoint)
 
-            if has_digi_branch:
+            if has_any_orig:
                 n_orig = orig_hits.GetEntriesFast()
                 total_orig += n_orig
                 hit_idx = 0
